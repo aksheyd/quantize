@@ -12,3 +12,24 @@ authors = ["Akshey Deokule (aksheyd)"]
 [dev-dependencies]
 candle-core = "0.9"
 rand = "0.8"
+
+# every runnable entrypoint is explicitly registered below.
+# `cargo run --example <name>` to run any of them.
+
+# benchmarks: run the library on a workload and report metrics
+[[example]]
+name = "compare"
+path = "benchmarks/compare.rs"
+
+[[example]]
+name = "update_readme"
+path = "benchmarks/update_readme.rs"
+
+# chapters: the curriculum, read in order
+[[example]]
+name = "ch01_simple"
+path = "chapters/ch01_simple.rs"
+
+[[example]]
+name = "ch02_naive"
+path = "chapters/ch02_naive.rs"

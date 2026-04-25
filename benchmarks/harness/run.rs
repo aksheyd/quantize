@@ -4,23 +4,15 @@
 use super::{
     metrics::{cosine, mse},
     quant::roundtrip,
-    Comparison, DequantizeFn, Harness, QuantizeFn, Stats,
+    Comparison, Harness, Stats,
 };
 use candle_core::{Result, Tensor};
 
 impl Harness {
-    pub fn run(&self, quantize: QuantizeFn, dequantize: DequantizeFn) -> Result<Comparison> {
+    pub fn run(&self) -> Result<Comparison> {
         let shape = (self.matrix_size, self.matrix_size);
-        let your_a = Tensor::from_vec(
-            roundtrip(&self.matrix_a, quantize, dequantize),
-            shape,
-            &self.device,
-        )?;
-        let your_b = Tensor::from_vec(
-            roundtrip(&self.matrix_b, quantize, dequantize),
-            shape,
-            &self.device,
-        )?;
+        let your_a = Tensor::from_vec(roundtrip(&self.matrix_a), shape, &self.device)?;
+        let your_b = Tensor::from_vec(roundtrip(&self.matrix_b), shape, &self.device)?;
         let your_matmul = your_a.matmul(&your_b)?.flatten_all()?.to_vec1::<f32>()?;
 
         Ok(Comparison {

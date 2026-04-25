@@ -7,12 +7,12 @@
 mod harness;
 use harness::{Comparison, Harness};
 
-use quantize::{dequantize, quantize};
+const MATRIX_SIZE: usize = 128;
 
 fn main() -> candle_core::Result<()> {
-    // Run a 128x128 matmul and calculate error compared
-    // to the f32 ground truth and Candle Q8_0 algorithm.
-    let report = Harness::new(128)?.run(quantize, dequantize)?;
+    // Run a `MATRIX_SIZE`x`MATRIX_SIZE` matmul and calculate
+    // error compared to the f32 ground truth and Candle Q8_0 algorithm.
+    let report = Harness::new(MATRIX_SIZE)?.run()?;
     print_report(&report);
     Ok(())
 }

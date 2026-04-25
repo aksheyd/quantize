@@ -5,14 +5,13 @@
 mod harness;
 
 use harness::Harness;
-use quantize::{dequantize, quantize};
 use std::fs;
 
 const START: &str = "<!-- comparison:start -->";
 const END: &str = "<!-- comparison:end -->";
 
 fn main() -> candle_core::Result<()> {
-    let report = Harness::new(128)?.run(quantize, dequantize)?;
+    let report = Harness::new(128)?.run()?;
 
     let table = format!(
         "{START}\n\n\

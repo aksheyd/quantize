@@ -2,8 +2,7 @@
 //!
 //! `Harness::new(matrix_size)` builds the random matrices and precomputes the
 //! two reference results (f32 ground truth and Candle Q8_0). Call
-//! `run(quantize, dequantize)` to evaluate any pair of quant/dequant
-//! functions against them.
+//! `run()` to evaluate the current library quantization path.
 
 mod metrics;
 mod new;
@@ -11,9 +10,6 @@ mod quant;
 mod run;
 
 use candle_core::Device;
-
-pub type QuantizeFn = fn(f32, f32) -> i8;
-pub type DequantizeFn = fn(i8, f32) -> f32;
 
 pub struct Stats {
     pub mse: f32,

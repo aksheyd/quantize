@@ -21,13 +21,14 @@ cargo run --release --example compare
 
 ---
 
-<!-- comparison:start -->
 
-| method | mse | cosine |
-| --- | ---: | ---: |
-| quantize | 0.876830 | 0.000000 |
-| [candle q8_0](https://github.com/huggingface/candle) | 0.000025 | 0.999985 |
 
-_matrix size: 128x128_
 
-<!-- comparison:end -->
+| method                                               | mse      | cosine   |
+| ---------------------------------------------------- | -------- | -------- |
+| quantize                                             | 0.000028 | 0.999985 |
+| [candle q8_0](https://github.com/huggingface/candle) | 0.000025 | 0.999986 |
+
+
+*matrix size: 128x128*
+

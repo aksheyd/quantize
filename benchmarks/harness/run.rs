@@ -12,6 +12,7 @@ use candle_core::Result;
 impl Harness {
     pub fn run(&self) -> Result<Comparison> {
         let methods = methods();
+        let elements = self.matrix_size * self.matrix_size;
         let mut mses: Vec<Vec<f32>> = vec![Vec::with_capacity(self.runs); methods.len()];
         let mut coss: Vec<Vec<f32>> = vec![Vec::with_capacity(self.runs); methods.len()];
 
@@ -24,24 +25,16 @@ impl Harness {
             }
         }
 
-        let methods = methods
-            .iter()
-            .enumerate()
-            .map(|(i, m)| {
-                let (mse_mean, mse_std) = mean_std(&mses[i]);
-                let (cosine_mean, cosine_std) = mean_std(&coss[i]);
-                MethodReport {
-                    name: m.name,
-                    bits_per_element: m.bits_per_element,
-                    stats: Stats {
-                        mse_mean,
-                        mse_std,
-                        cosine_mean,
-                        cosine_std,
-                    },
-                }
-            })
-            .collect();
+        #[rustfmt::skip]
+        let methods = methods.iter().enumerate().map(|(i, m)| {
+            let (mse_mean, mse_std) = mean_std(&mses[i]);
+            let (cosine_mean, cosine_std) = mean_std(&coss[i]);
+            MethodReport {
+                name: m.name,
+                bits_per_element: m.bits_per_element.evaluate(elements),
+                stats: Stats { mse_mean, mse_std, cosine_mean, cosine_std },
+            }
+        }).collect();
 
         Ok(Comparison {
             matrix_size: self.matrix_size,

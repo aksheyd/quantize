@@ -7,7 +7,7 @@ mod harness;
 use harness::{Comparison, Harness};
 
 const MATRIX_SIZE: usize = 128;
-const RUNS: usize = 10;
+const RUNS: usize = 50;
 
 fn main() -> candle_core::Result<()> {
     let report = Harness::new(MATRIX_SIZE, RUNS)?.run()?;
@@ -33,8 +33,9 @@ fn print_report(r: &Comparison) {
         let mse = format!("{:.6} ± {:.6}", m.stats.mse_mean, m.stats.mse_std);
         let cos = format!("{:.6} ± {:.6}", m.stats.cosine_mean, m.stats.cosine_std);
         println!(
-            "{:<16}{:>10.1}{:>22}{:>22}",
+            "{:<16}{:>10.2}{:>22}{:>22}",
             m.name, m.bits_per_element, mse, cos
         );
     }
+    println!("\nbits/elt = total storage per element (data + amortized scale).");
 }

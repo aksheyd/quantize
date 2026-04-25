@@ -1,0 +1,14 @@
+[package]
+name = "quantize"
+version = "0.1.0"
+edition = "2021"
+description = "A simple quantization library."
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["quantization", "ml", "candle", "matmul", "i8"]
+categories = ["science", "mathematics"]
+authors = ["Akshey Deokule (aksheyd)"]
+
+[dev-dependencies]
+candle-core = "0.9"
+rand = "0.8"

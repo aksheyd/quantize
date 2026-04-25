@@ -39,11 +39,11 @@ pub(super) fn methods() -> Vec<Method> {
     use Bits::*;
     use GgmlDType::{Q4_0, Q5_0, Q8_0};
     vec![
-        Method { name: "quantize 4-bit",  bits_per_element: Ours(4),    eval: eval_yours::<4>  },
-        Method { name: "candle Q4_0",     bits_per_element: Candle(Q4_0), eval: eval_q4_0       },
-        Method { name: "candle Q5_0",     bits_per_element: Candle(Q5_0), eval: eval_q5_0       },
-        Method { name: "quantize 8-bit",  bits_per_element: Ours(8),    eval: eval_yours::<8>  },
-        Method { name: "candle Q8_0",     bits_per_element: Candle(Q8_0), eval: eval_q8_0       },
-        Method { name: "quantize 16-bit", bits_per_element: Ours(16),   eval: eval_yours::<16> },
+        Method { name: "quantize 4-bit", bits_per_element: Ours(4),      eval: eval_yours::<4> },
+        Method { name: "candle Q4_0",    bits_per_element: Candle(Q4_0), eval: eval_q4_0       },
+        Method { name: "quantize 5-bit", bits_per_element: Ours(5),      eval: eval_yours::<5> },
+        Method { name: "candle Q5_0",    bits_per_element: Candle(Q5_0), eval: eval_q5_0       },
+        Method { name: "quantize 8-bit", bits_per_element: Ours(8),      eval: eval_yours::<8> },
+        Method { name: "candle Q8_0",    bits_per_element: Candle(Q8_0), eval: eval_q8_0       },
     ]
 }

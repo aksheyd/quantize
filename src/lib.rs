@@ -1,28 +1,29 @@
 //! # quantize
 //!
-//! A tiny, readable quantization library — symmetric, any bit width.
+//! A tiny, readable quantization library — block-wise symmetric, any bit width.
 //!
 //! ## Example
 //!
 //! ```
-//! use quantize::{choose_scale_bits, dequantize_bits, quantize_bits};
+//! use quantize::{quantize, dequantize};
 //!
 //! let weights = [0.42_f32, -0.10, 0.70, -0.50];
 //!
-//! // 8-bit symmetric quantization round-trip
-//! let scale = choose_scale_bits::<8>(&weights);
-//! let q: i32 = quantize_bits::<8>(weights[0], scale); // q in -128..=127
-//! let back = dequantize_bits(q, scale);               // back ≈ weights[0]
+//! // 8-bit, block-size-32, f32 scales
+//! let (scales, codes) = quantize::<f32, 8, 32>(&weights);
+//! let back = dequantize::<_, 32>(&scales, &codes);
 //!
-//! assert!((back - weights[0]).abs() < 0.01);
+//! assert!((back[0] - weights[0]).abs() < 0.01);
 //! ```
 //!
-//! Bit width is a const generic, so `quantize_bits::<4>(...)` (4-bit),
-//! `quantize_bits::<16>(...)` (16-bit), etc. all compile to specialized
-//! code with zero runtime overhead.
+//! `BITS` and `BLOCK` are const generics, so `quantize::<4, 32>(...)`,
+//! `quantize::<8, 64>(...)`, etc. all compile to specialized code with
+//! zero runtime overhead.
 
 // To learn how the library got here, please see `chapters/`.
 
-pub mod bits;
+pub mod block;
+pub mod scale;
 
-pub use bits::{choose_scale_bits, dequantize_bits, quantize_bits};
+pub use block::{dequantize, quantize};
+pub use scale::Scale;

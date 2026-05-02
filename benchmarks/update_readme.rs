@@ -15,17 +15,12 @@ const RUNS: usize = 10;
 fn main() -> candle_core::Result<()> {
     let report = Harness::new(MATRIX_SIZE, RUNS)?.run()?;
 
-    let mut rows = String::from("| method | bits/elt | mse (mean ± std) | cosine (mean ± std) |\n");
+    let mut rows = String::from("| method | bits/elt | mse (mean) | cosine (mean) |\n");
     rows.push_str("| --- | ---: | ---: | ---: |\n");
     for m in &report.methods {
         rows.push_str(&format!(
-            "| {} | {:.1} | {:.6} ± {:.6} | {:.6} ± {:.6} |\n",
-            m.name,
-            m.bits_per_element,
-            m.stats.mse_mean,
-            m.stats.mse_std,
-            m.stats.cosine_mean,
-            m.stats.cosine_std,
+            "| {} | {:.1} | {:.6} | {:.6} |\n",
+            m.name, m.bits_per_element, m.stats.mse_mean, m.stats.cosine_mean,
         ));
     }
     let table = format!(

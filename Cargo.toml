@@ -9,6 +9,9 @@ keywords = ["quantization", "ml", "candle", "matmul", "i8"]
 categories = ["science", "mathematics"]
 authors = ["Akshey Deokule (aksheyd)"]
 
+[dependencies]
+half = "2"
+
 [dev-dependencies]
 candle-core = "0.9"
 rand = "0.8"
@@ -33,3 +36,7 @@ path = "chapters/ch01_simple.rs"
 [[example]]
 name = "ch02_naive"
 path = "chapters/ch02_naive.rs"
+
+[[example]]
+name = "ch03_bits"
+path = "chapters/ch03_bits.rs"

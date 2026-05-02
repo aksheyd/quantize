@@ -7,14 +7,12 @@ use candle_core::{
     quantized::{GgmlDType, QTensor},
     Device, Result, Tensor,
 };
-use quantize::{choose_scale_bits, dequantize_bits, quantize_bits};
+use half::f16;
+use quantize::{dequantize, quantize};
 
-fn roundtrip_bits<const BITS: u32>(values: &[f32]) -> Vec<f32> {
-    let scale = choose_scale_bits::<BITS>(values);
-    values
-        .iter()
-        .map(|&x| dequantize_bits(quantize_bits::<BITS>(x, scale), scale))
-        .collect()
+fn roundtrip_block<const BITS: u32>(values: &[f32]) -> Vec<f32> {
+    let (scales, codes) = quantize::<f16, BITS, 32>(values);
+    dequantize::<_, 32>(&scales, &codes)
 }
 
 fn matmul(a: Vec<f32>, b: Vec<f32>, n: usize, d: &Device) -> Result<Vec<f32>> {
@@ -23,9 +21,9 @@ fn matmul(a: Vec<f32>, b: Vec<f32>, n: usize, d: &Device) -> Result<Vec<f32>> {
     a.matmul(&b)?.flatten_all()?.to_vec1::<f32>()
 }
 
-pub(super) fn eval_yours<const BITS: u32>(s: &Sample, d: &Device) -> Result<Vec<f32>> {
-    let a = roundtrip_bits::<BITS>(&s.matrix_a);
-    let b = roundtrip_bits::<BITS>(&s.matrix_b);
+pub(super) fn eval_quantize<const BITS: u32>(s: &Sample, d: &Device) -> Result<Vec<f32>> {
+    let a = roundtrip_block::<BITS>(&s.matrix_a);
+    let b = roundtrip_block::<BITS>(&s.matrix_b);
     matmul(a, b, s.matrix_size, d)
 }
 

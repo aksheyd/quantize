@@ -1,9 +1,5 @@
 # quantize
 
-[![Crates.io](https://img.shields.io/crates/v/quantize.svg)](https://crates.io/crates/quantize)
-[![Docs.rs](https://docs.rs/quantize/badge.svg)](https://docs.rs/quantize)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
 A simple quantization library
 
 ## use as a library

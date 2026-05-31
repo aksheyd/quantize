@@ -3,11 +3,23 @@ name = "quantize"
 version = "0.1.0"
 edition = "2021"
 description = "A simple quantization library."
-license = "MIT OR Apache-2.0"
+license = "MIT"
+repository = "https://github.com/aksheyd/quantize"
+documentation = "https://docs.rs/quantize"
 readme = "README.md"
 keywords = ["quantization", "ml", "candle", "matmul", "i8"]
 categories = ["science", "mathematics"]
 authors = ["Akshey Deokule (aksheyd)"]
+exclude = [
+    "Cargo.lock",
+    "Justfile",
+    "chapters/",
+    "benchmarks/",
+]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 half = "2"
@@ -15,28 +27,3 @@ half = "2"
 [dev-dependencies]
 candle-core = "0.9"
 rand = "0.8"
-
-# every runnable entrypoint is explicitly registered below.
-# `cargo run --example <name>` to run any of them.
-
-# benchmarks: run the library on a workload and report metrics
-[[example]]
-name = "compare"
-path = "benchmarks/compare.rs"
-
-[[example]]
-name = "update_readme"
-path = "benchmarks/update_readme.rs"
-
-# chapters: the curriculum, read in order
-[[example]]
-name = "ch01_simple"
-path = "chapters/ch01_simple.rs"
-
-[[example]]
-name = "ch02_naive"
-path = "chapters/ch02_naive.rs"
-
-[[example]]
-name = "ch03_bits"
-path = "chapters/ch03_bits.rs"

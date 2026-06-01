@@ -27,3 +27,28 @@ half = "2"
 [dev-dependencies]
 candle-core = "0.9"
 rand = "0.8"
+
+[[example]]
+name = "ch01_simple"
+path = "chapters/ch01_simple.rs"
+
+[[example]]
+name = "ch02_naive"
+path = "chapters/ch02_naive.rs"
+
+[[example]]
+name = "ch03_bits"
+path = "chapters/ch03_bits.rs"
+
+[[example]]
+name = "ch04_block"
+path = "chapters/ch04_block.rs"
+
+[[example]]
+name = "compare"
+path = "benchmarks/compare.rs"
+
+[[example]]
+name = "update_readme"
+path = "benchmarks/update_readme.rs"
+

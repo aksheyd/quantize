@@ -58,6 +58,6 @@ fn main() {
     roundtrip::<8>(&weights);
     roundtrip::<16>(&weights);
 
-    println!("\nSame algorithm, different precision. Chapter 4 (`block`) tackles");
-    println!("the outlier problem by computing a scale per block, not per tensor.");
+    println!("\nSame algorithm, different precision. Chapter 4 (`ch04_block`) shows");
+    println!("why a single per-tensor scale is still not enough and introduces blocks.");
 }

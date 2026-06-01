@@ -20,17 +20,15 @@ let back = dequantize::<_, 32>(&scales, &codes);
 cargo run --release --example compare
 ```
 
----
-
 <!-- comparison:start -->
 
 | method | bits/elt | mse (mean) | cosine (mean) |
 | --- | ---: | ---: | ---: |
-| ours 4b×32 | 4.5 | 0.008385 | 0.995404 |
+| quantize 4b×32 | 4.5 | 0.008385 | 0.995404 |
 | candle Q4_0 | 4.5 | 0.007587 | 0.995787 |
-| ours 5b×32 | 5.5 | 0.001804 | 0.998995 |
+| quantize 5b×32 | 5.5 | 0.001804 | 0.998995 |
 | candle Q5_0 | 5.5 | 0.001737 | 0.999032 |
-| ours 8b×32 | 8.5 | 0.000025 | 0.999986 |
+| quantize 8b×32 | 8.5 | 0.000025 | 0.999986 |
 | candle Q8_0 | 8.5 | 0.000025 | 0.999985 |
 
 _matrix size: 128x128, runs: 10_

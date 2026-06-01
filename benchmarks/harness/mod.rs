@@ -11,6 +11,7 @@ mod stats;
 
 use candle_core::{Device, Tensor};
 
+#[allow(dead_code)]
 pub struct Stats {
     pub mse_mean: f32,
     pub mse_std: f32,

@@ -1,8 +1,16 @@
 //! # Chapter 4 — block (per-block scales)
 //!
-//! **Previously** (`ch03_bits`): any bit width, but still one scale for the whole tensor.
-//! **Problem**: One outlier forces a huge scale on everything. Tiny values collapse.
-//! **Fix**: Split into fixed-size blocks and compute an independent scale per block.
+//! **Previously** (`ch03_bits`): we allowed for any bit precision, but
+//! we were still left with one scale for the whole tensor.
+//!
+//! **Problem**: One outlier forces a huge scale. One large or tiny value in a
+//! million-element tensor can mess up the quantization scale for everyone else.
+//!
+//! **Fix**: Split the tensor into fixed-size blocks and compute an independent
+//! scale per block.
+//!
+//! **Still wrong**: One block's range can be wastefully skewed. Only using the
+//! positive or negative half of the quantized range is a common failure mode.
 //!
 //! Run it: `cargo run --release --example ch04_block`
 

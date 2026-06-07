@@ -1,14 +1,12 @@
 //! # Chapter 1 — simple (the strawman)
 //!
-//! This is the dumbest possible "quantization": just cast the f32 to an i8.
+//! This is the simplest possible "quantization": just cast the f32 to an i8.
 //! No scale, no rounding logic, nothing clever.
 //!
 //! Run it: `cargo run --release --example ch01_simple`
 //!
 //! Watch what happens to a handful of typical ML weights (values in `[-1, 1]`).
-//! Spoiler: every single one becomes `0`. That failure is the whole reason
-//! Chapter 2 (`naive`) exists — it introduces a *scale* to stretch the
-//! tiny weight values into the i8 range before casting.
+//! Spoiler: every single one becomes `0`.
 
 fn quantize_simple(x: f32) -> i8 {
     x as i8 // truncates toward zero, saturates at the i8 boundary

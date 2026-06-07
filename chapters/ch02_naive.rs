@@ -1,12 +1,15 @@
 //! # Chapter 2 — naive (max-abs symmetric, 8-bit)
 //!
 //! **Previously** (`ch01_simple`): we just cast f32 to i8.
+//!
 //! **Problem**: any value outside `-128..=127` was crushed. ML weights live
 //! in roughly `[-1, 1]`, so `0.42 as i8` became `0`. Every weight vanished.
+//!
 //! **Fix**: divide by a *scale* first, so the largest magnitude in the tensor
 //! maps to ~127. Then we use the full i8 range and round-trip preserves shape.
+//!
 //! **Still wrong**: one giant outlier wrecks the scale for everyone else,
-//! and we're stuck at 8 bits. Chapter 3 (`bits`) generalizes the bit width.
+//! and we're stuck at 8 bits.
 //!
 //! Run it: `cargo run --release --example ch02_naive`
 

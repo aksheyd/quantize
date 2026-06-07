@@ -2,13 +2,14 @@
 //!
 //! **Previously** (`ch02_naive`): we introduced a scale so the full i8 range
 //! is used. Round-trips look great.
+//!
 //! **Problem**: we are hardcoded to 8 bits. Sometimes you want 4-bit
 //! (smaller model) or 16-bit (higher fidelity).
+//!
 //! **Fix**: parameterize the bit width with a const generic `BITS`. The
 //! algorithm is identical — only the clamp bounds change.
-//! **Still wrong**: one outlier in a million-element tensor wrecks the
-//! single per-tensor scale. Chapter 4 (`block`) fixes this by computing
-//! a separate scale for each small block of elements.
+//!
+//! **Still wrong**: one outlier in a million-element tensor wrecks the scale.
 //!
 //! Run it: `cargo run --release --example ch03_bits`
 

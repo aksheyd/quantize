@@ -45,6 +45,10 @@ name = "ch04_block"
 path = "chapters/ch04_block.rs"
 
 [[example]]
+name = "ch05_asymmetric"
+path = "chapters/ch05_asymmetric.rs"
+
+[[example]]
 name = "compare"
 path = "benchmarks/compare.rs"
 

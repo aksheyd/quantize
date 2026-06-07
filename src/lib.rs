@@ -1,6 +1,6 @@
 //! # quantize
 //!
-//! A tiny, readable quantization library — block-wise symmetric, any bit width.
+//! A tiny, readable quantization library — block-wise symmetric or asymmetric, any bit width.
 //!
 //! ## Example
 //!
@@ -19,11 +19,16 @@
 //! `BITS` and `BLOCK` are const generics, so `quantize::<4, 32>(...)`,
 //! `quantize::<8, 64>(...)`, etc. all compile to specialized code with
 //! zero runtime overhead.
+//!
+//! See the `symmetric` and `asymmetric` modules for tensor-granularity variants
+//! and precision-aware per-block bit widths.
+//!
+//! To learn how the library got here, please see `chapters/`.
 
-// To learn how the library got here, please see `chapters/`.
-
-pub mod block;
+pub mod asymmetric;
 pub mod scale;
+pub mod symmetric;
 
-pub use block::{dequantize, quantize};
+pub use asymmetric::{dequantize as dequantize_asym, quantize as quantize_asym};
 pub use scale::Scale;
+pub use symmetric::{dequantize, quantize};

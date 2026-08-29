@@ -1,5 +1,5 @@
 //! Test harness. `Harness::new(matrix_size, runs).run()` generates `runs`
-//! fresh random matrices, evaluates every method, returns mean ± std stats.
+//! fresh random matrices, evaluates every method, returns mean MSE.
 
 mod methods;
 mod metrics;
@@ -7,27 +7,15 @@ mod new;
 mod quant;
 mod run;
 mod sample;
-mod stats;
 
 use candle_core::{Device, Tensor};
 
-#[allow(dead_code)]
-pub struct Stats {
-    pub mse_mean: f32,
-    pub mse_std: f32,
-    pub cosine_mean: f32,
-    pub cosine_std: f32,
-}
-
 pub struct MethodReport {
-    pub name: &'static str,
     pub bits_per_element: f32,
-    pub stats: Stats,
+    pub mse: f32,
 }
 
 pub struct Comparison {
-    pub matrix_size: usize,
-    pub runs: usize,
     pub methods: Vec<MethodReport>,
 }
 
@@ -37,8 +25,6 @@ pub struct Harness {
     device: Device,
 }
 
-// One run's worth of fresh data. Submodules can see the private fields
-// because Rust lets descendant modules access the parent's private items.
 struct Sample {
     matrix_size: usize,
     matrix_a: Vec<f32>,

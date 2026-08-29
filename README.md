@@ -5,32 +5,56 @@ A simple quantization library
 ## use as a library
 
 ```rust
-use quantize::{quantize, dequantize};
+use quantize::{adaptive, asymmetric, quantize, Scheme};
 
 let weights = [0.42_f32, -0.10, 0.70, -0.50];
-let (scales, codes) = quantize::<f32, 8, 32>(&weights);
-let back = dequantize::<_, 32>(&scales, &codes);
+
+let q = quantize::<f32, 8, 32>(&weights).unwrap();
+let _ = asymmetric::quantize::<f32, 8, 32>(&weights).unwrap();
+let _ = adaptive::quantize::<f32, 32>(&weights, 0.001).unwrap();
+let _ = Scheme::Q4_32.quantize::<f32>(&weights).unwrap();
+
+let back = q.dequantize();
+let _ = q.dot(&weights);
 ```
 
 ---
 
 ### comparison
 
+1024x1024 matrix, 50 iterations.
+
+#### quality
+
 ```
 cargo run --release --example compare
 ```
 
+Reconstruct, then matmul.
+
 <!-- comparison:start -->
 
-| method | bits/elt | mse (mean) | cosine (mean) |
-| --- | ---: | ---: | ---: |
-| quantize 4b×32 | 4.5 | 0.008339 | 0.995434 |
-| candle Q4_0 | 4.5 | 0.007543 | 0.995825 |
-| quantize 5b×32 | 5.5 | 0.001808 | 0.998995 |
-| candle Q5_0 | 5.5 | 0.001730 | 0.999037 |
-| quantize 8b×32 | 8.5 | 0.000025 | 0.999986 |
-| candle Q8_0 | 8.5 | 0.000025 | 0.999986 |
-
-_matrix size: 128x128, runs: 10_
+| bits/value | quantize mse | candle mse |
+| ---: | ---: | ---: |
+| 4.5 | 0.066669 | 0.060276 |
+| 5.5 | 0.014429 | 0.013859 |
+| 8.5 | 0.000201 | 0.000201 |
 
 <!-- comparison:end -->
+
+#### speed
+
+```
+cargo run --release --example throughput
+```
+
+Pack and unpack. Apple M4.
+
+| kernel | quantize ns/value | candle ns/value |
+| --- | ---: | ---: |
+| 4-bit quant | 0.29 | 0.46 |
+| 8-bit quant | 0.24 | 0.30 |
+| 4-bit dequant | 0.09 | 0.29 |
+| 8-bit dequant | 0.07 | 0.26 |
+
+_ns = nanosecond, a billionth of a second. smaller is faster._

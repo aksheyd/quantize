@@ -8,11 +8,12 @@ use candle_core::{
     Device, Result, Tensor,
 };
 use half::f16;
-use quantize::{dequantize, quantize};
+use quantize::quantize;
 
 fn roundtrip_block<const BITS: u32>(values: &[f32]) -> Vec<f32> {
-    let (scales, codes) = quantize::<f16, BITS, 32>(values);
-    dequantize::<_, 32>(&scales, &codes)
+    quantize::<f16, BITS, 32>(values)
+        .expect("valid bits/block")
+        .dequantize()
 }
 
 fn matmul(a: Vec<f32>, b: Vec<f32>, n: usize, d: &Device) -> Result<Vec<f32>> {

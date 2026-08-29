@@ -11,11 +11,10 @@ readme = "README.md"
 keywords = ["quantization", "ml", "candle", "matmul", "i8"]
 categories = ["science", "mathematics"]
 authors = ["Akshey Deokule (aksheyd)"]
-exclude = [
-    "Cargo.lock",
-    "Justfile",
-    "chapters/",
-    "benchmarks/",
+include = [
+    "src/**/*",
+    "LICENSE",
+    "README.md",
 ]
 
 [package.metadata.docs.rs]

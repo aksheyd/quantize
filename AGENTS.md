@@ -29,3 +29,5 @@ The existing code should showcase the quality bar for explainability without bei
 4. When choosing between abstraction and explicitness, favor code and comments that make the progression of ideas (e.g. symmetric vs. asymmetric, per-tensor vs. per-block, fixed vs. variable precision) visible and learnable without external explanation.
 
 5. Use Conventional Commits for all commit messages.
+
+6. For variable, struct, and object names, always prefer to use long, readable words over abbreviations (`zero_point` not `zp`, `smallest_code` not `qmin`). A reader new to the file should know what a name holds without a comment. Short names (`i`, `n`, `s`) are fine only for obvious locals — loop indices, counts, or a value already named in the line above.

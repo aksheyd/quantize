@@ -1,6 +1,6 @@
 # quantize
 
-A simple quantization library
+a simple quantization library
 
 ## use as a library
 
@@ -20,17 +20,17 @@ let _ = q.dot(&weights);
 
 ---
 
-### comparison
+## comparison
 
 1024x1024 matrix, 50 iterations.
 
-#### quality
+### quality
 
 ```
 cargo run --release --example compare
 ```
 
-Reconstruct, then matmul.
+reconstruct, then matmul.
 
 <!-- comparison:start -->
 
@@ -42,13 +42,13 @@ Reconstruct, then matmul.
 
 <!-- comparison:end -->
 
-#### speed
+### speed
 
 ```
 cargo run --release --example throughput
 ```
 
-Pack and unpack. Apple M4.
+pack and unpack. apple M4.
 
 | kernel | quantize ns/value | candle ns/value |
 | --- | ---: | ---: |

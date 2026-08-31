@@ -31,3 +31,7 @@ The existing code should showcase the quality bar for explainability without bei
 5. Use Conventional Commits for all commit messages.
 
 6. For variable, struct, and object names, always prefer to use long, readable words over abbreviations (`zero_point` not `zp`, `smallest_code` not `qmin`). A reader new to the file should know what a name holds without a comment. Short names (`i`, `n`, `s`) are fine only for obvious locals — loop indices, counts, or a value already named in the line above.
+
+7. Keep the Justfile and CI in lockstep so local and automated commands stay the same.
+
+When a recipe changes, update every workflow that runs it in the same change. CI should call Justfile recipes instead of duplicating those commands. Steps that cannot go through the Justfile (cross-compilation, publishing) stay in the workflow; everything else goes through `just`.

@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  test:
+  rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,11 +16,30 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Format check
-        run: cargo fmt --all -- --check
+      - uses: extractions/setup-just@v3
 
-      - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+      - name: Lint
+        run: just lint
 
       - name: Test
-        run: cargo test
+        run: just test
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: extractions/setup-just@v3
+
+      - name: Bindings tests
+        run: |
+          pip install maturin numpy pytest
+          just python

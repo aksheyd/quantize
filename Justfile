@@ -1,14 +1,29 @@
-c:
-    cargo run --release --example compare
+format:
+    cargo fmt --all
 
-l:
-    cargo fmt && cargo clippy --all-targets -- -D warnings
+lint:
+    cargo fmt --all -- --check
+    cargo clippy --all-targets -- -D warnings
 
-t:
+test:
     cargo test
 
-b:
+python:
+    cargo clippy -p quantize-py --all-targets -- -D warnings
+    maturin develop
+    just python-test
+
+python-test:
+    python -m pytest python/tests
+
+wheels:
+    maturin build --release --out dist
+
+compare:
+    cargo run --release --example compare
+
+throughput:
     cargo run --release --example throughput
 
-ur:
+update-readme:
     cargo run --release --example update_readme

@@ -1,6 +1,6 @@
 [package]
 name = "quantize"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.87"
 description = "A simple quantization library."
@@ -21,19 +21,32 @@ include = [
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[workspace]
+members = ["python"]
+default-members = ["."]
+resolver = "2"
+
+[workspace.dependencies]
+half = "2"
+pyo3 = "0.29"
+numpy = "0.29"
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = 10 }
+
 [features]
 default = ["std"]
 std = []
 
 [dependencies]
-half = "2"
+half = { workspace = true }
 
 [dev-dependencies]
 candle-core = "0.9"
 rand = "0.8"
 
-[lints.clippy]
-all = { level = "deny", priority = 10 }
+[lints]
+workspace = true
 
 [[example]]
 name = "ch01_simple"

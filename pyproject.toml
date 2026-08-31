@@ -1,0 +1,44 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "quantize-rs"
+version = "0.2.1"
+requires-python = ">=3.12"
+dependencies = ["numpy>=1.24"]
+license = { text = "MIT" }
+description = "Python bindings for the quantize crate."
+readme = "python/README.md"
+authors = [{ name = "Akshey Deokule" }]
+keywords = ["quantization", "machine-learning", "numpy"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.urls]
+Repository = "https://github.com/aksheyd/quantize"
+Documentation = "https://docs.rs/quantize"
+Homepage = "https://pypi.org/project/quantize-rs/"
+
+[tool.maturin]
+manifest-path = "python/Cargo.toml"
+module-name = "quantize._native"
+python-source = "python"
+exclude = [
+    ".venv/**",
+    ".pytest_cache/**",
+    "target/**",
+    "**/__pycache__/**",
+    "python/quantize/_native.*",
+]
+
+[tool.maturin.generate-ci.github]
+trusted-publishing = true
+publishing-environment = "pypi"

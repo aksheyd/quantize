@@ -53,7 +53,7 @@ impl Packed {
     }
 
     /// Wrap already-packed bytes. `bytes` must hold `len` codes of `bits`.
-    pub(crate) fn from_raw(bytes: Vec<u8>, bits: u32, len: usize) -> Self {
+    pub fn from_raw(bytes: Vec<u8>, bits: u32, len: usize) -> Self {
         Self { bytes, bits, len }
     }
 
@@ -68,7 +68,7 @@ impl Packed {
     }
 
     /// Unpack `n` codes of width `bits` from a raw byte slice.
-    pub(crate) fn unpack_slice(bytes: &[u8], bits: u32, out: &mut [i32], n: usize) {
+    pub fn unpack_slice(bytes: &[u8], bits: u32, out: &mut [i32], n: usize) {
         match bits {
             8 => unpack_i8(bytes, out, n),
             4 => unpack_i4(bytes, out, n),

@@ -1,2 +1,10 @@
 target
 Cargo.lock
+__pycache__/
+*.so
+*.pyd
+.venv/
+dist/
+*.egg-info/
+.pytest_cache/
+python/quantize/_native.*

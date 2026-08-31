@@ -1,0 +1,22 @@
+[package]
+name = "quantize-py"
+version = "0.2.1"
+edition = "2021"
+rust-version = "1.87"
+publish = false
+license = "MIT"
+description = "Python bindings for the quantize crate."
+repository = "https://github.com/aksheyd/quantize"
+
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+quantize = { path = ".." }
+half = { workspace = true }
+pyo3 = { workspace = true, features = ["extension-module", "abi3-py312"] }
+numpy = { workspace = true }
+
+[lints]
+workspace = true

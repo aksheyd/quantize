@@ -1,14 +1,35 @@
-c:
-    cargo run --release --example compare
+venv := if os_family() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
 
-l:
-    cargo fmt && cargo clippy --all-targets -- -D warnings
+format:
+    cargo fmt --all
 
-t:
+lint:
+    cargo fmt --all -- --check
+    cargo clippy --all-targets -- -D warnings
+
+test:
     cargo test
 
-b:
+setup:
+    python -m venv .venv
+    {{venv}} -m pip install maturin numpy pytest
+
+python:
+    cargo clippy -p quantize-py --all-targets -- -D warnings
+    VIRTUAL_ENV="{{justfile_directory()}}/.venv" {{venv}} -m maturin develop
+    {{venv}} -m pytest python/tests
+
+python-test:
+    python -m pytest python/tests
+
+wheels:
+    maturin build --release --out dist
+
+compare:
+    cargo run --release --example compare
+
+throughput:
     cargo run --release --example throughput
 
-ur:
+update-readme:
     cargo run --release --example update_readme

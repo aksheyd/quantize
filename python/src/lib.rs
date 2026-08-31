@@ -97,7 +97,7 @@ fn adaptive_quantize(
 #[pymodule]
 #[pyo3(name = "_native")]
 fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("__version__", "0.2.1")?;
+    m.add("__version__", "0.2.2")?;
     m.add_class::<QuantizeError>()?;
     m.add_class::<InvalidBitsError>()?;
     m.add_class::<InvalidBlockError>()?;

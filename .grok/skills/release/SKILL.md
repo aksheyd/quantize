@@ -12,6 +12,8 @@ Then:
 3. `git tag -a <ver> -m "Release <ver>"` (plain version, e.g. `0.1.1`)
 4. `git push && git push --tags`
 
-A version tag also publishes the Python package `quantize-py`: `.github/workflows/wheels.yml` builds wheels and uploads to PyPI via trusted publishing. The GitHub `pypi` environment must match a PyPI trusted publisher for this repository.
+A version tag also publishes the Python package `quantize-py`: `.github/workflows/wheels.yaml` builds wheels and uploads to PyPI via trusted publishing. The GitHub `pypi` environment must match a PyPI trusted publisher for this repository.
+
+Never `cargo publish --allow-dirty`. `include` paths must be rooted (`/LICENSE`, `/README.md`, `/src/**`) so files named `LICENSE` under `.venv` are not packed.
 
 Clean tree + tests first.

@@ -14,7 +14,7 @@ from quantize._native import (
 from . import adaptive, asymmetric, learned, symmetric
 from .symmetric import quantize, quantize_tensor
 
-__version__ = "0.2.1"
+__version__ = "0.2.2"
 
 __all__ = [
     "Scale",

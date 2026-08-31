@@ -1,6 +1,6 @@
 [package]
 name = "quantize"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 rust-version = "1.87"
 description = "A simple quantization library."
@@ -12,9 +12,9 @@ keywords = ["quantization", "ml", "candle", "matmul", "i8"]
 categories = ["science", "mathematics"]
 authors = ["Akshey Deokule (aksheyd)"]
 include = [
-    "src/**/*",
-    "LICENSE",
-    "README.md",
+    "/src/**",
+    "/LICENSE",
+    "/README.md",
 ]
 
 [package.metadata.docs.rs]

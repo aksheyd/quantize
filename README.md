@@ -1,6 +1,6 @@
 # quantize
 
-a simple, fast quantization library usable as a [rust crate](https://crates.io/crates/quantize) or [python package](https://pypi.org/project/quantize-rs/).
+a simple, fast quantization library usable as a [rust crate](https://crates.io/crates/quantize) or [python package](https://pypi.org/project/quantize-py/).
 
 to learn more, feel free to peruse the [chapters](https://github.com/aksheyd/quantize/tree/main/chapters), which show how the repo's algorithms progressed over time.
 

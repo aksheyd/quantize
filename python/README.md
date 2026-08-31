@@ -1,7 +1,7 @@
 # Python
 
 ```bash
-pip install quantize-rs
+pip install quantize-py
 ```
 
 ```python

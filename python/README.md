@@ -15,6 +15,6 @@ back = q.dequantize()
 From this repository:
 
 ```bash
-pip install maturin numpy
-maturin develop
+just setup
+just python
 ```

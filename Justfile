@@ -1,3 +1,5 @@
+venv := if os_family() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
+
 format:
     cargo fmt --all
 
@@ -8,10 +10,14 @@ lint:
 test:
     cargo test
 
+setup:
+    python -m venv .venv
+    {{venv}} -m pip install maturin numpy pytest
+
 python:
     cargo clippy -p quantize-py --all-targets -- -D warnings
-    maturin develop
-    just python-test
+    VIRTUAL_ENV="{{justfile_directory()}}/.venv" {{venv}} -m maturin develop
+    {{venv}} -m pytest python/tests
 
 python-test:
     python -m pytest python/tests

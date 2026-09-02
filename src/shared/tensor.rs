@@ -1,7 +1,7 @@
 //! One enum, one variant per scheme.
 
-use crate::decode::{dequant_adaptive, dequant_asym, dequant_sym, dot_of};
-use crate::error::{check_len, Result};
+use crate::decode::{dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_of};
+use crate::error::{check_len, Error, Result};
 use crate::packed::Packed;
 use crate::scale::Scale;
 
@@ -149,5 +149,24 @@ impl<S: Scale> Quantized<S> {
         } else {
             dot_of(self, rhs)
         })
+    }
+
+    pub fn matmul(&self, rhs: &[f32], columns: usize) -> Result<Vec<f32>> {
+        if columns == 0 {
+            return Err(Error::InvalidBlock { block: 0 });
+        }
+        if !self.len().is_multiple_of(columns) {
+            return Err(Error::LengthMismatch {
+                expected: self.len(),
+                got: columns,
+            });
+        }
+        if !rhs.len().is_multiple_of(columns) {
+            return Err(Error::LengthMismatch {
+                expected: columns,
+                got: rhs.len(),
+            });
+        }
+        Ok(matmul_of(self, rhs, columns))
     }
 }

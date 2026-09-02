@@ -6,7 +6,7 @@ use quantize::{Packed, Quantized, Scale};
 use super::inner::{with_inner, PyQuantized};
 use super::pickle::{from_pickle, pickle_state};
 use crate::error::{from_quantize, length_mismatch};
-use crate::input::{as_f32_values, as_writable_f32_out};
+use crate::input::{as_f32_matmul_values, as_f32_values, as_writable_f32_out};
 use crate::scale::PyScale;
 
 fn f32_array<'py>(py: Python<'py>, values: Vec<f32>) -> Bound<'py, PyAny> {
@@ -98,6 +98,24 @@ impl PyQuantized {
                 .dot(&values)
                 .map_err(from_quantize))
         })
+    }
+
+    #[pyo3(signature = (values, columns = None))]
+    fn matmul<'py>(
+        &self,
+        py: Python<'py>,
+        values: Bound<'_, PyAny>,
+        columns: Option<usize>,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let (values, default_columns) = as_f32_matmul_values(&values)?;
+        let columns = columns.unwrap_or(default_columns);
+        let inner = self.inner.clone();
+        let output = py.detach(|| {
+            with_inner!(&inner, |quantized| quantized
+                .matmul(&values, columns)
+                .map_err(from_quantize))
+        })?;
+        Ok(f32_array(py, output))
     }
 
     fn copy(&self) -> Self {

@@ -31,5 +31,8 @@ compare:
 throughput:
     cargo run --release --example throughput
 
+wikitext:
+    cargo run --release --example wikitext --features workload
+
 update-readme:
     cargo run --release --example update_readme

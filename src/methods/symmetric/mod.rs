@@ -108,4 +108,101 @@ mod tests {
         let fused = q.dot(&w).unwrap();
         assert!((naive - fused).abs() < 1e-4, "{naive} vs {fused}");
     }
+
+    #[test]
+    fn fused_dot_four_bit_matches_dequant_then_dot() {
+        let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.02 - 0.4).collect();
+        let q = quantize::<f32, 4, 32>(&w).unwrap();
+        let recon = q.dequantize();
+        let naive: f32 = recon.iter().zip(&w).map(|(a, b)| a * b).sum();
+        let fused = q.dot(&w).unwrap();
+        assert!((naive - fused).abs() < 1e-4, "{naive} vs {fused}");
+    }
+
+    #[test]
+    fn fused_matmul_matches_dequant_then_multiply() {
+        let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
+        let q = quantize::<f32, 8, 32>(&w).unwrap();
+        let recon = q.dequantize();
+        let rhs: Vec<f32> = (0..32).map(|i| (i as f32) * 0.02 - 0.1).collect();
+        let fused = q.matmul(&rhs, 32).unwrap();
+        for row in 0..2 {
+            let naive: f32 = recon[row * 32..(row + 1) * 32]
+                .iter()
+                .zip(&rhs)
+                .map(|(a, b)| a * b)
+                .sum();
+            assert!(
+                (naive - fused[row]).abs() < 1e-4,
+                "{naive} vs {}",
+                fused[row]
+            );
+        }
+    }
+
+    #[test]
+    fn fused_matmul_four_bit_matches_dequant_then_multiply() {
+        let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.02 - 0.4).collect();
+        let q = quantize::<f32, 4, 32>(&w).unwrap();
+        let recon = q.dequantize();
+        let rhs: Vec<f32> = (0..32).map(|i| (i as f32) * 0.03 - 0.2).collect();
+        let fused = q.matmul(&rhs, 32).unwrap();
+        for row in 0..2 {
+            let naive: f32 = recon[row * 32..(row + 1) * 32]
+                .iter()
+                .zip(&rhs)
+                .map(|(a, b)| a * b)
+                .sum();
+            assert!(
+                (naive - fused[row]).abs() < 1e-4,
+                "{naive} vs {}",
+                fused[row]
+            );
+        }
+    }
+
+    #[test]
+    fn matmul_batch_is_row_major() {
+        let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
+        let q = quantize::<f32, 8, 32>(&w).unwrap();
+        let recon = q.dequantize();
+        let rhs: Vec<f32> = (0..64).map(|i| (i as f32) * 0.02 - 0.15).collect();
+        let fused = q.matmul(&rhs, 32).unwrap();
+        assert_eq!(fused.len(), 4);
+        for vector in 0..2 {
+            for row in 0..2 {
+                let naive: f32 = recon[row * 32..(row + 1) * 32]
+                    .iter()
+                    .zip(&rhs[vector * 32..(vector + 1) * 32])
+                    .map(|(a, b)| a * b)
+                    .sum();
+                let got = fused[vector * 2 + row];
+                assert!((naive - got).abs() < 1e-4, "{naive} vs {got}");
+            }
+        }
+    }
+
+    #[test]
+    fn matmul_rejects_zero_columns() {
+        let w = [0.1_f32; 8];
+        let q = quantize::<f32, 8, 8>(&w).unwrap();
+        assert!(matches!(
+            q.matmul(&w, 0),
+            Err(crate::Error::InvalidBlock { block: 0 })
+        ));
+    }
+
+    #[test]
+    fn matmul_rejects_indivisible_columns() {
+        let w: Vec<f32> = (0..40).map(|i| (i as f32) * 0.01).collect();
+        let q = quantize::<f32, 8, 32>(&w).unwrap();
+        let rhs = [0.0_f32; 32];
+        assert!(matches!(
+            q.matmul(&rhs, 32),
+            Err(crate::Error::LengthMismatch {
+                expected: 40,
+                got: 32
+            })
+        ));
+    }
 }

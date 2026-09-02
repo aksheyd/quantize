@@ -69,6 +69,51 @@ def test_dot_length_mismatch():
         quantized.dot([0.1] * 3)
 
 
+def test_fused_matmul_matches_dequant_then_multiply():
+    columns = 32
+    weights = [i * 0.01 - 0.3 for i in range(4 * columns)]
+    quantized = quantize(weights, bits=8, block=32)
+    reconstructed = np.asarray(quantized.dequantize(), dtype=np.float32).reshape(4, columns)
+    rhs = np.array([i * 0.02 - 0.1 for i in range(columns)], dtype=np.float32)
+    naive = reconstructed @ rhs
+    fused = quantized.matmul(rhs)
+    np.testing.assert_allclose(naive, fused, atol=1e-4)
+
+
+def test_matmul_length_mismatch():
+    quantized = quantize([0.1] * 64, bits=8, block=32)
+    with pytest.raises(LengthMismatchError) as raised:
+        quantized.matmul([0.1] * 3, columns=32)
+    assert raised.value.expected == 32
+    assert raised.value.got == 3
+
+
+def test_matmul_zero_columns():
+    quantized = quantize([0.1] * 8, bits=8, block=8)
+    with pytest.raises(InvalidBlockError) as raised:
+        quantized.matmul([0.1] * 8, columns=0)
+    assert raised.value.block == 0
+
+
+def test_matmul_batch_is_row_major():
+    columns = 32
+    rows = 4
+    weights = [i * 0.01 - 0.3 for i in range(rows * columns)]
+    quantized = quantize(weights, bits=8, block=32)
+    reconstructed = np.asarray(quantized.dequantize(), dtype=np.float32).reshape(rows, columns)
+    rhs = np.array(
+        [
+            [i * 0.02 - 0.1 for i in range(columns)],
+            [i * 0.01 + 0.05 for i in range(columns)],
+        ],
+        dtype=np.float32,
+    )
+    naive = (rhs @ reconstructed.T).ravel()
+    fused = quantized.matmul(rhs)
+    np.testing.assert_allclose(naive, fused, atol=1e-4)
+    assert fused.shape == (2 * rows,)
+
+
 def test_invalid_bits():
     with pytest.raises(InvalidBitsError) as raised:
         quantize([0.1], bits=1, block=1)

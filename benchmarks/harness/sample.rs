@@ -3,16 +3,14 @@
 
 use super::{Harness, Sample};
 use candle_core::{Result, Tensor};
-use rand::Rng;
 
 impl Harness {
     pub(super) fn sample(&self) -> Result<Sample> {
         let shape = (self.matrix_size, self.matrix_size);
         let count = self.matrix_size * self.matrix_size;
 
-        let mut rng = rand::thread_rng();
-        let matrix_a: Vec<f32> = (0..count).map(|_| rng.gen_range(-0.5..=0.5)).collect();
-        let matrix_b: Vec<f32> = (0..count).map(|_| rng.gen_range(-0.5..=0.5)).collect();
+        let matrix_a: Vec<f32> = (0..count).map(|_| rand::random_range(-0.5..=0.5)).collect();
+        let matrix_b: Vec<f32> = (0..count).map(|_| rand::random_range(-0.5..=0.5)).collect();
 
         let tensor_a = Tensor::from_vec(matrix_a.clone(), shape, &self.device)?;
         let tensor_b = Tensor::from_vec(matrix_b.clone(), shape, &self.device)?;

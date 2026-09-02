@@ -61,7 +61,7 @@ ureq = { version = "2", optional = true }
 
 [dev-dependencies]
 candle-core = "0.9"
-rand = "0.8"
+rand = "0.10"
 
 [lints]
 workspace = true

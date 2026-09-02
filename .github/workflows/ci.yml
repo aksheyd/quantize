@@ -16,7 +16,7 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
 
       - name: Lint
         run: just lint
@@ -37,7 +37,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
 
       - name: Bindings tests
         run: |

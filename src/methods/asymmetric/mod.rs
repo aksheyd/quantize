@@ -73,4 +73,10 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn nan_only_block_decodes_to_zero() {
+        let q = quantize::<f32, 8, 4>(&[f32::NAN; 4]).unwrap();
+        assert_eq!(q.dequantize(), [0.0; 4]);
+    }
 }

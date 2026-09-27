@@ -12,17 +12,14 @@ def test_fit_recovers_known_line():
     assert abs(zero_point + 2.0) < 1e-5
 
 
-def test_refine_flips_kind_and_keeps_identity():
+def test_refine_keeps_kind_and_identity():
     weights = [0.42, -0.10, 0.70, -0.50]
     quantized = quantize(weights, bits=8, block=4)
-    assert quantized.kind == "symmetric"
     before = quantized.copy()
-    before_nbytes = quantized.nbytes
     result = learned.refine(quantized, weights)
     assert result is quantized
-    assert quantized.kind == "asymmetric"
-    assert before.kind == "symmetric"
-    assert quantized.nbytes > before_nbytes
+    assert quantized.kind == "symmetric"
+    assert quantized.nbytes == before.nbytes
     np.testing.assert_array_equal(quantized.unpacked_codes, before.unpacked_codes)
 
 

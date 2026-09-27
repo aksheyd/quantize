@@ -3,6 +3,9 @@
 //! We want: `original ≈ scale * (code - zero_point)`.
 //! Same as: `original ≈ scale * code + offset`, with
 //! `offset = -scale * zero_point`. Codes stay fixed.
+//!
+//! A symmetric block has no zero-point, so its line must pass through zero:
+//! `original ≈ scale * code`, and only the scale is fitted.
 
 use crate::decode::unpack_codes;
 use crate::error::{check_len, Result};
@@ -46,11 +49,29 @@ pub fn fit_scale_and_zero_point(values: &[f32], codes: &[i32]) -> (f32, f32) {
     (scale as f32, zero_point as f32)
 }
 
-/// Recompute each block's scale and zero-point. Codes do not change.
+/// Best-fit `scale` for `values ≈ scale * codes`, the line through zero.
 ///
-/// A block keeps its old scale and zero-point unless the new ones decode it
-/// better. Empty input is left as-is. [`Quantized::Symmetric`] becomes
-/// [`Quantized::Asymmetric`].
+/// When every code is 0 there is no slope to fit, and any scale decodes the
+/// block to 0, so the scale stays `1.0`.
+fn fit_scale(values: &[f32], codes: &[i32]) -> f32 {
+    let mut sum_code_squared = 0.0;
+    let mut sum_code_times_value = 0.0;
+    for (&value, &code) in values.iter().zip(codes) {
+        sum_code_squared += code as f64 * code as f64;
+        sum_code_times_value += code as f64 * value as f64;
+    }
+    if sum_code_squared == 0.0 {
+        return 1.0;
+    }
+    (sum_code_times_value / sum_code_squared) as f32
+}
+
+/// Recompute each block's scale, and its zero-point if it has one. Codes do
+/// not change.
+///
+/// A symmetric tensor stays symmetric: only its scales are fitted, so it keeps
+/// its size and its faster decoding. A block keeps its old parameters unless
+/// the new ones decode it better. Empty input is left as-is.
 ///
 /// # Errors
 ///
@@ -63,45 +84,42 @@ pub fn refine<S: Scale>(quantized: &mut Quantized<S>, values: &[f32]) -> Result<
     let block = quantized.block();
     let mut codes = vec![0i32; quantized.len()];
     unpack_codes(quantized, &mut codes);
+    let blocks = values.chunks(block).zip(codes.chunks(block));
 
-    // Start from the old parameters. Symmetric blocks have a zero-point of 0.
-    let mut scales = quantized.scales().to_vec();
-    let mut zero_points = quantized.zero_points().to_vec();
-    zero_points.resize(scales.len(), S::from_f32(0.0));
-    for (block_index, block_values) in values.chunks(block).enumerate() {
-        let start = block_index * block;
-        let block_codes = &codes[start..start + block_values.len()];
-        let (scale, zero_point) = fit_scale_and_zero_point(block_values, block_codes);
-        let fitted = (S::from_f32(scale), S::from_f32(zero_point));
-        let old = (scales[block_index], zero_points[block_index]);
-        let error = |parameters| squared_error(block_values, block_codes, parameters);
-        // After rounding, the fit can decode worse than the old pair.
-        if error(fitted) < error(old) {
-            (scales[block_index], zero_points[block_index]) = fitted;
-        }
-    }
-
-    *quantized = match quantized {
-        Quantized::Adaptive {
-            bytes, bits, len, ..
-        } => Quantized::Adaptive {
-            scales,
-            zero_points,
-            bytes: bytes.clone(),
-            bits: bits.clone(),
-            block,
-            len: *len,
-        },
-        Quantized::Symmetric { codes, len, .. } | Quantized::Asymmetric { codes, len, .. } => {
-            Quantized::Asymmetric {
-                scales,
-                zero_points,
-                codes: codes.clone(),
-                block,
-                len: *len,
+    // After rounding to `S`, a fit can decode worse than the old parameters.
+    match quantized {
+        Quantized::Symmetric { scales, .. } => {
+            let zero = S::from_f32(0.0);
+            for ((block_values, block_codes), scale) in blocks.zip(scales) {
+                let fitted = S::from_f32(fit_scale(block_values, block_codes));
+                let error = |scale| squared_error(block_values, block_codes, (scale, zero));
+                if error(fitted) < error(*scale) {
+                    *scale = fitted;
+                }
             }
         }
-    };
+        Quantized::Asymmetric {
+            scales,
+            zero_points,
+            ..
+        }
+        | Quantized::Adaptive {
+            scales,
+            zero_points,
+            ..
+        } => {
+            let parameters = scales.iter_mut().zip(zero_points);
+            for ((block_values, block_codes), (scale, zero_point)) in blocks.zip(parameters) {
+                let (fitted_scale, fitted_zero_point) =
+                    fit_scale_and_zero_point(block_values, block_codes);
+                let fitted = (S::from_f32(fitted_scale), S::from_f32(fitted_zero_point));
+                let error = |parameters| squared_error(block_values, block_codes, parameters);
+                if error(fitted) < error((*scale, *zero_point)) {
+                    (*scale, *zero_point) = fitted;
+                }
+            }
+        }
+    }
     Ok(())
 }
 
@@ -149,10 +167,35 @@ mod tests {
     }
 
     #[test]
+    fn fit_scale_recovers_line_through_zero() {
+        let codes = [-8, -3, 0, 5, 7];
+        let values: Vec<f32> = codes.iter().map(|&code| 0.25 * code as f32).collect();
+        assert!((fit_scale(&values, &codes) - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn refine_keeps_a_symmetric_tensor_symmetric() {
+        let values: Vec<f32> = (0..256).map(|i| (i as f32).sin()).collect();
+        let squared_error = |back: Vec<f32>| -> f32 {
+            values
+                .iter()
+                .zip(back)
+                .map(|(a, b)| (a - b) * (a - b))
+                .sum()
+        };
+        let mut q = crate::quantize::<f32, 4, 32>(&values).unwrap();
+        let (size, before) = (q.nbytes(), squared_error(q.dequantize()));
+        refine(&mut q, &values).unwrap();
+        assert!(matches!(q, Quantized::Symmetric { .. }));
+        assert_eq!(q.nbytes(), size);
+        assert!(squared_error(q.dequantize()) < before);
+    }
+
+    #[test]
     fn refine_keeps_flat_block() {
         // Stored as bf16, the fitted zero-point would decode this block as 0.5.
         let values = [0.3_f32; 32];
-        let mut q = crate::quantize::<half::bf16, 8, 32>(&values).unwrap();
+        let mut q = crate::asymmetric::quantize::<half::bf16, 8, 32>(&values).unwrap();
         refine(&mut q, &values).unwrap();
         for back in q.dequantize() {
             assert!((back - 0.3).abs() < 1e-3, "{back}");

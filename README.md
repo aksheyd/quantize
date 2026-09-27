@@ -40,7 +40,7 @@ let dot = q.dot(&weights).unwrap(); // 0.927
 
 - `asymmetric::quantize` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive::quantize` picks each block's bit width from an error tolerance
-- `learned::refine` refits each block's scale and zero-point to lower the error
+- `learned::refine` refits each block's scale, and its zero-point if it has one, to lower the error
 - `Scheme` picks one at run time, like `Scheme::Q4_32.quantize::<f16>(&weights)`
 
 codes can be 2 to 16 bits, and scales `f32`, `f16`, or `bf16`. the rest is in the [api docs](https://docs.rs/quantize). for python, see [python/](https://github.com/aksheyd/quantize/tree/main/python).

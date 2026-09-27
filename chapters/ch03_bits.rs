@@ -10,10 +10,8 @@
 //! algorithm is identical — only the smallest and largest code change, and the
 //! scale now divides by the new largest code. Keep `BITS` between 2 and 16,
 //! like the library does: at 1 bit the largest code is 0, so there is nothing
-//! to scale to. Each weight costs `BITS` bits plus its share of the one 32-bit
-//! scale, a big share for our 6 weights and almost nothing for millions. The
-//! codes sit in `i32`s to keep things simple; a real format packs them tightly,
-//! two 4-bit codes to a byte.
+//! to scale to. The codes sit in `i32`s to keep things simple; a real format
+//! packs them tightly, two 4-bit codes to a byte.
 //!
 //! **Still wrong**: one outlier in a million-element tensor wrecks the scale.
 //!
@@ -68,11 +66,6 @@ fn roundtrip<const BITS: u32>(weights: &[f32]) {
         reconstructed.push(back);
     }
     println!("worst error: {:.6}", worst_error(weights, &reconstructed));
-    let bits_per_value = BITS as f32 + 32.0 / weights.len() as f32;
-    println!(
-        "bits per value: {BITS} + 32/{} = {bits_per_value:.1}",
-        weights.len()
-    );
 }
 
 fn main() {

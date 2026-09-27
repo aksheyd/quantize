@@ -8,8 +8,8 @@
 //!
 //! **Fix**: Split the tensor into fixed-size blocks and compute an independent
 //! scale per block. An outlier then only wrecks its own block's scale. Each
-//! block stores its scale, though: here an f32 per 4 values, 8 bits per value.
-//! Real formats use a 16-bit scale per 32 values: 4 + 16/32 = 4.5 bits per value.
+//! block stores its scale, though: an f32 per 4 values makes 4 + 32/4 = 12 bits
+//! per value. Real formats use a 16-bit scale per 32 values: 4 + 16/32 = 4.5.
 //!
 //! **Still wrong**: One block's range can be wastefully skewed. Only using the
 //! positive or negative half of the quantized range is a common failure mode.
@@ -38,6 +38,10 @@ fn quantize_value<const BITS: u32>(x: f32, scale: f32) -> i32 {
     (x / scale).round().clamp(smallest, largest) as i32
 }
 
+fn dequantize_value(code: i32, scale: f32) -> f32 {
+    code as f32 * scale
+}
+
 /// The biggest gap between an input and what came back.
 fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
     let mut worst = 0.0_f32;
@@ -53,7 +57,7 @@ fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
     let mut global_back = Vec::new();
     for &x in weights {
         let code = quantize_value::<BITS>(x, global_scale);
-        global_back.push(code as f32 * global_scale);
+        global_back.push(dequantize_value(code, global_scale));
     }
 
     // One scale per block
@@ -64,7 +68,7 @@ fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
         scales.push(scale);
         for &x in block {
             let code = quantize_value::<BITS>(x, scale);
-            block_back.push(code as f32 * scale);
+            block_back.push(dequantize_value(code, scale));
         }
     }
 
@@ -74,15 +78,12 @@ fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
     println!("{:>3}  {:>6}  {:>8}  {:>8}", "i", "w", "global", "blocks");
     println!("{:-<3}  {:-<6}  {:-<8}  {:-<8}", "", "", "", "");
     for (i, &weight) in weights.iter().enumerate() {
-        println!(
-            "{:>3}  {:>6.2}  {:>8.4}  {:>8.4}",
-            i, weight, global_back[i], block_back[i]
-        );
+        let (global, per_block) = (global_back[i], block_back[i]);
+        println!("{i:>3}  {weight:>6.2}  {global:>8.4}  {per_block:>8.4}");
     }
     let global_error = worst_error(weights, &global_back);
     let block_error = worst_error(weights, &block_back);
     println!("\nworst error:    global {global_error:.4}, blocks {block_error:.4}");
-    // Every scale is an f32: 32 bits, shared by the values it covers.
     let global_bits = BITS as f32 + 32.0 / weights.len() as f32;
     let block_bits = BITS as f32 + 32.0 / BLOCK as f32;
     println!("bits per value: global {global_bits:.1}, blocks {block_bits:.1}");
@@ -95,6 +96,5 @@ fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
 
 fn main() {
     let weights = [0.16_f32, 0.20, -0.11, 0.24, 4.0, 0.10, -0.05, 0.08];
-
     compare::<4, 4>(&weights);
 }

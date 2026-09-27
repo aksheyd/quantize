@@ -8,10 +8,12 @@
 //! the quantized range. For example, `[0.10, 0.33, 0.71, 1.10]` at 8 bits with
 //! a scale of `0.01` would quantize to `[10, 33, 71, 110]` -> no negative codes.
 //!
-//! **Fix**: Store a *zero-point* per block: the code that real 0 maps to. We
-//! "stretch" the quantized range to fit the block's real `[min, max]` and
+//! **Fix**: Store a *zero-point* per block: where real 0 sits on the code line.
+//! We "stretch" the quantized range to fit the block's real `[min, max]` and
 //! "shift" it so the minimum lands on the smallest code and the maximum on the
 //! largest. Chapter 4's symmetric scale is the case where the zero-point is 0.
+//! Here it's a float like the scale, so it can land between codes or far
+//! outside them. Many libraries store it as a code, so 0.0 comes back exactly.
 //!
 //! **Still wrong**: every block gets the same bit width, however wide its
 //! range. At 4 bits the quiet block below comes back far more precisely than
@@ -73,7 +75,8 @@ fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
 
 fn compare<const BITS: u32>(name: &str, block: &[f32]) {
     let symmetric = roundtrip::<BITS>(block, symmetric_params::<BITS>(block));
-    let asymmetric = roundtrip::<BITS>(block, asymmetric_params::<BITS>(block));
+    let (scale, zero_point) = asymmetric_params::<BITS>(block);
+    let asymmetric = roundtrip::<BITS>(block, (scale, zero_point));
 
     println!("{name} block, {BITS} bits");
     println!("      value  symmetric  asymmetric");
@@ -82,7 +85,8 @@ fn compare<const BITS: u32>(name: &str, block: &[f32]) {
     }
     let symmetric_error = worst_error(block, &symmetric);
     let asymmetric_error = worst_error(block, &asymmetric);
-    println!("worst error{symmetric_error:>11.4}{asymmetric_error:>12.4}\n");
+    println!("worst error{symmetric_error:>11.4}{asymmetric_error:>12.4}");
+    println!("zero-point {:>11.2}{zero_point:>12.2}\n", 0.0);
 }
 
 fn main() {

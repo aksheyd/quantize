@@ -8,6 +8,7 @@ from quantize import (
     InvalidBlockError,
     InvalidToleranceError,
     LengthMismatchError,
+    NotAMatrixError,
     QuantizeError,
     Scale,
     Scheme,
@@ -17,6 +18,10 @@ from quantize import (
     quantize,
     quantize_tensor,
 )
+
+
+def weight_matrix(rows, columns):
+    return np.linspace(-0.6, 0.6, rows * columns, dtype=np.float32).reshape(rows, columns)
 
 
 def test_eight_bit_roundtrip_stays_within_half_step():
@@ -70,63 +75,94 @@ def test_dot_length_mismatch():
         quantized.dot([0.1] * 3)
 
 
+def test_matrix_keeps_its_shape():
+    weights = weight_matrix(8, 32)
+    for quantized in [
+        quantize(weights, bits=8, block=32),
+        quantize_tensor(weights, bits=8),
+        asymmetric.quantize(weights, bits=4, block=16),
+        adaptive.quantize(weights, block=32),
+        Scheme.Q4_32.quantize(weights),
+    ]:
+        assert quantized.shape == (8, 32)
+        assert len(quantized) == 256
+        back = quantized.dequantize()
+        assert back.shape == (8, 32)
+        np.testing.assert_allclose(back, weights, atol=0.05)
+    assert quantize(weights.ravel()).shape == (256,)
+    assert quantize([0.1, 0.2]).dequantize().shape == (2,)
+
+
+def test_quantize_reads_any_real_dtype_and_layout_row_by_row():
+    weights = weight_matrix(32, 8)
+    expected = quantize(np.ascontiguousarray(weights.T)).dequantize()
+    for values in [weights.T, np.asfortranarray(weights.T), weights.T.astype(np.float64)]:
+        np.testing.assert_array_equal(quantize(values).dequantize(), expected)
+    assert quantize(np.arange(-4, 4).reshape(2, 4)).shape == (2, 4)
+
+
+def test_quantize_rejects_a_matrix_with_no_columns():
+    with pytest.raises(ShapeMismatchError, match="rows of 0 columns") as raised:
+        quantize(np.zeros((4, 0), np.float32))
+    assert raised.value.columns == 0
+
+
+def test_dequantize_out_must_have_the_tensor_shape():
+    quantized = quantize(weight_matrix(8, 32))
+    out = np.empty((8, 32), np.float32)
+    assert quantized.dequantize(out) is out
+    np.testing.assert_array_equal(out, quantized.dequantize())
+    with pytest.raises(ValueError, match=r"shape \(8, 32\), got \(32, 8\)"):
+        quantized.dequantize(np.empty((32, 8), np.float32))
+    with pytest.raises(LengthMismatchError):
+        quantized.dequantize(np.empty((8, 16), np.float32))
+
+
 def test_fused_matmul_matches_dequant_then_multiply():
-    columns = 32
-    weights = [i * 0.01 - 0.3 for i in range(4 * columns)]
-    quantized = quantize(weights, bits=8, block=32)
-    reconstructed = np.asarray(quantized.dequantize(), dtype=np.float32).reshape(4, columns)
-    values = np.array([i * 0.02 - 0.1 for i in range(columns)], dtype=np.float32)
-    naive = reconstructed @ values
-    fused = quantized.matmul(values, columns=columns)
+    quantized = quantize(weight_matrix(4, 32), bits=8, block=32)
+    values = np.array([i * 0.02 - 0.1 for i in range(32)], dtype=np.float32)
+    naive = quantized.dequantize() @ values
+    fused = quantized.matmul(values)
     assert fused.shape == (4,)
     np.testing.assert_allclose(naive, fused, atol=1e-4)
 
 
 def test_matmul_length_mismatch():
-    quantized = quantize([0.1] * 64, bits=8, block=32)
+    quantized = quantize(weight_matrix(2, 32), bits=8, block=32)
     with pytest.raises(LengthMismatchError) as raised:
-        quantized.matmul([0.1] * 3, columns=32)
+        quantized.matmul([0.1] * 3)
     assert raised.value.expected == 32
     assert raised.value.got == 3
 
 
-def test_matmul_zero_columns():
-    quantized = quantize([0.1] * 8, bits=8, block=8)
-    with pytest.raises(ShapeMismatchError, match="rows of 0 columns") as raised:
-        quantized.matmul([0.1] * 8, columns=0)
-    assert raised.value.columns == 0
-
-
 def test_matmul_batch_returns_batch_by_rows():
-    columns = 32
     rows = 4
-    weights = [i * 0.01 - 0.3 for i in range(rows * columns)]
-    quantized = quantize(weights, bits=8, block=32)
-    reconstructed = np.asarray(quantized.dequantize(), dtype=np.float32).reshape(rows, columns)
+    quantized = quantize(weight_matrix(rows, 32), bits=8, block=32)
     values = np.array(
         [
-            [i * 0.02 - 0.1 for i in range(columns)],
-            [i * 0.01 + 0.05 for i in range(columns)],
+            [i * 0.02 - 0.1 for i in range(32)],
+            [i * 0.01 + 0.05 for i in range(32)],
         ],
         dtype=np.float32,
     )
-    naive = values @ reconstructed.T
-    fused = quantized.matmul(values, columns=columns)
+    naive = values @ quantized.dequantize().T
+    fused = quantized.matmul(values)
     np.testing.assert_allclose(naive, fused, atol=1e-4)
     assert fused.shape == (2, rows)
 
 
-def test_matmul_requires_columns():
+def test_matmul_rejects_a_flat_tensor():
     quantized = quantize([0.1] * 64, bits=8, block=32)
-    with pytest.raises(TypeError):
+    with pytest.raises(NotAMatrixError, match="flat vector of 64 values") as raised:
         quantized.matmul([0.1] * 32)
+    assert raised.value.len == 64
 
 
 def test_matmul_rejects_column_vectors_and_transposed_batches():
-    quantized = quantize([0.1] * 128, bits=8, block=32)
+    quantized = quantize(weight_matrix(4, 32), bits=8, block=32)
     for values in [np.zeros((32, 1), np.float32), np.zeros((32, 8), np.float32)]:
         with pytest.raises(LengthMismatchError) as raised:
-            quantized.matmul(values, columns=32)
+            quantized.matmul(values)
         assert raised.value.expected == 32
         assert raised.value.got == values.shape[1]
 
@@ -134,27 +170,24 @@ def test_matmul_rejects_column_vectors_and_transposed_batches():
 def test_matmul_reads_a_square_input_as_a_batch():
     columns = 32
     rows = 4
-    weights = [i * 0.01 - 0.6 for i in range(rows * columns)]
-    quantized = quantize(weights, bits=8, block=32)
-    reconstructed = quantized.dequantize().reshape(rows, columns)
+    quantized = quantize(weight_matrix(rows, columns), bits=8, block=32)
     square = np.linspace(-1, 1, columns * columns, dtype=np.float32).reshape(columns, columns)
-    fused = quantized.matmul(square, columns=columns)
+    fused = quantized.matmul(square)
     assert fused.shape == (columns, rows)
-    np.testing.assert_allclose(square @ reconstructed.T, fused, atol=1e-4)
+    np.testing.assert_allclose(square @ quantized.dequantize().T, fused, atol=1e-4)
 
 
-def test_matmul_columns_must_split_the_tensor_into_rows():
-    quantized = quantize([0.1] * 64, bits=8, block=32)
-    with pytest.raises(ShapeMismatchError, match="64 values can't be split into rows of 24") as raised:
-        quantized.matmul([0.1] * 24, columns=24)
-    assert raised.value.len == 64
-    assert raised.value.columns == 24
+def test_matmul_reads_any_real_dtype_and_layout():
+    quantized = quantize(weight_matrix(4, 32), bits=8, block=32)
+    batch = np.linspace(-1, 1, 3 * 32).reshape(32, 3).T
+    expected = quantized.matmul(np.ascontiguousarray(batch, dtype=np.float32))
+    np.testing.assert_array_equal(quantized.matmul(batch), expected)
 
 
 def test_matmul_rejects_three_dimensional_values():
-    quantized = quantize([0.1] * 64, bits=8, block=32)
-    with pytest.raises(TypeError, match=r"\(batch, columns\)"):
-        quantized.matmul(np.zeros((2, 2, 32), np.float32), columns=32)
+    quantized = quantize(weight_matrix(2, 32), bits=8, block=32)
+    with pytest.raises(TypeError, match="1-D or 2-D"):
+        quantized.matmul(np.zeros((2, 2, 32), np.float32))
 
 
 def test_invalid_bits():
@@ -191,10 +224,10 @@ def test_scheme_factory_does_not_validate():
         scheme.quantize([0.1])
 
 
-def test_ndim_not_one():
-    with pytest.raises(TypeError, match="1-D"):
-        quantize(np.zeros((2, 2), dtype=np.float32))
-    with pytest.raises(TypeError, match="1-D"):
+def test_quantize_rejects_other_dimensions():
+    with pytest.raises(TypeError, match="1-D or 2-D"):
+        quantize(np.zeros((2, 2, 2), dtype=np.float32))
+    with pytest.raises(TypeError, match="1-D or 2-D"):
         quantize(np.array(0.1, dtype=np.float32))
 
 
@@ -207,7 +240,7 @@ def test_scale_enum_selects_storage():
     assert Scale.F32 != Scale.F16
     assert (
         repr(quantize(weights, bits=8, block=4, scale=Scale.F16))
-        == "Quantized(kind='symmetric', bits=8, block=4, len=4, scale=Scale.F16)"
+        == "Quantized(kind='symmetric', bits=8, block=4, shape=(4,), scale=Scale.F16)"
     )
 
 
@@ -254,6 +287,13 @@ def test_pickle_roundtrip_including_f16():
     assert pickle.loads(pickle.dumps(Scale.F16)) == Scale.F16
 
 
+def test_pickle_keeps_the_matrix_shape():
+    quantized = quantize(weight_matrix(8, 32), bits=4, block=32)
+    restored = pickle.loads(pickle.dumps(quantized))
+    assert restored.shape == (8, 32)
+    np.testing.assert_array_equal(restored.matmul(np.ones(32)), quantized.matmul(np.ones(32)))
+
+
 def test_pickle_rejects_inconsistent_state():
     for quantized in [
         quantize([0.1] * 64, bits=4, block=32),
@@ -266,3 +306,6 @@ def test_pickle_rejects_inconsistent_state():
         zero_block = state[:3] + (0,) + state[4:]
         with pytest.raises(ValueError):
             rebuild(zero_block)
+        columns_that_do_not_split = state[:10] + (7,)
+        with pytest.raises(ValueError):
+            rebuild(columns_that_do_not_split)

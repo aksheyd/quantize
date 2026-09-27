@@ -27,6 +27,7 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
             codes: Packed::from_raw(Vec::new(), bits, 0),
             block,
             len: 0,
+            columns: None,
         });
     }
     let (scales_f, codes) = quantize_sym_packed(values, bits, block);
@@ -35,6 +36,7 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
         codes,
         block,
         len: values.len(),
+        columns: None,
     })
 }
 
@@ -134,6 +136,7 @@ mod tests {
             codes: Packed::from_raw(vec![0; 16], 4, 64),
             block: 32,
             len: 64,
+            columns: None,
         };
         short.dequantize();
     }
@@ -161,10 +164,13 @@ mod tests {
     #[test]
     fn fused_matmul_matches_dequant_then_multiply() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
-        let q = quantize::<f32, 8, 32>(&w).unwrap();
+        let q = quantize::<f32, 8, 32>(&w)
+            .unwrap()
+            .into_matrix(2, 32)
+            .unwrap();
         let recon = q.dequantize();
         let input: Vec<f32> = (0..32).map(|i| (i as f32) * 0.02 - 0.1).collect();
-        let fused = q.matmul(&input, 32).unwrap();
+        let fused = q.matmul(&input).unwrap();
         for row in 0..2 {
             let naive: f32 = recon[row * 32..(row + 1) * 32]
                 .iter()
@@ -182,10 +188,13 @@ mod tests {
     #[test]
     fn fused_matmul_four_bit_matches_dequant_then_multiply() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.02 - 0.4).collect();
-        let q = quantize::<f32, 4, 32>(&w).unwrap();
+        let q = quantize::<f32, 4, 32>(&w)
+            .unwrap()
+            .into_matrix(2, 32)
+            .unwrap();
         let recon = q.dequantize();
         let input: Vec<f32> = (0..32).map(|i| (i as f32) * 0.03 - 0.2).collect();
-        let fused = q.matmul(&input, 32).unwrap();
+        let fused = q.matmul(&input).unwrap();
         for row in 0..2 {
             let naive: f32 = recon[row * 32..(row + 1) * 32]
                 .iter()
@@ -203,10 +212,13 @@ mod tests {
     #[test]
     fn matmul_batch_is_row_major() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
-        let q = quantize::<f32, 8, 32>(&w).unwrap();
+        let q = quantize::<f32, 8, 32>(&w)
+            .unwrap()
+            .into_matrix(2, 32)
+            .unwrap();
         let recon = q.dequantize();
         let inputs: Vec<f32> = (0..64).map(|i| (i as f32) * 0.02 - 0.15).collect();
-        let fused = q.matmul(&inputs, 32).unwrap();
+        let fused = q.matmul(&inputs).unwrap();
         assert_eq!(fused.len(), 4);
         for vector in 0..2 {
             for row in 0..2 {
@@ -222,36 +234,53 @@ mod tests {
     }
 
     #[test]
-    fn matmul_rejects_zero_columns() {
-        let w = [0.1_f32; 8];
-        let q = quantize::<f32, 8, 8>(&w).unwrap();
+    fn into_matrix_rejects_zero_columns() {
+        let q = quantize::<f32, 8, 8>(&[0.1; 8]).unwrap();
         assert!(matches!(
-            q.matmul(&w, 0),
+            q.into_matrix(8, 0),
             Err(crate::Error::ShapeMismatch { len: 8, columns: 0 })
         ));
     }
 
     #[test]
-    fn matmul_rejects_columns_that_do_not_split_the_tensor() {
+    fn into_matrix_rejects_a_shape_that_does_not_hold_every_value() {
         let w: Vec<f32> = (0..40).map(|i| (i as f32) * 0.01).collect();
         let q = quantize::<f32, 8, 32>(&w).unwrap();
-        let input = [0.0_f32; 32];
         assert!(matches!(
-            q.matmul(&input, 32),
-            Err(crate::Error::ShapeMismatch {
-                len: 40,
-                columns: 32
+            q.into_matrix(1, 32),
+            Err(crate::Error::LengthMismatch {
+                expected: 40,
+                got: 32
             })
+        ));
+    }
+
+    #[test]
+    fn into_matrix_records_rows_and_columns() {
+        let q = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
+        assert_eq!(q.shape(), None);
+        assert_eq!(q.into_matrix(2, 32).unwrap().shape(), Some((2, 32)));
+    }
+
+    #[test]
+    fn matmul_rejects_a_flat_vector() {
+        let q = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
+        assert!(matches!(
+            q.matmul(&[0.0; 32]),
+            Err(crate::Error::NotAMatrix { len: 64 })
         ));
     }
 
     #[test]
     fn matmul_rejects_inputs_that_do_not_split_into_vectors() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01).collect();
-        let q = quantize::<f32, 8, 32>(&w).unwrap();
+        let q = quantize::<f32, 8, 32>(&w)
+            .unwrap()
+            .into_matrix(2, 32)
+            .unwrap();
         let inputs = [0.0_f32; 48];
         assert!(matches!(
-            q.matmul(&inputs, 32),
+            q.matmul(&inputs),
             Err(crate::Error::ShapeMismatch {
                 len: 48,
                 columns: 32
@@ -261,8 +290,8 @@ mod tests {
 
     #[test]
     fn matmul_rejects_an_output_too_large_to_allocate() {
-        // matmul reads only `len` before it sizes the output, so a tensor that
-        // claims more values than it stores is enough to reach that check.
+        // matmul reads only the shape before it sizes the output, so a tensor
+        // that claims more values than it stores is enough to reach that check.
         // `usize::MAX` rows overflow the multiplication; `usize::MAX / 2` rows
         // pass it but need more bytes than any allocation can hold.
         for len in [usize::MAX, usize::MAX / 2] {
@@ -271,9 +300,10 @@ mod tests {
                 codes: Packed::from_raw(Vec::new(), 8, 0),
                 block: 1,
                 len,
+                columns: Some(1),
             };
             assert!(matches!(
-                huge.matmul(&[0.0; 2], 1),
+                huge.matmul(&[0.0; 2]),
                 Err(crate::Error::OutputTooLarge { batch: 2, rows }) if rows == len
             ));
         }

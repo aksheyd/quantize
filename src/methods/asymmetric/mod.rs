@@ -24,6 +24,7 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
             codes: Packed::from_i32s(&[], bits),
             block,
             len: 0,
+            columns: None,
         });
     }
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
@@ -40,6 +41,7 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
         codes: Packed::from_i32s(&codes, bits),
         block,
         len: values.len(),
+        columns: None,
     })
 }
 

@@ -36,7 +36,10 @@ fn main() -> candle_core::Result<()> {
         black_box(quantize::<f16, 8, 32>(&values).unwrap());
     });
 
-    let q4 = quantize::<f16, 4, 32>(&values).unwrap();
+    let q4 = quantize::<f16, 4, 32>(&values)
+        .unwrap()
+        .into_matrix(SIDE, SIDE)
+        .unwrap();
     let q8 = quantize::<f16, 8, 32>(&values).unwrap();
     let mut out = vec![0.0f32; N];
     bench("dequant 4b×32", || {
@@ -52,7 +55,7 @@ fn main() -> candle_core::Result<()> {
     });
     let sixteen_vectors = &values[..16 * SIDE];
     bench("matmul 4b×32 ×16", || {
-        black_box(q4.matmul(sixteen_vectors, SIDE).unwrap());
+        black_box(q4.matmul(sixteen_vectors).unwrap());
     });
 
     let device = Device::Cpu;

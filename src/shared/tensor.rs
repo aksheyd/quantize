@@ -6,6 +6,10 @@ use crate::packed::Packed;
 use crate::scale::Scale;
 
 /// Packed codes and the scheme that produced them.
+///
+/// The `len` values are a flat vector until
+/// [`into_matrix`](Self::into_matrix) records `columns`, the length of each
+/// row of a row-major matrix.
 #[derive(Clone, Debug)]
 pub enum Quantized<S: Scale> {
     /// One scale per block.
@@ -14,6 +18,7 @@ pub enum Quantized<S: Scale> {
         codes: Packed,
         block: usize,
         len: usize,
+        columns: Option<usize>,
     },
     /// Scale and zero-point per block.
     Asymmetric {
@@ -22,6 +27,7 @@ pub enum Quantized<S: Scale> {
         codes: Packed,
         block: usize,
         len: usize,
+        columns: Option<usize>,
     },
     /// Per-block bit width; codes packed at that width.
     Adaptive {
@@ -31,6 +37,7 @@ pub enum Quantized<S: Scale> {
         bits: Vec<u32>,
         block: usize,
         len: usize,
+        columns: Option<usize>,
     },
 }
 
@@ -45,6 +52,47 @@ impl<S: Scale> Quantized<S> {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// `(rows, columns)` once [`into_matrix`](Self::into_matrix) has recorded
+    /// a shape, or `None` for a flat vector.
+    pub fn shape(&self) -> Option<(usize, usize)> {
+        let columns = match self {
+            Self::Symmetric { columns, .. }
+            | Self::Asymmetric { columns, .. }
+            | Self::Adaptive { columns, .. } => (*columns)?,
+        };
+        Some((self.len().checked_div(columns)?, columns))
+    }
+
+    /// Read the values as a row-major `rows × columns` matrix: the first
+    /// `columns` values are row 0, the next `columns` are row 1, and so on.
+    /// [`matmul`](Self::matmul) multiplies by that matrix.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::ShapeMismatch`] if `columns` is 0, and
+    /// [`Error::LengthMismatch`] if `rows × columns` isn't [`len`](Self::len).
+    pub fn into_matrix(mut self, rows: usize, columns: usize) -> Result<Self> {
+        if columns == 0 {
+            return Err(Error::ShapeMismatch {
+                len: self.len(),
+                columns,
+            });
+        }
+        check_len(self.len(), rows.saturating_mul(columns))?;
+        match &mut self {
+            Self::Symmetric {
+                columns: recorded, ..
+            }
+            | Self::Asymmetric {
+                columns: recorded, ..
+            }
+            | Self::Adaptive {
+                columns: recorded, ..
+            } => *recorded = Some(columns),
+        }
+        Ok(self)
     }
 
     pub fn block(&self) -> usize {
@@ -137,6 +185,7 @@ impl<S: Scale> Quantized<S> {
                 bits,
                 block,
                 len,
+                ..
             } => dequant_adaptive(scales, zero_points, bytes, bits, *block, *len, out),
         }
         Ok(())
@@ -151,10 +200,10 @@ impl<S: Scale> Quantized<S> {
         })
     }
 
-    /// Multiply a batch of input vectors by this tensor, read as a matrix.
+    /// Multiply a batch of input vectors by this tensor's matrix.
     ///
-    /// - The tensor is a row-major `rows × columns` matrix `W`, where
-    ///   `rows = self.len() / columns`.
+    /// - The tensor is the row-major `rows × columns` matrix `W` that
+    ///   [`into_matrix`](Self::into_matrix) recorded.
     /// - `inputs` holds `batch` vectors of `columns` values each, back to back.
     /// - The result holds `batch × rows` values, row-major: value
     ///   `b * rows + r` is input `b` dotted with row `r` of `W`. That is
@@ -165,14 +214,17 @@ impl<S: Scale> Quantized<S> {
     ///
     /// // W has 2 rows × 3 columns.
     /// let w = quantize::<f32, 8, 3>(&[1.0, 0.0, 0.0,
-    ///                                 0.0, 1.0, 1.0]).unwrap();
+    ///                                 0.0, 1.0, 1.0])
+    ///     .unwrap()
+    ///     .into_matrix(2, 3)
+    ///     .unwrap();
     ///
     /// // A batch of 2 inputs, 3 values each.
     /// let inputs = [1.0, 2.0, 3.0,
     ///               4.0, 5.0, 6.0];
     ///
     /// // 2 inputs × 2 rows.
-    /// let out = w.matmul(&inputs, 3).unwrap();
+    /// let out = w.matmul(&inputs).unwrap();
     /// assert_eq!(out, [1.0, 5.0,
     ///                  4.0, 11.0]);
     /// ```
@@ -183,21 +235,26 @@ impl<S: Scale> Quantized<S> {
     ///
     /// # Errors
     ///
-    /// [`Error::ShapeMismatch`] if `columns` is 0 or doesn't split the tensor
-    /// or `inputs` into whole rows, and [`Error::OutputTooLarge`] if the
+    /// [`Error::NotAMatrix`] if the tensor has no shape,
+    /// [`Error::ShapeMismatch`] if `inputs` doesn't split into whole vectors
+    /// of `columns` values, and [`Error::OutputTooLarge`] if the
     /// `batch × rows` result can't be allocated.
-    pub fn matmul(&self, inputs: &[f32], columns: usize) -> Result<Vec<f32>> {
-        for len in [self.len(), inputs.len()] {
-            if columns == 0 || !len.is_multiple_of(columns) {
-                return Err(Error::ShapeMismatch { len, columns });
-            }
+    pub fn matmul(&self, inputs: &[f32]) -> Result<Vec<f32>> {
+        let Some((rows, columns)) = self.shape() else {
+            return Err(Error::NotAMatrix { len: self.len() });
+        };
+        if !inputs.len().is_multiple_of(columns) {
+            return Err(Error::ShapeMismatch {
+                len: inputs.len(),
+                columns,
+            });
         }
-        let rows = self.len() / columns;
         let batch = inputs.len() / columns;
 
-        // A wrong `columns` can ask for an enormous result. Multiply with an
-        // overflow check and reserve the memory up front, so a result too big
-        // for memory is an error instead of an abort.
+        // The result can be far larger than the tensor and the inputs
+        // together. Multiply with an overflow check and reserve the memory up
+        // front, so a result too big for memory is an error instead of an
+        // abort.
         let too_large = Error::OutputTooLarge { batch, rows };
         let Some(output_len) = batch.checked_mul(rows) else {
             return Err(too_large);

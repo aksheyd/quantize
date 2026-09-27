@@ -29,7 +29,7 @@ the other schemes return the same `Quantized` type:
 - `learned.refine(q, weights)` refits each block's scale and zero-point to lower the error
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
 
-quantized values can be pickled.
+quantized values can be pickled, and compared with `==`.
 
 to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):
 

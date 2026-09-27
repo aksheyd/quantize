@@ -5,7 +5,7 @@ use quantize::{learned, Quantized, Scale, Scheme};
 use crate::error::from_quantize;
 use crate::scale::PyScale;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) enum QuantizedInner {
     F32(Quantized<f32>),
     F16(Quantized<f16>),
@@ -77,7 +77,8 @@ impl QuantizedInner {
     }
 }
 
-#[pyclass(name = "Quantized", module = "quantize")]
+#[pyclass(name = "Quantized", module = "quantize", eq)]
+#[derive(PartialEq)]
 pub struct PyQuantized {
     pub(crate) inner: QuantizedInner,
 }

@@ -277,6 +277,7 @@ def test_pickle_roundtrip_including_f16():
     quantized = quantize(weights, bits=8, block=4, scale=Scale.F16)
     restored = pickle.loads(pickle.dumps(quantized))
     assert restored is not quantized
+    assert restored == quantized
     assert restored.kind == quantized.kind
     assert restored.scale == Scale.F16
     assert restored.nbytes == quantized.nbytes
@@ -309,3 +310,15 @@ def test_pickle_rejects_inconsistent_state():
         columns_that_do_not_split = state[:10] + (7,)
         with pytest.raises(ValueError):
             rebuild(columns_that_do_not_split)
+
+
+def test_quantized_compares_by_value():
+    weights = weight_matrix(4, 32)
+    quantized = quantize(weights, bits=4)
+    assert quantized == quantized.copy()
+    assert quantized == quantize(weights, bits=4)
+    assert quantized != quantize(weights, bits=8)
+    assert quantized != quantize(weights.ravel(), bits=4)
+    assert quantized != quantize(weights, bits=4, scale=Scale.F16)
+    with pytest.raises(TypeError, match="unhashable"):
+        hash(quantized)

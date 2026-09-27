@@ -1,4 +1,5 @@
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
@@ -237,6 +238,10 @@ impl PyQuantized {
                 self.scale()
             ),
         })
+    }
+
+    fn __hash__(&self) -> PyResult<isize> {
+        Err(PyTypeError::new_err("unhashable type: 'Quantized'"))
     }
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {

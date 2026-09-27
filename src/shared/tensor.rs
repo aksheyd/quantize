@@ -10,7 +10,7 @@ use crate::scale::Scale;
 /// The `len` values are a flat vector until
 /// [`into_matrix`](Self::into_matrix) records `columns`, the length of each
 /// row of a row-major matrix.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Quantized<S: Scale> {
     /// One scale per block.
     Symmetric {

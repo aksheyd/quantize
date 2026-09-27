@@ -19,6 +19,7 @@ fn main() -> candle_core::Result<()> {
     rows.push_str("| ---: | ---: | ---: |\n");
     for pair in report.methods.chunks(2) {
         let Some([q, c]) = pair.get(..2) else { break };
+        assert!(q.name.starts_with("quantize") && c.name.starts_with("candle"));
         rows.push_str(&format!(
             "| {:.1} | {:.6} | {:.6} |\n",
             q.bits_per_element, q.mse, c.mse,

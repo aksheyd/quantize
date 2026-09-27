@@ -30,9 +30,9 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
             columns: None,
         });
     }
-    let (scales_f, codes) = quantize_sym_packed(values, bits, block);
+    let (scales, codes) = quantize_sym_packed::<S>(values, bits, block);
     Ok(Quantized::Symmetric {
-        scales: scales_f.into_iter().map(S::from_f32).collect(),
+        scales,
         codes,
         block,
         len: values.len(),
@@ -56,6 +56,37 @@ mod tests {
         let back = q.dequantize();
         for (a, b) in w.iter().zip(&back) {
             assert!((a - b).abs() < 0.01, "{a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn farthest_value_lands_on_the_most_negative_code() {
+        // With 0.8, 1.6, or 12.8 on code -8, -16, or -128, each tick is 0.1,
+        // so every multiple of 0.1 decodes exactly, on either side of zero.
+        for (bits, extreme) in [(4, 0.8_f32), (5, 1.6), (8, 12.8)] {
+            for sign in [1.0, -1.0] {
+                let w = [extreme, -0.4, 0.1, 0.1 - extreme].map(|value| value * sign);
+                let back = quantize_with::<f32>(&w, bits, 4).unwrap().dequantize();
+                for (a, b) in w.iter().zip(&back) {
+                    assert!((a - b).abs() < 1e-5, "{bits} bits: {a} vs {b}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn codes_are_picked_against_the_stored_scale() {
+        // bf16 rounds each scale, yet every value decodes within half a tick
+        // of it. All positive, so no value is clamped on the far side of zero.
+        let w: Vec<f32> = (0..1024).map(|i| 0.6 + (i as f32).sin() * 0.5).collect();
+        let q = quantize_with::<half::bf16>(&w, 8, 32).unwrap();
+        let back = q.dequantize();
+        let blocks = w.chunks(32).zip(back.chunks(32)).zip(q.scales());
+        for ((values, decoded), scale) in blocks {
+            let half_tick = scale.to_f32().abs() / 2.0;
+            for (a, b) in values.iter().zip(decoded) {
+                assert!((a - b).abs() <= half_tick * 1.001, "{a} vs {b}");
+            }
         }
     }
 

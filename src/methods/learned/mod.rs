@@ -153,7 +153,7 @@ mod tests {
 
     #[test]
     fn refine_keeps_flat_block() {
-        // Stored as bf16, the fitted zero-point would decode this block as 0.5.
+        // Stored as bf16, the fitted zero-point would decode this block as 0.
         let values = [0.3_f32; 32];
         let mut q = crate::quantize::<half::bf16, 8, 32>(&values).unwrap();
         refine(&mut q, &values).unwrap();

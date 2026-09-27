@@ -14,8 +14,8 @@ from quantize import Scale, quantize
 weights = [0.42, -0.10, 0.70, -0.50]
 
 q = quantize(weights, bits=8, block=32, scale=Scale.F16)
-back = q.dequantize()  # [0.419, -0.099, 0.700, -0.502]
-dot = q.dot(weights)  # 0.927
+back = q.dequantize()  # [0.421, -0.098, 0.700, -0.498]
+dot = q.dot(weights)  # 0.926
 ```
 
 `bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.Bf16`. values can be a list of floats or a 1-d numpy array. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer.
@@ -26,7 +26,7 @@ the other schemes return the same `Quantized` type:
 
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive.quantize(weights, block=32, tolerance=0.001)` picks each block's bit width from `tolerance`, the rounding error to aim for, in the same units as the weights
-- `learned.refine(q, weights)` refits each block's scale and zero-point to lower the error
+- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the error
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
 
 quantized values can be pickled, and compared with `==`.

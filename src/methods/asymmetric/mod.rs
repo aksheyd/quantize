@@ -31,9 +31,9 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
     let mut zero_points = Vec::with_capacity(values.len().div_ceil(block));
     let mut codes = Vec::with_capacity(values.len());
     for chunk in values.chunks(block) {
-        let (s, z) = quantize_asym_block(chunk, bits, &mut codes);
-        scales.push(S::from_f32(s));
-        zero_points.push(S::from_f32(z));
+        let (scale, zero_point) = quantize_asym_block::<S>(chunk, bits, &mut codes);
+        scales.push(scale);
+        zero_points.push(zero_point);
     }
     Ok(Quantized::Asymmetric {
         scales,
@@ -64,6 +64,19 @@ mod tests {
         for (a, b) in w.iter().zip(&back) {
             assert!((a - b).abs() < 0.02, "{a} vs {b}");
         }
+    }
+
+    #[test]
+    fn codes_are_picked_against_the_stored_scale_and_zero_point() {
+        // All positive, so each zero-point sits near -150, where bf16 stores
+        // only whole numbers. Codes picked against the stored zero-point take
+        // up that rounding, so the error stays close to f32's.
+        let w: Vec<f32> = (0..1024).map(|i| 0.6 + (i as f32).sin() * 0.5).collect();
+        let squared_error =
+            |back: Vec<f32>| -> f32 { w.iter().zip(back).map(|(a, b)| (a - b) * (a - b)).sum() };
+        let exact = squared_error(quantize_with::<f32>(&w, 8, 32).unwrap().dequantize());
+        let rounded = squared_error(quantize_with::<half::bf16>(&w, 8, 32).unwrap().dequantize());
+        assert!(rounded < exact * 1.2, "{rounded} vs {exact}");
     }
 
     #[test]

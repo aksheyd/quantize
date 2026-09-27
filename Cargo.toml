@@ -95,6 +95,10 @@ name = "ch07_learned"
 path = "chapters/ch07_learned.rs"
 
 [[example]]
+name = "ch08_alternating"
+path = "chapters/ch08_alternating.rs"
+
+[[example]]
 name = "compare"
 path = "benchmarks/compare.rs"
 

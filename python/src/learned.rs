@@ -2,7 +2,7 @@
 
 use pyo3::prelude::*;
 
-use crate::error::length_mismatch;
+use crate::error::{from_quantize, length_mismatch};
 use crate::input::{as_f32_values, as_i32_codes};
 use crate::quantized::PyQuantized;
 
@@ -12,15 +12,10 @@ pub fn refine<'py>(
     values: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyQuantized>> {
     let owned = as_f32_values(&values)?;
-    {
-        let mut inner = quantized.borrow_mut();
-        if inner.len() != owned.len() {
-            return Err(length_mismatch(inner.len(), owned.len()));
-        }
-        if !owned.is_empty() {
-            inner.refine(&owned);
-        }
-    }
+    quantized
+        .borrow_mut()
+        .refine(&owned)
+        .map_err(from_quantize)?;
     Ok(quantized)
 }
 

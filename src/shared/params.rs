@@ -23,10 +23,13 @@ pub fn symmetric_scale(max_abs: f32, bits: u32) -> f32 {
 }
 
 /// Scale and zero-point that stretch `[lowest, highest]` onto the integer grid.
+///
+/// A flat block (`lowest == highest`) has no range to stretch, so it falls back
+/// to [`symmetric_scale`] with a zero-point of 0.
 #[inline]
 pub fn asymmetric_params(lowest: f32, highest: f32, bits: u32) -> (f32, f32) {
     if lowest >= highest {
-        return (1.0, 0.0);
+        return (symmetric_scale(highest.abs(), bits), 0.0);
     }
     let code_min = smallest_code(bits) as f32;
     let code_max = largest_code(bits) as f32;

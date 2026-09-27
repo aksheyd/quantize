@@ -63,4 +63,14 @@ mod tests {
             assert!((a - b).abs() < 0.02, "{a} vs {b}");
         }
     }
+
+    #[test]
+    fn flat_block_roundtrips() {
+        for value in [0.3_f32, -5.0, 1000.0] {
+            let q = quantize::<f32, 4, 32>(&[value; 32]).unwrap();
+            for back in q.dequantize() {
+                assert!((back - value).abs() < 1e-3, "{value} vs {back}");
+            }
+        }
+    }
 }

@@ -1,7 +1,7 @@
 //! # quantize
 //!
 //! A tiny, readable quantization library — block-wise symmetric or asymmetric,
-//! any bit width.
+//! from 2 to 16 bits.
 //!
 //! ## Example
 //!
@@ -25,8 +25,10 @@
 //! `BITS` and `BLOCK` are const generics, so `quantize::<f32, 4, 32>(...)`,
 //! `quantize::<f32, 8, 64>(...)`, etc. all compile to specialized code.
 //!
-//! See `symmetric`, `asymmetric`, and `adaptive` for the other schemes.
-//! To learn how the library got here, please see `chapters/`.
+//! See [`symmetric`], [`asymmetric`], and [`adaptive`] for the schemes,
+//! [`Scheme`] to choose one at run time, and [`learned`] to pick a better scale
+//! and zero-point after quantizing. To learn how the library got here, see the
+//! [chapters](https://github.com/aksheyd/quantize/tree/main/chapters).
 //!
 //! ## NaN and infinity
 //!

@@ -212,6 +212,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "chapters"
+version = "0.0.0"
+
+[[package]]
 name = "compact_str"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -36,7 +36,7 @@ let back = q.dequantize(); // [0.419, -0.099, 0.700, -0.502]
 let dot = q.dot(&weights).unwrap(); // 0.927
 ```
 
-`quantize` is symmetric: each block gets one scale. the other schemes return the same type:
+`quantize` is symmetric: each block gets one scale. everything below uses the same `Quantized` type:
 
 - `asymmetric::quantize` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive::quantize` picks each block's bit width from an error tolerance

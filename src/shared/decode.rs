@@ -243,13 +243,13 @@ fn decode_row<S: Scale>(
 /// independent, so it can add them side by side in SIMD registers.
 fn dot(left: &[f32], right: &[f32]) -> f32 {
     const LANES: usize = 16;
-    let left_chunks = left.chunks_exact(LANES);
-    let right_chunks = right.chunks_exact(LANES);
-    let remainder = left_chunks.remainder().iter().zip(right_chunks.remainder());
+    let (left_chunks, left_remainder) = left.as_chunks::<LANES>();
+    let (right_chunks, right_remainder) = right.as_chunks::<LANES>();
+    let remainder = left_remainder.iter().zip(right_remainder);
     let remainder_total: f32 = remainder.map(|(a, b)| a * b).sum();
 
     let mut totals = [0.0_f32; LANES];
-    for (left_chunk, right_chunk) in left_chunks.zip(right_chunks) {
+    for (left_chunk, right_chunk) in left_chunks.iter().zip(right_chunks) {
         for ((total, a), b) in totals.iter_mut().zip(left_chunk).zip(right_chunk) {
             *total += a * b;
         }

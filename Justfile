@@ -13,6 +13,10 @@ test:
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
+minimum-rust:
+    rustup toolchain install 1.88 --profile minimal
+    cargo +1.88 check --workspace --all-targets --all-features
+
 setup:
     python -m venv .venv
     {{venv}} -m pip install maturin numpy pytest

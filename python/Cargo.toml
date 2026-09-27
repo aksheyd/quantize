@@ -2,7 +2,7 @@
 name = "quantize-py"
 version = "0.2.2"
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 publish = false
 license = "MIT"
 description = "Python bindings for the quantize crate."

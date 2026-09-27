@@ -14,7 +14,7 @@ cd quantize
 cargo run --release --example ch01_simple
 ```
 
-then `ch02_naive`, `ch03_bits`, `ch04_block`, `ch05_asymmetric`, `ch06_adaptive`, and `ch07_learned`.
+then `ch02_naive`, `ch03_bits`, `ch04_block`, `ch05_asymmetric`, `ch06_adaptive`, `ch07_learned`, and `ch08_alternating`.
 
 ## use as a library
 

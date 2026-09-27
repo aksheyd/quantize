@@ -90,7 +90,8 @@ fn main() {
     compare::<4>("wide", &[0.10, 0.33, 0.71, 1.10]);
 
     println!("On the quiet block, symmetric puts every value on the same code; a");
-    println!("zero-point spreads the codes over each block's own range instead. Both");
-    println!("blocks got 4 bits, though, and the quiet one came back far more precisely.");
-    println!("Chapter 6 (`ch06_adaptive`) picks the bit width per block.");
+    println!("zero-point spreads the codes over each block's own range instead. The");
+    println!("library does this in `quantize::asymmetric::quantize`. Both blocks got");
+    println!("4 bits, though, and the quiet one came back far more precisely. Chapter 6");
+    println!("(`ch06_adaptive`) picks the bit width per block.");
 }

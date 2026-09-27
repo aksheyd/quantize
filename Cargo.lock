@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "quantize"
-version = "0.2.2"
+version = "0.3.0-dev"
 dependencies = [
  "candle-core",
  "candle-nn",
@@ -1410,7 +1410,7 @@ dependencies = [
 
 [[package]]
 name = "quantize-py"
-version = "0.2.2"
+version = "0.3.0-dev"
 dependencies = [
  "half",
  "numpy",

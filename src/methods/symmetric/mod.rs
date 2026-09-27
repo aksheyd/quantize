@@ -76,6 +76,33 @@ mod tests {
     }
 
     #[test]
+    fn nan_quantizes_like_zero() {
+        let mut with_nan: Vec<f32> = (0..32).map(|i| (i as f32) * 0.01 - 0.15).collect();
+        let mut with_zero = with_nan.clone();
+        with_nan[3] = f32::NAN;
+        with_zero[3] = 0.0;
+        for bits in [4, 5, 8] {
+            let nan = quantize_with::<f32>(&with_nan, bits, 32).unwrap();
+            let zero = quantize_with::<f32>(&with_zero, bits, 32).unwrap();
+            assert_eq!(nan.dequantize(), zero.dequantize(), "{bits} bits");
+        }
+    }
+
+    #[test]
+    fn infinity_turns_its_block_into_nan() {
+        let mut w = vec![0.1_f32; 64];
+        w[3] = f32::INFINITY;
+        for bits in [4, 5, 8] {
+            let back = quantize_with::<f32>(&w, bits, 32).unwrap().dequantize();
+            assert!(back[..32].iter().all(|v| v.is_nan()), "{bits} bits");
+            assert!(
+                back[32..].iter().all(|v| (v - 0.1).abs() < 0.01),
+                "{bits} bits"
+            );
+        }
+    }
+
+    #[test]
     fn dequantize_into_rejects_wrong_length() {
         let w = [0.1_f32; 8];
         let q = quantize::<f32, 8, 8>(&w).unwrap();
@@ -97,6 +124,18 @@ mod tests {
         for (a, b) in w.iter().zip(&back) {
             assert!((a - b).abs() < 0.08, "{a} vs {b}");
         }
+    }
+
+    #[test]
+    #[should_panic]
+    fn four_bit_dequantize_panics_on_short_codes() {
+        let short = Quantized::<f32>::Symmetric {
+            scales: vec![1.0; 2],
+            codes: Packed::from_raw(vec![0; 16], 4, 64),
+            block: 32,
+            len: 64,
+        };
+        short.dequantize();
     }
 
     #[test]

@@ -140,27 +140,26 @@ pub(crate) fn matmul_of<S: Scale>(
         return out;
     }
 
-    // A block must sit inside one row so each row can reuse the packed fused dots.
+    // Decode each weight row once, then reuse it for every vector in the batch.
+    // A block must sit inside one row so a row can be decoded on its own.
     // 4-bit rows also have to start on a byte (even column count).
     if packed_rows_ok(quantized, columns) {
         let scales = as_f32(quantized.scales());
         let zero_points = as_f32(quantized.zero_points());
-        for vector in 0..vectors {
-            let rhs_vec = &rhs[vector * columns..(vector + 1) * columns];
-            for row in 0..rows {
-                out[vector * rows + row] =
-                    packed_row_dot(quantized, &scales, &zero_points, row, columns, rhs_vec);
+        let mut row_weights = vec![0.0; columns];
+        for row in 0..rows {
+            decode_row(quantized, &scales, &zero_points, row, &mut row_weights);
+            for (vector, rhs_vec) in rhs.chunks_exact(columns).enumerate() {
+                out[vector * rows + row] = dot(&row_weights, rhs_vec);
             }
         }
         return out;
     }
 
     let weights = quantized.dequantize();
-    for vector in 0..vectors {
-        let rhs_vec = &rhs[vector * columns..(vector + 1) * columns];
-        for row in 0..rows {
-            let left = &weights[row * columns..(row + 1) * columns];
-            out[vector * rows + row] = left.iter().zip(rhs_vec).map(|(w, x)| w * x).sum();
+    for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
+        for (vector, rhs_vec) in rhs.chunks_exact(columns).enumerate() {
+            out[vector * rows + row] = dot(row_weights, rhs_vec);
         }
     }
     out
@@ -179,14 +178,14 @@ fn packed_rows_ok<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
     }
 }
 
-fn packed_row_dot<S: Scale>(
+fn decode_row<S: Scale>(
     quantized: &Quantized<S>,
     scales: &[f32],
     zero_points: &[f32],
     row: usize,
-    columns: usize,
-    rhs: &[f32],
-) -> f32 {
+    out: &mut [f32],
+) {
+    let columns = out.len();
     let block = quantized.block();
     let scales_per_row = columns / block;
     let scale_offset = row * scales_per_row;
@@ -194,21 +193,21 @@ fn packed_row_dot<S: Scale>(
     match quantized {
         Quantized::Symmetric { codes, .. } if codes.bits() == 8 => {
             let start = row * columns;
-            dot_i8_blocks(
+            dequant_i8_blocks(
                 row_scales,
                 &codes.as_bytes()[start..start + columns],
                 block,
-                rhs,
+                out,
             )
         }
         Quantized::Symmetric { codes, .. } if codes.bits() == 4 => {
             let bytes_per_row = columns / 2;
             let start = row * bytes_per_row;
-            dot_i4_blocks(
+            dequant_i4_blocks(
                 row_scales,
                 &codes.as_bytes()[start..start + bytes_per_row],
                 block,
-                rhs,
+                out,
             )
         }
         Quantized::Symmetric { codes, .. } => {
@@ -219,7 +218,7 @@ fn packed_row_dot<S: Scale>(
                 codes.bits(),
                 columns,
             );
-            dot_sym(row_scales, &packed, block, rhs)
+            dequant_sym_into(row_scales, &packed, block, out)
         }
         Quantized::Asymmetric { codes, .. } => {
             let bytes_per_row = nbytes(columns, codes.bits());
@@ -230,12 +229,62 @@ fn packed_row_dot<S: Scale>(
                 columns,
             );
             let row_zero_points = &zero_points[scale_offset..scale_offset + scales_per_row];
-            dot_asym(row_scales, row_zero_points, &packed, block, rhs)
+            dequant_asym_into(row_scales, row_zero_points, &packed, block, out)
         }
         Quantized::Adaptive { .. } => {
             let weights = quantized.dequantize();
-            let left = &weights[row * columns..(row + 1) * columns];
-            left.iter().zip(rhs).map(|(w, x)| w * x).sum()
+            out.copy_from_slice(&weights[row * columns..(row + 1) * columns]);
+        }
+    }
+}
+
+/// Multiply two slices element by element and add up the products.
+///
+/// Float addition is not associative, so with one running total the compiler
+/// must add the products in order, one at a time. Sixteen separate totals are
+/// independent, so it can add them side by side in SIMD registers.
+fn dot(left: &[f32], right: &[f32]) -> f32 {
+    const LANES: usize = 16;
+    let left_chunks = left.chunks_exact(LANES);
+    let right_chunks = right.chunks_exact(LANES);
+    let remainder = left_chunks.remainder().iter().zip(right_chunks.remainder());
+    let remainder_total: f32 = remainder.map(|(a, b)| a * b).sum();
+
+    let mut totals = [0.0_f32; LANES];
+    for (left_chunk, right_chunk) in left_chunks.zip(right_chunks) {
+        for ((total, a), b) in totals.iter_mut().zip(left_chunk).zip(right_chunk) {
+            *total += a * b;
+        }
+    }
+    totals.iter().sum::<f32>() + remainder_total
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{adaptive, asymmetric, symmetric, Quantized};
+
+    #[test]
+    fn matmul_matches_dequant_then_multiply_for_every_scheme() {
+        let values: Vec<f32> = (0..80).map(|i| (i as f32) * 0.02 - 0.8).collect();
+        let rhs: Vec<f32> = (0..80).map(|i| (i as f32) * 0.01 - 0.3).collect();
+        let (rows, columns) = (2, 40);
+        let tensors: [Quantized<f32>; 5] = [
+            symmetric::quantize_with(&values, 8, 8).unwrap(),
+            symmetric::quantize_with(&values, 4, 8).unwrap(),
+            symmetric::quantize_with(&values, 5, 8).unwrap(),
+            asymmetric::quantize_with(&values, 4, 8).unwrap(),
+            adaptive::quantize_with(&values, 8, 0.001).unwrap(),
+        ];
+        for quantized in &tensors {
+            let weights = quantized.dequantize();
+            let fused = quantized.matmul(&rhs, columns).unwrap();
+            for (vector, rhs_vec) in rhs.chunks_exact(columns).enumerate() {
+                for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
+                    let naive: f32 = row_weights.iter().zip(rhs_vec).map(|(a, b)| a * b).sum();
+                    let got = fused[vector * rows + row];
+                    assert!((naive - got).abs() < 1e-4, "{naive} vs {got}");
+                }
+            }
         }
     }
 }

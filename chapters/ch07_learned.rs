@@ -48,10 +48,13 @@ fn mse(predicted: &[f32], expected: &[f32]) -> f32 {
 fn main() {
     // One outlier dominates a min/max scale; a best-fit line ignores it better.
     let values = [0.10_f32, 0.12, 0.11, 0.13, 4.0];
-    let codes = [10, 12, 11, 13, 127];
 
     let max = values.iter().copied().fold(0.0_f32, f32::max);
     let minmax_scale = max / 127.0;
+    let codes: Vec<i32> = values
+        .iter()
+        .map(|&value| (value / minmax_scale).round() as i32)
+        .collect();
     let minmax_back: Vec<f32> = codes
         .iter()
         .map(|&code| code as f32 * minmax_scale)
@@ -63,12 +66,13 @@ fn main() {
         .map(|&code| scale * (code as f32 - zero_point))
         .collect();
 
+    println!("codes   {codes:?}");
     println!(
-        "minmax  scale={minmax_scale:.5}  mse={:.5}",
+        "minmax  scale={minmax_scale:.5}  mse={:.6}",
         mse(&minmax_back, &values)
     );
     println!(
-        "fitted  scale={scale:.5} zero_point={zero_point:.3}  mse={:.5}",
+        "fitted  scale={scale:.5} zero_point={zero_point:.3}  mse={:.6}",
         mse(&fitted, &values)
     );
     println!("\nDequant is a line. Fit the line; keep the codes.");

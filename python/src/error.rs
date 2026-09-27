@@ -153,6 +153,10 @@ pub fn length_mismatch(expected: usize, got: usize) -> PyErr {
     PyErr::new::<LengthMismatchError, _>((expected, got))
 }
 
+pub fn shape_mismatch(len: usize, columns: usize) -> PyErr {
+    PyErr::new::<ShapeMismatchError, _>((len, columns))
+}
+
 pub fn from_quantize(err: quantize::Error) -> PyErr {
     match err {
         quantize::Error::InvalidBits { bits } => PyErr::new::<InvalidBitsError, _>(bits),

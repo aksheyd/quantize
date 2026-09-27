@@ -33,11 +33,20 @@ fn choose_bits(range: f32, tol: f32) -> u32 {
     8
 }
 
+fn symmetric_scale(max_abs: f32, bits: u32) -> f32 {
+    if max_abs > 0.0 {
+        max_abs / max_int(bits) as f32
+    } else {
+        1.0
+    }
+}
+
 fn asym_params(block: &[f32], bits: u32) -> (f32, f32) {
     let rmin = block.iter().copied().fold(f32::INFINITY, f32::min);
     let rmax = block.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     if rmin >= rmax {
-        return (1.0, 0.0);
+        // A flat block has no range to stretch, so use the symmetric scale (Ch. 4).
+        return (symmetric_scale(rmax.abs(), bits), 0.0);
     }
     let qmin = min_int(bits) as f32;
     let scale = (rmax - rmin) / (max_int(bits) as f32 - qmin);

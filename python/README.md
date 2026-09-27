@@ -39,3 +39,5 @@ to build and test from a clone of the repo, with rust 1.88 or newer and [just](h
 just setup
 just python
 ```
+
+on debian or ubuntu, run `sudo apt install python3-venv` first.

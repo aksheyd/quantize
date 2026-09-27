@@ -128,16 +128,15 @@ pub(crate) fn unpack_codes<S: Scale>(quantized: &Quantized<S>, out: &mut [i32]) 
     }
 }
 
-pub(crate) fn matmul_of<S: Scale>(
+pub(crate) fn matmul_into<S: Scale>(
     quantized: &Quantized<S>,
-    rhs: &[f32],
+    inputs: &[f32],
     columns: usize,
-) -> Vec<f32> {
+    out: &mut [f32],
+) {
     let rows = quantized.len() / columns;
-    let vectors = rhs.len() / columns;
-    let mut out = vec![0.0; vectors * rows];
-    if quantized.is_empty() || rhs.is_empty() {
-        return out;
+    if quantized.is_empty() || inputs.is_empty() {
+        return;
     }
 
     // Decode each weight row once, then reuse it for every vector in the batch.
@@ -149,20 +148,19 @@ pub(crate) fn matmul_of<S: Scale>(
         let mut row_weights = vec![0.0; columns];
         for row in 0..rows {
             decode_row(quantized, &scales, &zero_points, row, &mut row_weights);
-            for (vector, rhs_vec) in rhs.chunks_exact(columns).enumerate() {
-                out[vector * rows + row] = dot(&row_weights, rhs_vec);
+            for (vector, input) in inputs.chunks_exact(columns).enumerate() {
+                out[vector * rows + row] = dot(&row_weights, input);
             }
         }
-        return out;
+        return;
     }
 
     let weights = quantized.dequantize();
     for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
-        for (vector, rhs_vec) in rhs.chunks_exact(columns).enumerate() {
-            out[vector * rows + row] = dot(row_weights, rhs_vec);
+        for (vector, input) in inputs.chunks_exact(columns).enumerate() {
+            out[vector * rows + row] = dot(row_weights, input);
         }
     }
-    out
 }
 
 fn packed_rows_ok<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
@@ -245,13 +243,13 @@ fn decode_row<S: Scale>(
 /// independent, so it can add them side by side in SIMD registers.
 fn dot(left: &[f32], right: &[f32]) -> f32 {
     const LANES: usize = 16;
-    let left_chunks = left.chunks_exact(LANES);
-    let right_chunks = right.chunks_exact(LANES);
-    let remainder = left_chunks.remainder().iter().zip(right_chunks.remainder());
+    let (left_chunks, left_remainder) = left.as_chunks::<LANES>();
+    let (right_chunks, right_remainder) = right.as_chunks::<LANES>();
+    let remainder = left_remainder.iter().zip(right_remainder);
     let remainder_total: f32 = remainder.map(|(a, b)| a * b).sum();
 
     let mut totals = [0.0_f32; LANES];
-    for (left_chunk, right_chunk) in left_chunks.zip(right_chunks) {
+    for (left_chunk, right_chunk) in left_chunks.iter().zip(right_chunks) {
         for ((total, a), b) in totals.iter_mut().zip(left_chunk).zip(right_chunk) {
             *total += a * b;
         }
@@ -266,7 +264,7 @@ mod tests {
     #[test]
     fn matmul_matches_dequant_then_multiply_for_every_scheme() {
         let values: Vec<f32> = (0..80).map(|i| (i as f32) * 0.02 - 0.8).collect();
-        let rhs: Vec<f32> = (0..80).map(|i| (i as f32) * 0.01 - 0.3).collect();
+        let inputs: Vec<f32> = (0..80).map(|i| (i as f32) * 0.01 - 0.3).collect();
         let (rows, columns) = (2, 40);
         let tensors: [Quantized<f32>; 5] = [
             symmetric::quantize_with(&values, 8, 8).unwrap(),
@@ -277,10 +275,10 @@ mod tests {
         ];
         for quantized in &tensors {
             let weights = quantized.dequantize();
-            let fused = quantized.matmul(&rhs, columns).unwrap();
-            for (vector, rhs_vec) in rhs.chunks_exact(columns).enumerate() {
+            let fused = quantized.matmul(&inputs, columns).unwrap();
+            for (vector, input) in inputs.chunks_exact(columns).enumerate() {
                 for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
-                    let naive: f32 = row_weights.iter().zip(rhs_vec).map(|(a, b)| a * b).sum();
+                    let naive: f32 = row_weights.iter().zip(input).map(|(a, b)| a * b).sum();
                     let got = fused[vector * rows + row];
                     assert!((naive - got).abs() < 1e-4, "{naive} vs {got}");
                 }

@@ -1,82 +1,96 @@
-//! # Chapter 5 — asymmetric, precision-aware
+//! # Chapter 5 — asymmetric (zero-point)
 //!
-//! **Previously** (`ch04_block`): per-block scales aren't symmetric around zero.
+//! **Previously** (`ch04_block`): each block got its own scale from its largest
+//! magnitude, so its codes cover `-max..=max`, symmetric around zero. The data
+//! in a block may not be.
 //!
-//! **Problem**:  So, if all values are positive, we waste the negative half of
-//!  the quantized range. For example, `[0.1, 0.3, 0.7, 1.1]` at 8 bits with a
-//! `0.01` would quantize to `[10, 30, 70, 110]` -> no negative values used.
+//! **Problem**: So, if all values are positive, we waste the negative half of
+//! the quantized range. For example, `[0.10, 0.33, 0.71, 1.10]` at 8 bits with
+//! a scale of `0.01` would quantize to `[10, 33, 71, 110]` -> no negative codes.
 //!
-//! **Fix**: Store a zero-point per block that fits real [min, max]. We "stretch"
-//! the quantized range to fit the real range and "shift" to center the real zero.
+//! **Fix**: Store a *zero-point* per block: the code that real 0 maps to. We
+//! "stretch" the quantized range to fit the block's real `[min, max]` and
+//! "shift" it so the minimum lands on the smallest code and the maximum on the
+//! largest. Chapter 4's symmetric scale is the case where the zero-point is 0.
 //!
-//! **Still wrong**: we are leaving optimizations on the table by using a fixed bit width for all blocks.
-//! For example, a block with small ranges of values doesn't need 16 bits to achieve the same precision.
+//! **Still wrong**: every block gets the same bit width, however wide its
+//! range. At 4 bits the quiet block below comes back far more precisely than
+//! the wide one.
 //!
 //! Run it: `cargo run --release --example ch05_asymmetric`
 
-const fn max_int(b: u32) -> i32 {
-    (1_i32 << (b - 1)) - 1
+const fn largest_code<const BITS: u32>() -> i32 {
+    (1_i32 << (BITS - 1)) - 1
 }
-const fn min_int(b: u32) -> i32 {
-    -(1_i32 << (b - 1))
-}
-
-fn choose_bits(range: f32, tol: f32) -> u32 {
-    if range <= 0.0 {
-        return 2;
-    }
-    for b in 2..=8 {
-        if range / ((1u32 << b) - 1) as f32 / 2.0 <= tol {
-            return b;
-        }
-    }
-    8
+const fn smallest_code<const BITS: u32>() -> i32 {
+    -(1_i32 << (BITS - 1))
 }
 
-fn symmetric_scale(max_abs: f32, bits: u32) -> f32 {
+/// Chapter 4: the largest magnitude lands on the largest code.
+fn symmetric_params<const BITS: u32>(block: &[f32]) -> (f32, f32) {
+    let max_abs = block.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
     if max_abs > 0.0 {
-        max_abs / max_int(bits) as f32
+        (max_abs / largest_code::<BITS>() as f32, 0.0)
     } else {
-        1.0
+        (1.0, 0.0)
     }
 }
 
-fn asym_params(block: &[f32], bits: u32) -> (f32, f32) {
-    let rmin = block.iter().copied().fold(f32::INFINITY, f32::min);
-    let rmax = block.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-    if rmin >= rmax {
-        // A flat block has no range to stretch, so use the symmetric scale (Ch. 4).
-        return (symmetric_scale(rmax.abs(), bits), 0.0);
+/// The minimum lands on the smallest code, the maximum on the largest.
+fn asymmetric_params<const BITS: u32>(block: &[f32]) -> (f32, f32) {
+    let lowest = block.iter().copied().fold(f32::INFINITY, f32::min);
+    let highest = block.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    if lowest >= highest {
+        // A flat block has no range to stretch, so use the symmetric scale.
+        return symmetric_params::<BITS>(block);
     }
-    let qmin = min_int(bits) as f32;
-    let scale = (rmax - rmin) / (max_int(bits) as f32 - qmin);
-    let zp = qmin - rmin / scale;
-    (scale, zp)
+    let steps = (largest_code::<BITS>() - smallest_code::<BITS>()) as f32;
+    let scale = (highest - lowest) / steps;
+    let zero_point = smallest_code::<BITS>() as f32 - lowest / scale;
+    (scale, zero_point)
 }
 
-fn q_asym(x: f32, scale: f32, zp: f32, bits: u32) -> i32 {
-    ((x / scale + zp).round() as i32).clamp(min_int(bits), max_int(bits))
+/// Quantize each value to a code, then decode the code back.
+fn roundtrip<const BITS: u32>(block: &[f32], (scale, zero_point): (f32, f32)) -> Vec<f32> {
+    let smallest = smallest_code::<BITS>() as f32;
+    let largest = largest_code::<BITS>() as f32;
+    let mut back = Vec::new();
+    for &x in block {
+        let code = (x / scale + zero_point).round().clamp(smallest, largest) as i32;
+        back.push((code as f32 - zero_point) * scale);
+    }
+    back
 }
-fn dq_asym(q: i32, scale: f32, zp: f32) -> f32 {
-    (q as f32 - zp) * scale
+
+/// The biggest gap between an input and what came back.
+fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
+    let mut worst = 0.0_f32;
+    for (input, output) in inputs.iter().zip(outputs) {
+        worst = worst.max((input - output).abs());
+    }
+    worst
+}
+
+fn compare<const BITS: u32>(name: &str, block: &[f32]) {
+    let symmetric = roundtrip::<BITS>(block, symmetric_params::<BITS>(block));
+    let asymmetric = roundtrip::<BITS>(block, asymmetric_params::<BITS>(block));
+
+    println!("{name} block, {BITS} bits");
+    println!("      value  symmetric  asymmetric");
+    for (i, value) in block.iter().enumerate() {
+        println!("{value:>11.4}{:>11.4}{:>12.4}", symmetric[i], asymmetric[i]);
+    }
+    let symmetric_error = worst_error(block, &symmetric);
+    let asymmetric_error = worst_error(block, &asymmetric);
+    println!("worst error{symmetric_error:>11.4}{asymmetric_error:>12.4}\n");
 }
 
 fn main() {
-    let tol = 0.001_f32;
-    let tiny = [0.500, 0.501, 0.499, 0.5005];
-    let wide = [0.10, 0.30, 0.70, 1.10];
+    compare::<4>("quiet", &[0.500, 0.501, 0.499, 0.5005]);
+    compare::<4>("wide", &[0.10, 0.33, 0.71, 1.10]);
 
-    let bt = choose_bits(0.5005 - 0.499, tol);
-    let (st, zpt) = asym_params(&tiny, bt);
-    let ct: Vec<_> = tiny.iter().map(|&x| q_asym(x, st, zpt, bt)).collect();
-    let recon_t: Vec<_> = ct.iter().map(|&q| dq_asym(q, st, zpt)).collect();
-
-    let bw = choose_bits(1.10 - 0.10, tol);
-    let (sw, zpw) = asym_params(&wide, bw);
-    let cw: Vec<_> = wide.iter().map(|&x| q_asym(x, sw, zpw, bw)).collect();
-    let recon_w: Vec<_> = cw.iter().map(|&q| dq_asym(q, sw, zpw)).collect();
-
-    println!("tiny bits={} recon={:?}", bt, recon_t);
-    println!("wide bits={} recon={:?}", bw, recon_w);
-    println!("Asymmetric centers grid per block; precision-aware picks bits by range.");
+    println!("On the quiet block, symmetric puts every value on the same code; a");
+    println!("zero-point spreads the codes over each block's own range instead. Both");
+    println!("blocks got 4 bits, though, and the quiet one came back far more precisely.");
+    println!("Chapter 6 (`ch06_adaptive`) picks the bit width per block.");
 }

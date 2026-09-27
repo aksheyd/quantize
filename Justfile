@@ -33,13 +33,13 @@ wheels:
     maturin build --release --out dist
 
 chapters:
-    cargo run --example ch01_simple
-    cargo run --example ch02_naive
-    cargo run --example ch03_bits
-    cargo run --example ch04_block
-    cargo run --example ch05_asymmetric
-    cargo run --example ch06_adaptive
-    cargo run --example ch07_learned
+    cargo run --release --example ch01_simple
+    cargo run --release --example ch02_naive
+    cargo run --release --example ch03_bits
+    cargo run --release --example ch04_block
+    cargo run --release --example ch05_asymmetric
+    cargo run --release --example ch06_adaptive
+    cargo run --release --example ch07_learned
 
 compare:
     cargo run --release --example compare

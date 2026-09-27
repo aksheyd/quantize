@@ -102,6 +102,8 @@ fn encode<S: ScaleBits>(values: &[S]) -> Vec<u8> {
     bytes
 }
 
+// `as_chunks` would need `S::WIDTH` as a const argument, which cannot depend on the generic `S`.
+#[allow(clippy::chunks_exact_to_as_chunks)]
 fn decode<S: ScaleBits>(bytes: &[u8]) -> PyResult<Vec<S>> {
     if !bytes.len().is_multiple_of(S::WIDTH) {
         return Err(malformed());

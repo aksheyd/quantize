@@ -33,6 +33,16 @@ jobs:
       - name: Chapters
         run: just chapters
 
+  minimum-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: extractions/setup-just@v4
+
+      - name: Check
+        run: just minimum-rust
+
   python:
     runs-on: ubuntu-latest
     steps:

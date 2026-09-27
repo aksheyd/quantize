@@ -43,16 +43,28 @@ fn choose_scale_bits<const BITS: u32>(values: &[f32]) -> f32 {
     }
 }
 
+/// The biggest gap between an input and what came back.
+fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
+    let mut worst = 0.0_f32;
+    for (input, output) in inputs.iter().zip(outputs) {
+        worst = worst.max((input - output).abs());
+    }
+    worst
+}
+
 fn roundtrip<const BITS: u32>(weights: &[f32]) {
     let scale = choose_scale_bits::<BITS>(weights);
     println!("\n--- {BITS}-bit  (scale = {scale:.8}) ---");
     println!("{:>8}  {:>6}  {:>10}", "input", "code", "back");
     println!("{:>8}  {:>6}  {:>10}", "-----", "----", "--------");
+    let mut reconstructed = Vec::new();
     for &w in weights {
         let code = quantize_bits::<BITS>(w, scale);
         let back = dequantize_bits(code, scale);
         println!("{w:>8.2}  {code:>6}  {back:>10.4}");
+        reconstructed.push(back);
     }
+    println!("worst error: {:.6}", worst_error(weights, &reconstructed));
 }
 
 fn main() {

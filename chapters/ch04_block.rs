@@ -7,7 +7,7 @@
 //! million-element tensor can mess up the quantization scale for everyone else.
 //!
 //! **Fix**: Split the tensor into fixed-size blocks and compute an independent
-//! scale per block.
+//! scale per block. An outlier then only wrecks its own block's scale.
 //!
 //! **Still wrong**: One block's range can be wastefully skewed. Only using the
 //! positive or negative half of the quantized range is a common failure mode.
@@ -36,22 +36,37 @@ fn quantize_value<const BITS: u32>(x: f32, scale: f32) -> i32 {
     (x / scale).round().clamp(smallest, largest) as i32
 }
 
+fn dequantize_value(code: i32, scale: f32) -> f32 {
+    code as f32 * scale
+}
+
+/// The biggest gap between an input and what came back.
+fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
+    let mut worst = 0.0_f32;
+    for (input, output) in inputs.iter().zip(outputs) {
+        worst = worst.max((input - output).abs());
+    }
+    worst
+}
+
 fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
     // One scale for the whole tensor, as in chapter 3
     let global_scale = choose_scale::<BITS>(weights);
-    let global_codes: Vec<i32> = weights
-        .iter()
-        .map(|&x| quantize_value::<BITS>(x, global_scale))
-        .collect();
+    let mut global_back = Vec::new();
+    for &x in weights {
+        let code = quantize_value::<BITS>(x, global_scale);
+        global_back.push(dequantize_value(code, global_scale));
+    }
 
     // One scale per block
     let mut scales = Vec::new();
-    let mut block_codes = Vec::new();
+    let mut block_back = Vec::new();
     for block in weights.chunks(BLOCK) {
         let scale = choose_scale::<BITS>(block);
         scales.push(scale);
         for &x in block {
-            block_codes.push(quantize_value::<BITS>(x, scale));
+            let code = quantize_value::<BITS>(x, scale);
+            block_back.push(dequantize_value(code, scale));
         }
     }
 
@@ -60,21 +75,25 @@ fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
         global_scale, scales
     );
 
-    println!("{:>3}  {:>6}  {:>6}  {:>6}", "i", "w", "global", "blocks");
-    println!("{:-<3}  {:-<6}  {:-<6}  {:-<6}", "", "", "", "");
+    println!("{:>3}  {:>6}  {:>8}  {:>8}", "i", "w", "global", "blocks");
+    println!("{:-<3}  {:-<6}  {:-<8}  {:-<8}", "", "", "", "");
     for (i, &weight) in weights.iter().enumerate() {
         println!(
-            "{:>3}  {:>6.2}  {:>6}  {:>6}",
-            i, weight, global_codes[i], block_codes[i]
+            "{:>3}  {:>6.2}  {:>8.4}  {:>8.4}",
+            i, weight, global_back[i], block_back[i]
         );
     }
+    let global_error = worst_error(weights, &global_back);
+    let block_error = worst_error(weights, &block_back);
+    println!("\nworst error: global {global_error:.4}, blocks {block_error:.4}");
 
     println!("\nGlobal scale is dominated by the outlier → first block collapses to 0.");
-    println!("Per-block scales rescue the small values while still handling the spike.");
+    println!("Per-block scales rescue it. The outlier still ruins its own block, so");
+    println!("smaller blocks would limit the damage to fewer values, but store more scales.");
 }
 
 fn main() {
-    let weights = [0.04_f32, 0.05, -0.03, 0.06, 4.0, 0.10, -0.05, 0.08];
+    let weights = [0.16_f32, 0.20, -0.11, 0.24, 4.0, 0.10, -0.05, 0.08];
 
     compare::<4, 4>(&weights);
 }

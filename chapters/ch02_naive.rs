@@ -33,6 +33,15 @@ fn choose_scale_naive(values: &[f32]) -> f32 {
     }
 }
 
+/// The biggest gap between an input and what came back.
+fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
+    let mut worst = 0.0_f32;
+    for (input, output) in inputs.iter().zip(outputs) {
+        worst = worst.max((input - output).abs());
+    }
+    worst
+}
+
 fn main() {
     let weights = [0.42_f32, -0.10, 0.70, -0.50, 0.99, -0.99];
     let scale = choose_scale_naive(&weights);
@@ -40,11 +49,17 @@ fn main() {
     println!("scale = {scale:.6}\n");
     println!("{:>8}  {:>4}  {:>10}", "input", "code", "back→f32");
     println!("{:>8}  {:>4}  {:>10}", "-----", "----", "--------");
+    let mut reconstructed = Vec::new();
     for &w in &weights {
         let code = quantize_naive(w, scale);
         let back = dequantize_naive(code, scale);
         println!("{w:>8.2}  {code:>4}  {back:>10.4}");
+        reconstructed.push(back);
     }
+    println!(
+        "\nworst error: {:.4}",
+        worst_error(&weights, &reconstructed)
+    );
 
     println!("\nNo zero-collapse this time. Chapter 3 (`ch03_bits`) generalizes");
     println!("this same algorithm to any bit width (4-bit, 16-bit, etc.).");

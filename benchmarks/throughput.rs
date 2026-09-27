@@ -26,7 +26,7 @@ fn main() -> candle_core::Result<()> {
         .collect();
 
     println!("n = {N} ({SIDE}x{SIDE}), iters = {ITERS}\n");
-    println!("{:<22}{:>12}{:>14}", "kernel", "ns/elt", "GB/s (in)");
+    println!("{:<22}{:>12}{:>14}", "kernel", "ns/elt", "f32 GB/s");
     println!("{:-<22}{:->12}{:->14}", "", "", "");
 
     bench("quantize 4b×32", || {
@@ -83,6 +83,6 @@ fn bench(name: &str, mut f: impl FnMut()) {
         f();
     }
     let ns = t0.elapsed().as_secs_f64() * 1e9 / (ITERS as f64 * N as f64);
-    let gbs = (N as f64 * 4.0) / (ns * N as f64); // bytes in / time, in GB/s
+    let gbs = (N as f64 * 4.0) / (ns * N as f64); // f32 size of the N values / time, in GB/s
     println!("{name:<22}{ns:>12.3}{gbs:>14.2}");
 }

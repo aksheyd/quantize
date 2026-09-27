@@ -17,10 +17,10 @@ fn main() -> candle_core::Result<()> {
 
 fn print_report(r: &Comparison) {
     println!("matrix_size = {MATRIX_SIZE}, runs = {RUNS}\n");
-    println!("{:<12}{:>14}", "bits/value", "mse");
-    println!("{:-<12}{:->14}", "", "");
+    println!("{:<16}{:>12}{:>14}", "method", "bits/value", "mse");
+    println!("{:-<16}{:->12}{:->14}", "", "", "");
     for m in &r.methods {
-        println!("{:<12.1}{:>14.6}", m.bits_per_element, m.mse);
+        println!("{:<16}{:>12.1}{:>14.6}", m.name, m.bits_per_element, m.mse);
     }
     println!("\nbits/value = storage for one number, including its scale.");
 }

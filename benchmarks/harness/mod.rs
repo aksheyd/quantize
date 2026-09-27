@@ -11,6 +11,7 @@ mod sample;
 use candle_core::{Device, Tensor};
 
 pub struct MethodReport {
+    pub name: &'static str,
     pub bits_per_element: f32,
     pub mse: f32,
 }

@@ -13,7 +13,8 @@
 //!
 //! **Still wrong**: it minimizes the error in the weights themselves. What
 //! matters is the error in what the model computes with them, where a weight
-//! that meets large inputs counts for more.
+//! that meets large inputs counts for more. GPTQ and AWQ minimize that error,
+//! measured on sample inputs called *calibration data*.
 //!
 //! Run it: `cargo run --release --example ch08_alternating`
 
@@ -96,4 +97,5 @@ fn main() {
 
     println!("\nNo code wants to move, so we stop. The first two lines are chapters 5 and 7;");
     println!("rounding again moved one value to a better code, and the MSE kept falling.");
+    println!("The library stops at chapter 7, and this is where the tutorial stops for now.");
 }

@@ -7,7 +7,9 @@
 //! million-element tensor can mess up the quantization scale for everyone else.
 //!
 //! **Fix**: Split the tensor into fixed-size blocks and compute an independent
-//! scale per block. An outlier then only wrecks its own block's scale.
+//! scale per block. An outlier then only wrecks its own block's scale. Each
+//! block stores its scale, though: an f32 per 4 values makes 4 + 32/4 = 12 bits
+//! per value. Real formats use a 16-bit scale per 32 values: 4 + 16/32 = 4.5.
 //!
 //! **Still wrong**: One block's range can be wastefully skewed. Only using the
 //! positive or negative half of the quantized range is a common failure mode.
@@ -70,30 +72,29 @@ fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
         }
     }
 
-    println!(
-        "weights: {weights:?}\n\nglobal scale: {:.4}\nblock scales: {:.4?}\n\n",
-        global_scale, scales
-    );
+    println!("weights: {weights:?}\n");
+    println!("global scale: {global_scale:.4}\nblock scales: {scales:.4?}\n\n");
 
     println!("{:>3}  {:>6}  {:>8}  {:>8}", "i", "w", "global", "blocks");
     println!("{:-<3}  {:-<6}  {:-<8}  {:-<8}", "", "", "", "");
     for (i, &weight) in weights.iter().enumerate() {
-        println!(
-            "{:>3}  {:>6.2}  {:>8.4}  {:>8.4}",
-            i, weight, global_back[i], block_back[i]
-        );
+        let (global, per_block) = (global_back[i], block_back[i]);
+        println!("{i:>3}  {weight:>6.2}  {global:>8.4}  {per_block:>8.4}");
     }
     let global_error = worst_error(weights, &global_back);
     let block_error = worst_error(weights, &block_back);
-    println!("\nworst error: global {global_error:.4}, blocks {block_error:.4}");
+    println!("\nworst error:    global {global_error:.4}, blocks {block_error:.4}");
+    let global_bits = BITS as f32 + 32.0 / weights.len() as f32;
+    let block_bits = BITS as f32 + 32.0 / BLOCK as f32;
+    println!("bits per value: global {global_bits:.1}, blocks {block_bits:.1}");
 
     println!("\nGlobal scale is dominated by the outlier → first block collapses to 0.");
     println!("Per-block scales rescue it. The outlier still ruins its own block, so");
     println!("smaller blocks would limit the damage to fewer values, but store more scales.");
+    println!("The library does this in `quantize::symmetric::quantize`.");
 }
 
 fn main() {
     let weights = [0.16_f32, 0.20, -0.11, 0.24, 4.0, 0.10, -0.05, 0.08];
-
     compare::<4, 4>(&weights);
 }

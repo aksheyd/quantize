@@ -43,7 +43,9 @@ fn pack_sym_general<S: Scale>(values: &[f32], bits: u32, block: usize) -> (Vec<S
 }
 
 /// Asymmetric codes for one block, plus its scale and zero-point as stored in
-/// `S`. Like [`quantize_sym_packed`], codes are picked against the stored pair.
+/// `S`. As in [`quantize_sym_packed`], codes are picked against the stored
+/// pair. That matters most for the zero-point: for values near 100 it is about
+/// -1451, which f16 rounds to a whole number and bf16 to a multiple of 8.
 pub(crate) fn quantize_asym_block<S: Scale>(
     block: &[f32],
     bits: u32,

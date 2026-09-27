@@ -37,3 +37,7 @@ path = "ch06_adaptive.rs"
 [[example]]
 name = "ch07_learned"
 path = "ch07_learned.rs"
+
+[[example]]
+name = "ch08_alternating"
+path = "ch08_alternating.rs"

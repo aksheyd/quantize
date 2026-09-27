@@ -1,5 +1,9 @@
 //! # Chapter 1 — simple (the strawman)
 //!
+//! Quantization stores numbers in fewer bits. A model's weights are usually
+//! `f32`s, 32 bits each. As 8-bit integers they'd take four times less memory,
+//! at the price of some rounding error.
+//!
 //! This is the simplest possible "quantization": just cast the f32 to an i8.
 //! No scale, no rounding logic, nothing clever.
 //!

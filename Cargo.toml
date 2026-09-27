@@ -2,7 +2,7 @@
 name = "quantize"
 version = "0.2.2"
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 description = "A simple quantization library."
 license = "MIT"
 repository = "https://github.com/aksheyd/quantize"
@@ -24,7 +24,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [workspace]
 members = ["python"]
 default-members = ["."]
-resolver = "2"
+resolver = "3"
 
 [workspace.dependencies]
 half = "2"
@@ -53,11 +53,11 @@ half = { workspace = true }
 candle-core = { version = "0.11", optional = true }
 candle-nn = { version = "0.11", optional = true }
 candle-transformers = { version = "0.11", optional = true }
-hf-hub = { version = "0.4", optional = true }
-tokenizers = { version = "0.21", optional = true }
+hf-hub = { version = "0.5", default-features = false, features = ["ureq"], optional = true }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
-ureq = { version = "2", optional = true }
+ureq = { version = "3", optional = true }
 
 [dev-dependencies]
 candle-core = "0.11"

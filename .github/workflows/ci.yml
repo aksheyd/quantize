@@ -8,7 +8,10 @@ on:
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
@@ -23,6 +26,12 @@ jobs:
 
       - name: Test
         run: just test
+
+      - name: Docs
+        run: just doc
+
+      - name: Chapters
+        run: just chapters
 
   python:
     runs-on: ubuntu-latest

@@ -2,12 +2,23 @@
 
 use crate::packed::Packed;
 use crate::params::{asymmetric_params, largest_code, smallest_code, symmetric_scale};
+use crate::scale::Scale;
 
 use super::i4::pack_sym_i4;
 use super::i8::pack_sym_i8;
 use super::reduce::{min_max, signed_extreme};
 
-pub(crate) fn quantize_sym_packed(values: &[f32], bits: u32, block: usize) -> (Vec<f32>, Packed) {
+/// Symmetric codes, plus each block's scale as stored in `S`.
+///
+/// Codes are picked against the stored scale, since that is what decoding
+/// multiplies by. f16 and bf16 round a scale when they store it: bf16 keeps 8
+/// significant bits, so its scale can be off by 1/256, and at 8 bits a code of
+/// -128 picked against the unrounded scale would decode half a tick away.
+pub(crate) fn quantize_sym_packed<S: Scale>(
+    values: &[f32],
+    bits: u32,
+    block: usize,
+) -> (Vec<S>, Packed) {
     match bits {
         8 => pack_sym_i8(values, block),
         4 => pack_sym_i4(values, block),
@@ -15,12 +26,12 @@ pub(crate) fn quantize_sym_packed(values: &[f32], bits: u32, block: usize) -> (V
     }
 }
 
-fn pack_sym_general(values: &[f32], bits: u32, block: usize) -> (Vec<f32>, Packed) {
+fn pack_sym_general<S: Scale>(values: &[f32], bits: u32, block: usize) -> (Vec<S>, Packed) {
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut codes = Vec::with_capacity(values.len());
     for chunk in values.chunks(block) {
-        let scale = symmetric_scale(signed_extreme(chunk), bits);
-        let one_over_scale = 1.0 / scale;
+        let scale = S::from_f32(symmetric_scale(signed_extreme(chunk), bits));
+        let one_over_scale = 1.0 / scale.to_f32();
         let code_min = smallest_code(bits) as f32;
         let code_max = largest_code(bits) as f32;
         for &value in chunk {
@@ -31,14 +42,21 @@ fn pack_sym_general(values: &[f32], bits: u32, block: usize) -> (Vec<f32>, Packe
     (scales, Packed::from_i32s(&codes, bits))
 }
 
-pub(crate) fn quantize_asym_block(block: &[f32], bits: u32, codes: &mut Vec<i32>) -> (f32, f32) {
+/// Asymmetric codes for one block, plus its scale and zero-point as stored in
+/// `S`. Like [`quantize_sym_packed`], codes are picked against the stored pair.
+pub(crate) fn quantize_asym_block<S: Scale>(
+    block: &[f32],
+    bits: u32,
+    codes: &mut Vec<i32>,
+) -> (S, S) {
     let (lowest, highest) = min_max(block);
     let (scale, zero_point) = asymmetric_params(lowest, highest, bits);
-    let one_over_scale = 1.0 / scale;
+    let (scale, zero_point) = (S::from_f32(scale), S::from_f32(zero_point));
+    let one_over_scale = 1.0 / scale.to_f32();
     let code_min = smallest_code(bits);
     let code_max = largest_code(bits);
     for &value in block {
-        let code = (value * one_over_scale + zero_point).round() as i32;
+        let code = (value * one_over_scale + zero_point.to_f32()).round() as i32;
         codes.push(code.clamp(code_min, code_max));
     }
     (scale, zero_point)

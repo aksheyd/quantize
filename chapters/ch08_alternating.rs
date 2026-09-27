@@ -1,7 +1,7 @@
 //! # Chapter 8 — alternating (learned codes and scale)
 //!
 //! **Previously** (`ch07_learned`): we froze chapter 5's codes and fit the
-//! scale and zero-point by least squares, which cut the MSE by about a third.
+//! line by least squares, which cut this block's MSE by about a third.
 //!
 //! **Problem**: the codes still come from min/max. After the fit moves the
 //! line, a value may sit closer to a neighboring code, yet it keeps its own.
@@ -97,5 +97,6 @@ fn main() {
 
     println!("\nNo code wants to move, so we stop. The first two lines are chapters 5 and 7;");
     println!("rounding again moved one value to a better code, and the MSE kept falling.");
+    println!("On typical blocks of 32 weights it falls by about 14%, not this block's 73%.");
     println!("The library stops at chapter 7, and this is where the tutorial stops for now.");
 }

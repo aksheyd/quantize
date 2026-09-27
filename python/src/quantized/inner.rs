@@ -54,8 +54,8 @@ impl QuantizedInner {
         with_inner!(self, |quantized| quantized.len())
     }
 
-    pub(crate) fn refine(&mut self, values: &[f32]) {
-        with_inner!(self, |quantized| learned::refine(quantized, values));
+    pub(crate) fn refine(&mut self, values: &[f32]) -> quantize::Result<()> {
+        with_inner!(self, |quantized| learned::refine(quantized, values))
     }
 }
 
@@ -75,8 +75,8 @@ impl PyQuantized {
         self.inner.len()
     }
 
-    pub fn refine(&mut self, values: &[f32]) {
-        self.inner.refine(values);
+    pub fn refine(&mut self, values: &[f32]) -> quantize::Result<()> {
+        self.inner.refine(values)
     }
 
     pub(crate) fn dequantize_into(&self, out: &mut [f32]) -> quantize::Result<()> {

@@ -22,6 +22,13 @@
 //!
 //! See `symmetric`, `asymmetric`, and `adaptive` for the other schemes.
 //! To learn how the library got here, please see `chapters/`.
+//!
+//! ## NaN and infinity
+//!
+//! Quantization expects finite input. A NaN is skipped when its block
+//! measures its range and is stored as code 0, so the other values in that
+//! block are unaffected. An infinity is kept, which stretches its block's
+//! range to infinity, so every finite value in that block decodes to NaN.
 
 mod kernels;
 mod methods;

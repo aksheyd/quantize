@@ -99,6 +99,16 @@ mod tests {
     }
 
     #[test]
+    fn flat_block_roundtrips() {
+        for value in [0.3_f32, -5.0, 1000.0] {
+            let q = quantize::<f32, 32>(&[value; 32], 0.001).unwrap();
+            for back in q.dequantize() {
+                assert!((back - value).abs() < 1e-3, "{value} vs {back}");
+            }
+        }
+    }
+
+    #[test]
     fn rejects_non_positive_tolerance() {
         assert_eq!(
             quantize::<f32, 4>(&[1.0], 0.0).unwrap_err(),

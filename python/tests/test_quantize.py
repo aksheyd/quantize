@@ -1,3 +1,4 @@
+import io
 import pickle
 
 import numpy as np
@@ -10,6 +11,7 @@ from quantize import (
     LengthMismatchError,
     NotAMatrixError,
     QuantizeError,
+    Quantized,
     Scale,
     Scheme,
     ShapeMismatchError,
@@ -320,3 +322,68 @@ def test_quantized_compares_by_value():
     assert quantized != quantize(weights, bits=4, scale=Scale.F16)
     with pytest.raises(TypeError, match="unhashable"):
         hash(quantized)
+
+
+def saved_and_loaded_with_numpy(arrays):
+    file = io.BytesIO()
+    np.savez(file, **arrays)
+    file.seek(0)
+    with np.load(file) as loaded:
+        return dict(loaded)
+
+
+def test_from_parts_rebuilds_arrays_saved_with_numpy():
+    weights = weight_matrix(3, 30)
+    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+        for quantized in [
+            quantize(weights, bits=4, block=32, scale=scale),
+            asymmetric.quantize(weights, bits=5, block=16, scale=scale),
+            adaptive.quantize(weights.ravel(), block=32, scale=scale),
+            quantize([], scale=scale),
+        ]:
+            arrays = {
+                "codes": quantized.codes,
+                "scales": quantized.scales,
+                "zero_points": quantized.zero_points,
+            }
+            if quantized.block_bits is not None:
+                arrays["block_bits"] = quantized.block_bits
+            rebuilt = Quantized.from_parts(
+                kind=quantized.kind,
+                shape=quantized.shape,
+                block=quantized.block,
+                bits=quantized.bits,
+                scale=quantized.scale,
+                **saved_and_loaded_with_numpy(arrays),
+            )
+            assert rebuilt == quantized
+
+
+def test_from_parts_rejects_parts_that_do_not_fit_together():
+    quantized = asymmetric.quantize(weight_matrix(3, 30), bits=4, block=32)
+    parts = {
+        "kind": "asymmetric",
+        "shape": (3, 30),
+        "block": 32,
+        "codes": quantized.codes,
+        "scales": quantized.scales,
+        "zero_points": quantized.zero_points,
+        "bits": 4,
+    }
+    assert Quantized.from_parts(**parts) == quantized
+    for changed, error, message in [
+        ({"bits": 17}, InvalidBitsError, "bit width 17"),
+        ({"block": 0}, InvalidBlockError, "block size 0"),
+        ({"shape": (90, 0)}, ShapeMismatchError, "rows of 0 columns"),
+        ({"shape": (4, 30)}, ValueError, "one scale"),
+        ({"shape": (3, 3, 10)}, ValueError, "shape must be"),
+        ({"codes": quantized.codes[:-1]}, ValueError, "codes must fill"),
+        ({"codes": quantized.unpacked_codes}, TypeError, "uint8"),
+        ({"zero_points": None}, ValueError, "one zero-point"),
+        ({"kind": "symmetric"}, ValueError, "no zero_points"),
+        ({"kind": "adaptive"}, ValueError, "'adaptive', with block_bits"),
+        ({"block_bits": [4, 4, 4]}, ValueError, "'asymmetric', with bits"),
+        ({"kind": "int4"}, ValueError, "kind must be"),
+    ]:
+        with pytest.raises(error, match=message):
+            Quantized.from_parts(**{**parts, **changed})

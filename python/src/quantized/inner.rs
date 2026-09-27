@@ -2,6 +2,7 @@ use half::{bf16, f16};
 use pyo3::prelude::*;
 use quantize::{learned, Quantized, Scale, Scheme};
 
+use super::parts::Parts;
 use crate::error::from_quantize;
 use crate::scale::PyScale;
 
@@ -85,6 +86,14 @@ impl QuantizedInner {
             PyScale::F32 => Quantized::from_bytes(bytes).map(Self::F32),
             PyScale::F16 => Quantized::from_bytes(bytes).map(Self::F16),
             PyScale::Bf16 => Quantized::from_bytes(bytes).map(Self::Bf16),
+        }
+    }
+
+    pub(crate) fn from_parts(parts: Parts, scale: PyScale) -> PyResult<Self> {
+        match scale {
+            PyScale::F32 => parts.into_quantized().map(Self::F32),
+            PyScale::F16 => parts.into_quantized().map(Self::F16),
+            PyScale::Bf16 => parts.into_quantized().map(Self::Bf16),
         }
     }
 }

@@ -6,8 +6,9 @@ use pyo3::types::{PyBytes, PyTuple};
 use quantize::{Error, Packed, Quantized, Scale};
 
 use super::inner::{with_inner, PyQuantized, QuantizedInner};
+use super::parts::Parts;
 use crate::error::{from_quantize, length_mismatch};
-use crate::input::{as_f32_matmul_values, as_f32_values, as_writable_f32_out};
+use crate::input::{as_f32_matmul_values, as_f32_values, as_packed_codes, as_writable_f32_out};
 use crate::scale::PyScale;
 
 /// A pickled tensor: its scale type and [`quantize::Quantized::to_bytes`].
@@ -223,6 +224,47 @@ impl PyQuantized {
     #[getter]
     fn bits_per_element(&self) -> f32 {
         with_inner!(&self.inner, |quantized| quantized.bits_per_element())
+    }
+
+    /// Rebuild a tensor from the values its getters return, such as arrays
+    /// saved with `numpy.savez`. `shape` is `(len,)` or `(rows, columns)`.
+    /// Symmetric and asymmetric tensors take `bits`, adaptive ones take
+    /// `block_bits`, and symmetric ones take no `zero_points`. Parts that
+    /// don't fit together raise `ValueError`, or a `QuantizeError` for a
+    /// field out of range.
+    #[staticmethod]
+    #[pyo3(signature = (
+        *, kind, shape, block, codes, scales, zero_points = None, bits = None, block_bits = None,
+        scale = PyScale::F32
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn from_parts(
+        kind: String,
+        shape: Vec<usize>,
+        block: usize,
+        codes: Bound<'_, PyAny>,
+        scales: Bound<'_, PyAny>,
+        zero_points: Option<Bound<'_, PyAny>>,
+        bits: Option<u32>,
+        block_bits: Option<Vec<u32>>,
+        scale: PyScale,
+    ) -> PyResult<Self> {
+        let zero_points = match zero_points {
+            Some(zero_points) => as_f32_values(&zero_points)?,
+            None => Vec::new(),
+        };
+        let parts = Parts {
+            kind,
+            shape,
+            block,
+            codes: as_packed_codes(&codes)?,
+            scales: as_f32_values(&scales)?,
+            zero_points,
+            bits,
+            block_bits,
+        };
+        let inner = QuantizedInner::from_parts(parts, scale)?;
+        Ok(Self { inner })
     }
 
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {

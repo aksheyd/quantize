@@ -92,8 +92,8 @@ fn main() {
         "fitted   scale={fitted_scale:.5} zero_point={fitted_zero_point:.3}  mse={:.6}",
         mse(&fitted_back, &values)
     );
-    println!("\nDequant is a line. Fit the line; keep the codes. The fit cuts the MSE");
-    println!("by about a third, but it can't move a value to a better code.");
+    println!("\nDequant is a line. Fit the line; keep the codes. On this block the fit");
+    println!("cuts the MSE by about a third, but it can't move a value to a better code.");
     println!("The library does this in `quantize::learned::refine`. Chapter 8");
     println!("(`ch08_alternating`) lets the codes move too.");
 }

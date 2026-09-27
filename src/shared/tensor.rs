@@ -1,7 +1,7 @@
 //! One enum, one variant per scheme.
 
 use crate::decode::{dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
-use crate::error::{check_len, Error, Result};
+use crate::error::{check_bits, check_block, check_len, malformed, Error, Result};
 use crate::packed::Packed;
 use crate::scale::Scale;
 
@@ -153,6 +153,69 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
+    /// Check that the buffers are exactly as long as `block`, `len`, the bit
+    /// widths, and the shape say, since decoding relies on it.
+    /// [`from_bytes`](Self::from_bytes) runs this; so should code that builds
+    /// a variant by hand.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidBlock`], [`Error::InvalidBits`], or
+    /// [`Error::ShapeMismatch`] for a field out of range, and
+    /// [`Error::Malformed`] for a buffer of the wrong length.
+    pub fn validate(&self) -> Result<()> {
+        let (len, block) = (self.len(), self.block());
+        check_block(block)?;
+        let columns = match self {
+            Self::Symmetric { columns, .. }
+            | Self::Asymmetric { columns, .. }
+            | Self::Adaptive { columns, .. } => *columns,
+        };
+        if let Some(columns) = columns {
+            if columns == 0 || !len.is_multiple_of(columns) {
+                return Err(Error::ShapeMismatch { len, columns });
+            }
+        }
+
+        let blocks = len.div_ceil(block);
+        let zero_points = match self {
+            Self::Symmetric { .. } => 0,
+            Self::Asymmetric { .. } | Self::Adaptive { .. } => blocks,
+        };
+        if self.scales().len() != blocks || self.zero_points().len() != zero_points {
+            return Err(malformed(
+                "every block needs one scale, and one zero-point unless symmetric",
+            ));
+        }
+
+        let code_bytes = match self {
+            Self::Symmetric { codes, .. } | Self::Asymmetric { codes, .. } => {
+                if codes.len() != len {
+                    return Err(malformed("the packed codes must hold len values"));
+                }
+                packed_size(len, codes.bits())?
+            }
+            Self::Adaptive { bits, .. } => {
+                if bits.len() != blocks {
+                    return Err(malformed("every block needs one bit width"));
+                }
+                let mut total = 0_usize;
+                for (block_index, &bit_width) in bits.iter().enumerate() {
+                    let count = block.min(len - block_index * block);
+                    let block_bytes = packed_size(count, bit_width)?;
+                    total = total.checked_add(block_bytes).ok_or(too_large())?;
+                }
+                total
+            }
+        };
+        if self.codes().len() != code_bytes {
+            return Err(malformed(
+                "the codes must fill exactly the bytes that len and the bit widths need",
+            ));
+        }
+        Ok(())
+    }
+
     pub fn dequantize(&self) -> Vec<f32> {
         let mut out = vec![0.0; self.len()];
         let _ = self.dequantize_into(&mut out);
@@ -268,4 +331,15 @@ impl<S: Scale> Quantized<S> {
         matmul_into(self, inputs, columns, &mut out);
         Ok(out)
     }
+}
+
+/// Bytes that `count` codes of `bits` each fill.
+fn packed_size(count: usize, bits: u32) -> Result<usize> {
+    check_bits(bits)?;
+    let total_bits = count.checked_mul(bits as usize).ok_or(too_large())?;
+    Ok(total_bits.div_ceil(8))
+}
+
+fn too_large() -> Error {
+    malformed("len is too large to pack")
 }

@@ -1,6 +1,6 @@
 //! Python exceptions.
 
-use pyo3::exceptions::{PyException, PyMemoryError};
+use pyo3::exceptions::{PyException, PyMemoryError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
@@ -189,5 +189,6 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         }
         quantize::Error::NotAMatrix { len } => PyErr::new::<NotAMatrixError, _>(len),
         quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),
+        quantize::Error::Malformed { .. } => PyValueError::new_err(err.to_string()),
     }
 }

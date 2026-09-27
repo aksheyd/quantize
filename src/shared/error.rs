@@ -45,6 +45,11 @@ pub enum Error {
         /// Number of matrix rows.
         rows: usize,
     },
+    /// Saved bytes, or a tensor built by hand, don't hold a valid tensor.
+    Malformed {
+        /// What is wrong.
+        reason: &'static str,
+    },
 }
 
 impl fmt::Display for Error {
@@ -77,6 +82,7 @@ impl fmt::Display for Error {
             Self::OutputTooLarge { batch, rows } => {
                 write!(f, "a {batch} x {rows} output is too large to allocate")
             }
+            Self::Malformed { reason } => write!(f, "malformed tensor: {reason}"),
         }
     }
 }
@@ -109,6 +115,10 @@ pub(crate) fn check_len(expected: usize, got: usize) -> Result<()> {
     } else {
         Err(Error::LengthMismatch { expected, got })
     }
+}
+
+pub(crate) fn malformed(reason: &'static str) -> Error {
+    Error::Malformed { reason }
 }
 
 #[cfg(test)]

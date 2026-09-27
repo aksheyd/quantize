@@ -300,16 +300,14 @@ def test_pickle_rejects_inconsistent_state():
         quantize([0.1] * 64, bits=4, block=32),
         adaptive.quantize([i * 0.01 for i in range(40)], block=32),
     ]:
-        rebuild, (state,) = quantized.__reduce__()
-        missing_last_byte = state[:5] + (state[5][:-1],) + state[6:]
-        with pytest.raises(ValueError):
-            rebuild(missing_last_byte)
-        zero_block = state[:3] + (0,) + state[4:]
-        with pytest.raises(ValueError):
-            rebuild(zero_block)
-        columns_that_do_not_split = state[:10] + (7,)
-        with pytest.raises(ValueError):
-            rebuild(columns_that_do_not_split)
+        rebuild, (scale, data) = quantized.__reduce__()
+        assert rebuild(scale, data) == quantized
+        with pytest.raises(ValueError, match="malformed"):
+            rebuild(scale, data[:-1])
+        with pytest.raises(ValueError, match="another scale type"):
+            rebuild(Scale.F16, data)
+        with pytest.raises(ValueError, match="QNTZ"):
+            rebuild(scale, b"not a tensor")
 
 
 def test_quantized_compares_by_value():

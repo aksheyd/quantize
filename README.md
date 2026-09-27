@@ -16,6 +16,8 @@ cargo run --release --example ch01_simple
 
 then `ch02_naive`, `ch03_bits`, `ch04_block`, `ch05_asymmetric`, `ch06_adaptive`, `ch07_learned`, and `ch08_alternating`.
 
+requires rust 1.88 or newer. with rustup, the first build installs the repo's pinned toolchain automatically.
+
 ## use as a library
 
 ```
@@ -32,15 +34,15 @@ let weights = [0.42_f32, -0.10, 0.70, -0.50];
 // f16 scales, 8-bit codes, blocks of 32 values
 let q = quantize::<f16, 8, 32>(&weights).unwrap();
 
-let back = q.dequantize(); // [0.419, -0.099, 0.700, -0.502]
-let dot = q.dot(&weights).unwrap(); // 0.927
+let back = q.dequantize(); // [0.421, -0.098, 0.700, -0.498]
+let dot = q.dot(&weights).unwrap(); // 0.926
 ```
 
 `quantize` is symmetric: each block gets one scale. everything below uses the same `Quantized` type:
 
 - `asymmetric::quantize` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive::quantize` picks each block's bit width from an error tolerance
-- `learned::refine` refits each block's scale and zero-point to lower the error
+- `learned::refine` refits each block's scale, and its zero-point if it has one, to lower the error
 - `Scheme` picks one at run time, like `Scheme::Q4_32.quantize::<f16>(&weights)`
 
 for a weight matrix, `q.into_matrix(rows, columns)` records its shape, so `q.matmul(&inputs)` can multiply a batch of inputs by it, like a linear layer. `q.to_bytes()` saves a tensor, shape included, and `Quantized::from_bytes` loads it back.
@@ -65,9 +67,9 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 | bits/value | quantize mse | candle mse |
 | ---: | ---: | ---: |
-| 4.5 | 0.066669 | 0.060276 |
-| 5.5 | 0.014429 | 0.013859 |
-| 8.5 | 0.000201 | 0.000201 |
+| 4.5 | 0.060257 | 0.060258 |
+| 5.5 | 0.013858 | 0.013858 |
+| 8.5 | 0.000200 | 0.000201 |
 
 <!-- comparison:end -->
 

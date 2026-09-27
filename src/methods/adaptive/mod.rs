@@ -55,9 +55,9 @@ pub fn quantize_with<S: Scale>(
         let (lowest, highest) = min_max(chunk);
         let bit_width = choose_bits(highest - lowest, tolerance);
         codes.clear();
-        let (scale, zero_point) = quantize_asym_block(chunk, bit_width, &mut codes);
-        scales.push(S::from_f32(scale));
-        zero_points.push(S::from_f32(zero_point));
+        let (scale, zero_point) = quantize_asym_block::<S>(chunk, bit_width, &mut codes);
+        scales.push(scale);
+        zero_points.push(zero_point);
         bits.push(bit_width);
         bytes.extend_from_slice(Packed::from_i32s(&codes, bit_width).as_bytes());
     }

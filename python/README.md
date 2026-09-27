@@ -31,7 +31,7 @@ the other schemes return the same `Quantized` type:
 
 quantized values can be pickled.
 
-to build and test from a clone of the repo, with rust 1.87 or newer and [just](https://github.com/casey/just):
+to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):
 
 ```
 just setup

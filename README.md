@@ -22,7 +22,7 @@ then `ch02_naive`, `ch03_bits`, `ch04_block`, `ch05_asymmetric`, `ch06_adaptive`
 cargo add quantize
 ```
 
-requires rust 1.87 or newer. older toolchains may get version 0.1.0 instead, which has a different api.
+requires rust 1.88 or newer. older toolchains may get version 0.1.0 instead, which has a different api.
 
 ```rust
 use quantize::{f16, quantize};

@@ -10,12 +10,10 @@
 //! algorithm is identical — only the smallest and largest code change, and the
 //! scale now divides by the new largest code. Keep `BITS` between 2 and 16,
 //! like the library does: at 1 bit the largest code is 0, so there is nothing
-//! to scale to.
-//!
-//! Each weight costs `BITS` bits plus its share of the one 32-bit scale, a big
-//! share for our 6 weights and almost nothing for a tensor of millions. The
-//! codes sit in `i32`s here to keep things simple; a real format packs them
-//! tightly, two 4-bit codes to a byte.
+//! to scale to. Each weight costs `BITS` bits plus its share of the one 32-bit
+//! scale, a big share for our 6 weights and almost nothing for millions. The
+//! codes sit in `i32`s to keep things simple; a real format packs them tightly,
+//! two 4-bit codes to a byte.
 //!
 //! **Still wrong**: one outlier in a million-element tensor wrecks the scale.
 //!

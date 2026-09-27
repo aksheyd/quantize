@@ -27,6 +27,9 @@ fn smallest_code(bits: u32) -> i32 {
 
 /// Fewest bits in `2..=8` whose half-step is `<= tolerance`, or else 8.
 fn choose_bits(range: f32, tolerance: f32) -> u32 {
+    if range <= 0.0 {
+        return 2;
+    }
     for bits in 2..=8 {
         let steps = (largest_code(bits) - smallest_code(bits)) as f32;
         let half_step = range / steps / 2.0;
@@ -43,7 +46,8 @@ fn roundtrip(block: &[f32], bits: u32) -> Vec<f32> {
     let highest = block.iter().copied().fold(f32::NEG_INFINITY, f32::max);
     let smallest = smallest_code(bits) as f32;
     let largest = largest_code(bits) as f32;
-    // A flat block has no range; with a scale of 1 its value lands on the smallest code.
+    // A flat block has no range to stretch; with a scale of 1 its one value
+    // still lands exactly on the smallest code.
     let scale = if highest > lowest {
         (highest - lowest) / (largest - smallest)
     } else {
@@ -75,20 +79,16 @@ fn main() {
     ];
 
     println!("tolerance = {tolerance}\n");
-    println!("block   range  bits  bits per value  worst error  within tolerance");
-    println!("-----   -----  ----  --------------  -----------  ----------------");
+    println!("block   range  bits  worst error  within tolerance");
+    println!("-----   -----  ----  -----------  ----------------");
     for (i, block) in tensor.chunks(4).enumerate() {
         let lowest = block.iter().copied().fold(f32::INFINITY, f32::min);
         let highest = block.iter().copied().fold(f32::NEG_INFINITY, f32::max);
         let range = highest - lowest;
         let bits = choose_bits(range, tolerance);
-        // Codes, an f32 scale and zero-point, and the bit width: 2 to 8 fits in 3 bits.
-        let bits_per_value = bits as f32 + (32.0 + 32.0 + 3.0) / block.len() as f32;
         let error = worst_error(block, &roundtrip(block, bits));
         let within = if error <= tolerance { "yes" } else { "no" };
-        println!(
-            "{i:>5}  {range:>6.4}  {bits:>4}  {bits_per_value:>14.2}  {error:>11.5}  {within}"
-        );
+        println!("{i:>5}  {range:>6.4}  {bits:>4}  {error:>11.5}  {within}");
     }
 
     println!("\nSame tensor, two precisions: the quiet block needs only 2 bits, while the");

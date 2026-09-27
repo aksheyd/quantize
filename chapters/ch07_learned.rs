@@ -94,6 +94,5 @@ fn main() {
     );
     println!("\nDequant is a line. Fit the line; keep the codes. The fit cuts the MSE");
     println!("by about a third, but it can't move a value to a better code.");
-    println!("The library does this in `quantize::learned::refine`. Chapter 8");
-    println!("(`ch08_alternating`) lets the codes move too.");
+    println!("The library does this in `quantize::learned::refine`.");
 }

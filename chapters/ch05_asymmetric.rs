@@ -76,25 +76,22 @@ fn compare<const BITS: u32>(name: &str, block: &[f32]) {
     let asymmetric = roundtrip::<BITS>(block, asymmetric_params::<BITS>(block));
 
     println!("{name} block, {BITS} bits");
-    println!("         value  symmetric  asymmetric");
+    println!("      value  symmetric  asymmetric");
     for (i, value) in block.iter().enumerate() {
-        println!("{value:>14.4}{:>11.4}{:>12.4}", symmetric[i], asymmetric[i]);
+        println!("{value:>11.4}{:>11.4}{:>12.4}", symmetric[i], asymmetric[i]);
     }
     let symmetric_error = worst_error(block, &symmetric);
     let asymmetric_error = worst_error(block, &asymmetric);
-    println!("   worst error{symmetric_error:>11.4}{asymmetric_error:>12.4}");
-    // Symmetric stores one f32 per block, the scale. Asymmetric adds the zero-point.
-    let symmetric_bits = BITS as f32 + 32.0 / block.len() as f32;
-    let asymmetric_bits = BITS as f32 + 64.0 / block.len() as f32;
-    println!("bits per value{symmetric_bits:>11.1}{asymmetric_bits:>12.1}\n");
+    println!("worst error{symmetric_error:>11.4}{asymmetric_error:>12.4}\n");
 }
 
 fn main() {
     compare::<4>("quiet", &[0.500, 0.501, 0.499, 0.5005]);
     compare::<4>("wide", &[0.10, 0.33, 0.71, 1.10]);
 
-    println!("On the quiet block, symmetric puts every value on the same code. A");
-    println!("zero-point spreads the codes over each block's own range, for one more");
-    println!("number per block; the library does this in `quantize::asymmetric::quantize`.");
-    println!("Chapter 6 (`ch06_adaptive`) picks the bit width per block.");
+    println!("On the quiet block, symmetric puts every value on the same code; a");
+    println!("zero-point spreads the codes over each block's own range instead. The");
+    println!("library does this in `quantize::asymmetric::quantize`. Both blocks got");
+    println!("4 bits, though, and the quiet one came back far more precisely. Chapter 6");
+    println!("(`ch06_adaptive`) picks the bit width per block.");
 }

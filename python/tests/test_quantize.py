@@ -11,6 +11,7 @@ from quantize import (
     QuantizeError,
     Scale,
     Scheme,
+    ShapeMismatchError,
     adaptive,
     asymmetric,
     quantize,
@@ -74,9 +75,10 @@ def test_fused_matmul_matches_dequant_then_multiply():
     weights = [i * 0.01 - 0.3 for i in range(4 * columns)]
     quantized = quantize(weights, bits=8, block=32)
     reconstructed = np.asarray(quantized.dequantize(), dtype=np.float32).reshape(4, columns)
-    rhs = np.array([i * 0.02 - 0.1 for i in range(columns)], dtype=np.float32)
-    naive = reconstructed @ rhs
-    fused = quantized.matmul(rhs)
+    values = np.array([i * 0.02 - 0.1 for i in range(columns)], dtype=np.float32)
+    naive = reconstructed @ values
+    fused = quantized.matmul(values, columns=columns)
+    assert fused.shape == (4,)
     np.testing.assert_allclose(naive, fused, atol=1e-4)
 
 
@@ -90,28 +92,69 @@ def test_matmul_length_mismatch():
 
 def test_matmul_zero_columns():
     quantized = quantize([0.1] * 8, bits=8, block=8)
-    with pytest.raises(InvalidBlockError) as raised:
+    with pytest.raises(ShapeMismatchError, match="rows of 0 columns") as raised:
         quantized.matmul([0.1] * 8, columns=0)
-    assert raised.value.block == 0
+    assert raised.value.columns == 0
 
 
-def test_matmul_batch_is_row_major():
+def test_matmul_batch_returns_batch_by_rows():
     columns = 32
     rows = 4
     weights = [i * 0.01 - 0.3 for i in range(rows * columns)]
     quantized = quantize(weights, bits=8, block=32)
     reconstructed = np.asarray(quantized.dequantize(), dtype=np.float32).reshape(rows, columns)
-    rhs = np.array(
+    values = np.array(
         [
             [i * 0.02 - 0.1 for i in range(columns)],
             [i * 0.01 + 0.05 for i in range(columns)],
         ],
         dtype=np.float32,
     )
-    naive = (rhs @ reconstructed.T).ravel()
-    fused = quantized.matmul(rhs)
+    naive = values @ reconstructed.T
+    fused = quantized.matmul(values, columns=columns)
     np.testing.assert_allclose(naive, fused, atol=1e-4)
-    assert fused.shape == (2 * rows,)
+    assert fused.shape == (2, rows)
+
+
+def test_matmul_requires_columns():
+    quantized = quantize([0.1] * 64, bits=8, block=32)
+    with pytest.raises(TypeError):
+        quantized.matmul([0.1] * 32)
+
+
+def test_matmul_rejects_column_vectors_and_transposed_batches():
+    quantized = quantize([0.1] * 128, bits=8, block=32)
+    for values in [np.zeros((32, 1), np.float32), np.zeros((32, 8), np.float32)]:
+        with pytest.raises(LengthMismatchError) as raised:
+            quantized.matmul(values, columns=32)
+        assert raised.value.expected == 32
+        assert raised.value.got == values.shape[1]
+
+
+def test_matmul_reads_a_square_input_as_a_batch():
+    columns = 32
+    rows = 4
+    weights = [i * 0.01 - 0.6 for i in range(rows * columns)]
+    quantized = quantize(weights, bits=8, block=32)
+    reconstructed = quantized.dequantize().reshape(rows, columns)
+    square = np.linspace(-1, 1, columns * columns, dtype=np.float32).reshape(columns, columns)
+    fused = quantized.matmul(square, columns=columns)
+    assert fused.shape == (columns, rows)
+    np.testing.assert_allclose(square @ reconstructed.T, fused, atol=1e-4)
+
+
+def test_matmul_columns_must_split_the_tensor_into_rows():
+    quantized = quantize([0.1] * 64, bits=8, block=32)
+    with pytest.raises(ShapeMismatchError, match="64 values can't be split into rows of 24") as raised:
+        quantized.matmul([0.1] * 24, columns=24)
+    assert raised.value.len == 64
+    assert raised.value.columns == 24
+
+
+def test_matmul_rejects_three_dimensional_values():
+    quantized = quantize([0.1] * 64, bits=8, block=32)
+    with pytest.raises(TypeError, match=r"\(batch, columns\)"):
+        quantized.matmul(np.zeros((2, 2, 32), np.float32), columns=32)
 
 
 def test_invalid_bits():

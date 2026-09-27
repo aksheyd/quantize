@@ -1,11 +1,11 @@
-use numpy::{IntoPyArray, PyArray1};
+use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
 use pyo3::prelude::*;
 
 use quantize::{Packed, Quantized, Scale};
 
 use super::inner::{with_inner, PyQuantized};
 use super::pickle::{from_pickle, pickle_state};
-use crate::error::{from_quantize, length_mismatch};
+use crate::error::{from_quantize, length_mismatch, shape_mismatch};
 use crate::input::{as_f32_matmul_values, as_f32_values, as_writable_f32_out};
 use crate::scale::PyScale;
 
@@ -100,22 +100,37 @@ impl PyQuantized {
         })
     }
 
-    #[pyo3(signature = (values, columns = None))]
+    /// Multiply `values` by the tensor, read as a row-major `(rows, columns)`
+    /// matrix `W` with `rows = len(self) // columns`.
+    ///
+    /// `values` is one vector of shape `(columns,)` or a batch of shape
+    /// `(batch, columns)`. The result is `values @ W.T`, of shape `(rows,)`
+    /// or `(batch, rows)`.
     fn matmul<'py>(
         &self,
         py: Python<'py>,
         values: Bound<'_, PyAny>,
-        columns: Option<usize>,
+        columns: usize,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let (values, default_columns) = as_f32_matmul_values(&values)?;
-        let columns = columns.unwrap_or(default_columns);
+        // Check `columns` before the input's shape, so a bad column count is
+        // reported as such rather than as a mismatch with the input.
+        let len = self.len();
+        if columns == 0 || !len.is_multiple_of(columns) {
+            return Err(shape_mismatch(len, columns));
+        }
+        let rows = len / columns;
+        let (values, batch) = as_f32_matmul_values(&values, columns)?;
         let inner = self.inner.clone();
         let output = py.detach(|| {
             with_inner!(&inner, |quantized| quantized
                 .matmul(&values, columns)
                 .map_err(from_quantize))
         })?;
-        Ok(f32_array(py, output))
+        let output = output.into_pyarray(py);
+        match batch {
+            Some(batch) => Ok(output.reshape([batch, rows])?.into_any()),
+            None => Ok(output.into_any()),
+        }
     }
 
     fn copy(&self) -> Self {

@@ -31,6 +31,8 @@ the other schemes return the same `Quantized` type:
 
 quantized values can be pickled, and compared with `==`.
 
+to save a quantized value another way, like with `np.savez`, keep its `kind`, `shape`, `block`, `codes`, `scales`, `zero_points`, `bits`, `block_bits`, and `scale`, and pass them back by name to `Quantized.from_parts`.
+
 to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):
 
 ```

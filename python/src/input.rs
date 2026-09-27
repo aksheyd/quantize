@@ -11,6 +11,7 @@ const ARRAY_TYPE: &str = "values must be a 1-D or 2-D array of numbers, or a seq
 const VECTOR_TYPE: &str = "values must be a 1-D array of numbers or a sequence of numbers";
 const VALUES_ENDIAN: &str = "values must be native-endian";
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
+const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
 const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
 const OUT_CONTIG: &str = "out must be writable and C-contiguous";
 
@@ -124,6 +125,14 @@ pub fn as_i32_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
                 .map_err(|_| PyOverflowError::new_err("code is outside the i32 range"))
         })
         .collect()
+}
+
+/// Read packed codes: a 1-D uint8 array, like `Quantized.codes` returns.
+pub fn as_packed_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
+    let codes = obj
+        .cast::<PyArray1<u8>>()
+        .map_err(|_| PyTypeError::new_err(PACKED_CODES_TYPE))?;
+    Ok(codes.try_readonly()?.as_array().to_vec())
 }
 
 /// Borrow `out` for writing, after checking it has exactly `shape`.

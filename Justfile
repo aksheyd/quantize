@@ -40,6 +40,7 @@ chapters:
     cargo run --release --example ch05_asymmetric
     cargo run --release --example ch06_adaptive
     cargo run --release --example ch07_learned
+    cargo run --release --example ch08_alternating
 
 compare:
     cargo run --release --example compare

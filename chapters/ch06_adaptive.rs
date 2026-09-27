@@ -4,7 +4,8 @@
 //! `[min, max]`, but every block still uses the same bit width.
 //!
 //! **Problem**: a nearly-constant block does not need 4 bits. Paying 4 bits
-//! for a 0.002 range wastes memory that a wild block actually needs.
+//! for a 0.002 range buys more precision than it needs, while a busy block may
+//! need more than 4.
 //!
 //! **Fix**: pick a *tolerance* by hand: the worst error we'll accept. Rounding
 //! to the nearest code is off by at most half a step, so each block gets the

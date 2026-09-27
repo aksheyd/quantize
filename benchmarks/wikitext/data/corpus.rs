@@ -65,10 +65,11 @@ fn download() -> Result<String> {
 fn fetch_page(offset: usize) -> Result<Page> {
     let url = format!("{ROWS_URL}&offset={offset}&length={PAGE}");
     let body = ureq::get(&url)
-        .set("User-Agent", "quantize-wikitext/0.2")
+        .header("User-Agent", "quantize-wikitext/0.2")
         .call()
         .map_err(candle_msg)?
-        .into_string()
+        .body_mut()
+        .read_to_string()
         .map_err(candle_msg)?;
     serde_json::from_str(&body).map_err(candle_msg)
 }

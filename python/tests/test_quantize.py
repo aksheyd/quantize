@@ -209,3 +209,17 @@ def test_pickle_roundtrip_including_f16():
     np.testing.assert_array_equal(restored.dequantize(), quantized.dequantize())
     assert pickle.loads(pickle.dumps(Scheme.Q8_32)) == Scheme.symmetric(8, 32)
     assert pickle.loads(pickle.dumps(Scale.F16)) == Scale.F16
+
+
+def test_pickle_rejects_inconsistent_state():
+    for quantized in [
+        quantize([0.1] * 64, bits=4, block=32),
+        adaptive.quantize([i * 0.01 for i in range(40)], block=32),
+    ]:
+        rebuild, (state,) = quantized.__reduce__()
+        missing_last_byte = state[:5] + (state[5][:-1],) + state[6:]
+        with pytest.raises(ValueError):
+            rebuild(missing_last_byte)
+        zero_block = state[:3] + (0,) + state[4:]
+        with pytest.raises(ValueError):
+            rebuild(zero_block)

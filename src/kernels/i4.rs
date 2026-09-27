@@ -80,13 +80,15 @@ unsafe fn quant_16(src: *const f32, inv: f32, dst: *mut u8) {
 }
 
 pub(crate) fn dequant_i4_blocks(scales: &[f32], bytes: &[u8], block: usize, out: &mut [f32]) {
+    assert!(bytes.len() >= nbytes(out.len(), 4));
     let mut i = 0usize;
     for (bi, chunk) in out.chunks_mut(block).enumerate() {
         let s = scales[bi];
         let mut j = 0;
         #[cfg(target_arch = "aarch64")]
         if i.is_multiple_of(2) {
-            // SAFETY: 32 codes = 16 packed bytes.
+            // SAFETY: 32 codes = 16 packed bytes, which the assert above
+            // guarantees are inside `bytes`.
             unsafe {
                 while j + 32 <= chunk.len() {
                     dequant_32(bytes.as_ptr().add(i / 2), s, chunk.as_mut_ptr().add(j));

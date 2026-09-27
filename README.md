@@ -40,7 +40,7 @@ let dot = q.dot(&weights).unwrap(); // 0.926
 
 - `asymmetric::quantize` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive::quantize` picks each block's bit width from an error tolerance
-- `learned::refine` refits each block's scale and zero-point to lower the error
+- `learned::refine` refits each block's scale, and its zero-point if it has one, to lower the error
 - `Scheme` picks one at run time, like `Scheme::Q4_32.quantize::<f16>(&weights)`
 
 for a weight matrix, `q.into_matrix(rows, columns)` records its shape, so `q.matmul(&inputs)` can multiply a batch of inputs by it, like a linear layer.

@@ -1,6 +1,6 @@
 use half::{bf16, f16};
 use pyo3::prelude::*;
-use quantize::{learned, Quantized, Scheme};
+use quantize::{learned, Quantized, Scale, Scheme};
 
 use crate::error::from_quantize;
 use crate::scale::PyScale;
@@ -24,22 +24,32 @@ macro_rules! with_inner {
 
 pub(crate) use with_inner;
 
+/// Quantize `values`, then record `shape` if it is a matrix's.
+fn quantize_shaped<S: Scale>(
+    scheme: Scheme,
+    values: &[f32],
+    shape: &[usize],
+) -> quantize::Result<Quantized<S>> {
+    let quantized = scheme.quantize(values)?;
+    match *shape {
+        [rows, columns] => quantized.into_matrix(rows, columns),
+        _ => Ok(quantized),
+    }
+}
+
 impl QuantizedInner {
-    fn from_scheme(scheme: Scheme, values: &[f32], scale: PyScale) -> PyResult<Self> {
+    fn from_scheme(
+        scheme: Scheme,
+        values: &[f32],
+        shape: &[usize],
+        scale: PyScale,
+    ) -> PyResult<Self> {
         match scale {
-            PyScale::F32 => scheme
-                .quantize(values)
-                .map(Self::F32)
-                .map_err(from_quantize),
-            PyScale::F16 => scheme
-                .quantize(values)
-                .map(Self::F16)
-                .map_err(from_quantize),
-            PyScale::Bf16 => scheme
-                .quantize(values)
-                .map(Self::Bf16)
-                .map_err(from_quantize),
+            PyScale::F32 => quantize_shaped(scheme, values, shape).map(Self::F32),
+            PyScale::F16 => quantize_shaped(scheme, values, shape).map(Self::F16),
+            PyScale::Bf16 => quantize_shaped(scheme, values, shape).map(Self::Bf16),
         }
+        .map_err(from_quantize)
     }
 
     pub(crate) fn scale(&self) -> PyScale {
@@ -54,6 +64,14 @@ impl QuantizedInner {
         with_inner!(self, |quantized| quantized.len())
     }
 
+    /// The NumPy shape: `[rows, columns]` for a matrix, or `[len]`.
+    pub(crate) fn shape(&self) -> Vec<usize> {
+        match with_inner!(self, |quantized| quantized.shape()) {
+            Some((rows, columns)) => vec![rows, columns],
+            None => vec![self.len()],
+        }
+    }
+
     pub(crate) fn refine(&mut self, values: &[f32]) -> quantize::Result<()> {
         with_inner!(self, |quantized| learned::refine(quantized, values))
     }
@@ -65,9 +83,14 @@ pub struct PyQuantized {
 }
 
 impl PyQuantized {
-    pub fn from_scheme(scheme: Scheme, values: &[f32], scale: PyScale) -> PyResult<Self> {
+    pub fn from_scheme(
+        scheme: Scheme,
+        values: &[f32],
+        shape: &[usize],
+        scale: PyScale,
+    ) -> PyResult<Self> {
         Ok(Self {
-            inner: QuantizedInner::from_scheme(scheme, values, scale)?,
+            inner: QuantizedInner::from_scheme(scheme, values, shape, scale)?,
         })
     }
 

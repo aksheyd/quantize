@@ -8,7 +8,9 @@ use super::inner::{with_inner, QuantizedInner};
 use crate::scale::PyScale;
 
 const PICKLE_TAG: i32 = 1;
-const PICKLE_LEN: usize = 10;
+/// Fields in a pickle state. States saved before `columns` was added have
+/// one fewer, and load as flat vectors.
+const PICKLE_LEN: usize = 11;
 
 trait ScaleBits: Scale {
     const WIDTH: usize;
@@ -83,6 +85,7 @@ struct Parts {
     kind: Kind,
     block: usize,
     len: usize,
+    columns: Option<usize>,
     codes: Vec<u8>,
     code_bits: u32,
     block_bits: Vec<u32>,
@@ -121,10 +124,12 @@ fn parts<S: ScaleBits>(quantized: &Quantized<S>) -> Parts {
             codes,
             block,
             len,
+            columns,
         } => Parts {
             kind: Kind::Symmetric,
             block: *block,
             len: *len,
+            columns: *columns,
             codes: codes.as_bytes().to_vec(),
             code_bits: codes.bits(),
             block_bits: Vec::new(),
@@ -137,10 +142,12 @@ fn parts<S: ScaleBits>(quantized: &Quantized<S>) -> Parts {
             codes,
             block,
             len,
+            columns,
         } => Parts {
             kind: Kind::Asymmetric,
             block: *block,
             len: *len,
+            columns: *columns,
             codes: codes.as_bytes().to_vec(),
             code_bits: codes.bits(),
             block_bits: Vec::new(),
@@ -154,10 +161,12 @@ fn parts<S: ScaleBits>(quantized: &Quantized<S>) -> Parts {
             bits,
             block,
             len,
+            columns,
         } => Parts {
             kind: Kind::Adaptive,
             block: *block,
             len: *len,
+            columns: *columns,
             codes: bytes.clone(),
             code_bits: 0,
             block_bits: bits.clone(),
@@ -204,6 +213,9 @@ fn sizes_match(parts: &Parts, scale_count: usize, zero_point_count: usize) -> bo
         && zero_point_count == expected_zero_points
         && parts.block_bits.len() == expected_block_bits
         && expected_code_bytes == Some(parts.codes.len())
+        && parts
+            .columns
+            .is_none_or(|columns| columns > 0 && parts.len.is_multiple_of(columns))
 }
 
 fn rebuild<S: ScaleBits>(parts: Parts) -> PyResult<Quantized<S>> {
@@ -218,6 +230,7 @@ fn rebuild<S: ScaleBits>(parts: Parts) -> PyResult<Quantized<S>> {
             codes: Packed::from_raw(parts.codes, parts.code_bits, parts.len),
             block: parts.block,
             len: parts.len,
+            columns: parts.columns,
         }),
         Kind::Asymmetric => Ok(Quantized::Asymmetric {
             scales,
@@ -225,6 +238,7 @@ fn rebuild<S: ScaleBits>(parts: Parts) -> PyResult<Quantized<S>> {
             codes: Packed::from_raw(parts.codes, parts.code_bits, parts.len),
             block: parts.block,
             len: parts.len,
+            columns: parts.columns,
         }),
         Kind::Adaptive => Ok(Quantized::Adaptive {
             scales,
@@ -233,6 +247,7 @@ fn rebuild<S: ScaleBits>(parts: Parts) -> PyResult<Quantized<S>> {
             bits: parts.block_bits,
             block: parts.block,
             len: parts.len,
+            columns: parts.columns,
         }),
     }
 }
@@ -256,6 +271,7 @@ pub(super) fn pickle_state<'py>(
             PyTuple::new(py, &parts.block_bits)?.into_any(),
             PyBytes::new(py, &parts.scales).into_any(),
             PyBytes::new(py, &parts.zero_points).into_any(),
+            parts.columns.into_pyobject(py)?.into_any(),
         ],
     )?
     .into_any())
@@ -263,7 +279,10 @@ pub(super) fn pickle_state<'py>(
 
 pub(super) fn from_pickle(state: Bound<'_, PyAny>) -> PyResult<QuantizedInner> {
     let state = state.cast::<PyTuple>().map_err(|_| malformed())?;
-    if state.len() != PICKLE_LEN || state.get_item(0)?.extract::<i32>()? != PICKLE_TAG {
+    let has_columns = state.len() == PICKLE_LEN;
+    if !(has_columns || state.len() == PICKLE_LEN - 1)
+        || state.get_item(0)?.extract::<i32>()? != PICKLE_TAG
+    {
         return Err(malformed());
     }
 
@@ -276,6 +295,11 @@ pub(super) fn from_pickle(state: Bound<'_, PyAny>) -> PyResult<QuantizedInner> {
         kind,
         block: state.get_item(3)?.extract()?,
         len: state.get_item(4)?.extract()?,
+        columns: if has_columns {
+            state.get_item(10)?.extract()?
+        } else {
+            None
+        },
         codes: state.get_item(5)?.extract()?,
         code_bits: state.get_item(6)?.extract()?,
         block_bits: state.get_item(7)?.extract()?,

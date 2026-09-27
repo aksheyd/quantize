@@ -1,19 +1,17 @@
 //! Python input conversion.
 
-use numpy::{PyArray1, PyArray2, PyArrayMethods, PyUntypedArray, PyUntypedArrayMethods};
+use numpy::{PyArray1, PyArrayDyn, PyArrayMethods, PyUntypedArray, PyUntypedArrayMethods};
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyBool;
+use pyo3::types::{PyBool, PyTuple};
 
 use crate::error::length_mismatch;
 
-const VALUES_TYPE: &str = "values must be a 1-D float32 array or a sequence of floats";
+const ARRAY_TYPE: &str = "values must be a 1-D or 2-D array of numbers, or a sequence of numbers";
+const VECTOR_TYPE: &str = "values must be a 1-D array of numbers or a sequence of numbers";
 const VALUES_ENDIAN: &str = "values must be native-endian";
-const MATMUL_SHAPE: &str = "values must have shape (columns,) or (batch, columns)";
-const MATMUL_MATRIX: &str =
-    "2-D values must be a C-contiguous native-endian float32 array of shape (batch, columns)";
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
-const OUT_TYPE: &str = "out must be a 1-D writable C-contiguous native-endian float32 array";
+const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
 const OUT_CONTIG: &str = "out must be writable and C-contiguous";
 
 fn is_native_dtype(arr: &Bound<'_, PyUntypedArray>) -> PyResult<bool> {
@@ -28,30 +26,45 @@ fn type_name(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     obj.get_type().name().map(|n| n.to_string())
 }
 
+/// Read a 1-D or 2-D array, or a sequence of numbers, as `f32` values row
+/// after row. Returns the values and the shape they came in.
+pub fn as_f32_array(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<f32>, Vec<usize>)> {
+    read_f32(obj, ARRAY_TYPE)
+}
+
+/// Read a 1-D array or a sequence of numbers as `f32` values.
 pub fn as_f32_values(obj: &Bound<'_, PyAny>) -> PyResult<Vec<f32>> {
+    let (values, shape) = read_f32(obj, VECTOR_TYPE)?;
+    if shape.len() != 1 {
+        return Err(PyTypeError::new_err(VECTOR_TYPE));
+    }
+    Ok(values)
+}
+
+fn read_f32(obj: &Bound<'_, PyAny>, type_error: &'static str) -> PyResult<(Vec<f32>, Vec<usize>)> {
     let name = type_name(obj)?;
     if name == "memoryview" || name == "array" {
-        return Err(PyTypeError::new_err(VALUES_TYPE));
+        return Err(PyTypeError::new_err(type_error));
     }
     if let Ok(arr) = obj.cast::<PyUntypedArray>() {
-        if arr.ndim() != 1 {
-            return Err(PyTypeError::new_err(VALUES_TYPE));
-        }
-        if dtype_kind(arr)? == "O" {
-            return Err(PyTypeError::new_err(VALUES_TYPE));
+        if !matches!(arr.ndim(), 1 | 2) || dtype_kind(arr)? == "O" {
+            return Err(PyTypeError::new_err(type_error));
         }
         if !is_native_dtype(arr)? {
             return Err(PyTypeError::new_err(VALUES_ENDIAN));
         }
         let numpy = obj.py().import("numpy")?;
         let float32 = numpy.getattr("float32")?;
-        let converted = arr.as_any().call_method1("astype", (float32,))?;
-        let typed = converted.cast::<PyArray1<f32>>()?;
+        let converted = numpy.call_method1("ascontiguousarray", (arr, float32))?;
+        let typed = converted.cast::<PyArrayDyn<f32>>()?;
         let readonly = typed.try_readonly()?;
-        return Ok(readonly.as_array().iter().copied().collect());
+        return Ok((readonly.as_slice()?.to_vec(), arr.shape().to_vec()));
     }
-    obj.extract::<Vec<f32>>()
-        .map_err(|_| PyTypeError::new_err(VALUES_TYPE))
+    let values: Vec<f32> = obj
+        .extract()
+        .map_err(|_| PyTypeError::new_err(type_error))?;
+    let len = values.len();
+    Ok((values, vec![len]))
 }
 
 /// Read matmul input: one vector of shape `(columns,)`, or a batch of shape
@@ -61,38 +74,13 @@ pub fn as_f32_matmul_values(
     obj: &Bound<'_, PyAny>,
     columns: usize,
 ) -> PyResult<(Vec<f32>, Option<usize>)> {
-    if let Ok(arr) = obj.cast::<PyUntypedArray>() {
-        match arr.ndim() {
-            1 => {}
-            2 => {
-                let (batch, input_columns) = (arr.shape()[0], arr.shape()[1]);
-                if input_columns != columns {
-                    return Err(length_mismatch(columns, input_columns));
-                }
-                return Ok((flatten_c_contiguous_f32_matrix(arr)?, Some(batch)));
-            }
-            _ => return Err(PyTypeError::new_err(MATMUL_SHAPE)),
-        }
+    let (values, shape) = as_f32_array(obj)?;
+    let input_columns = shape[shape.len() - 1];
+    if input_columns != columns {
+        return Err(length_mismatch(columns, input_columns));
     }
-    let values = as_f32_values(obj)?;
-    if values.len() != columns {
-        return Err(length_mismatch(columns, values.len()));
-    }
-    Ok((values, None))
-}
-
-fn flatten_c_contiguous_f32_matrix(arr: &Bound<'_, PyUntypedArray>) -> PyResult<Vec<f32>> {
-    let typed = arr
-        .cast::<PyArray2<f32>>()
-        .map_err(|_| PyTypeError::new_err(MATMUL_MATRIX))?;
-    if !is_native_dtype(arr)? {
-        return Err(PyTypeError::new_err(VALUES_ENDIAN));
-    }
-    if !arr.is_c_contiguous() {
-        return Err(PyValueError::new_err(MATMUL_MATRIX));
-    }
-    let readonly = typed.try_readonly()?;
-    Ok(readonly.as_slice()?.to_vec())
+    let batch = (shape.len() == 2).then_some(shape[0]);
+    Ok((values, batch))
 }
 
 pub fn as_i32_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
@@ -138,16 +126,14 @@ pub fn as_i32_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
         .collect()
 }
 
+/// Borrow `out` for writing, after checking it has exactly `shape`.
 pub fn as_writable_f32_out<'py>(
     obj: &Bound<'py, PyAny>,
-    expected_len: usize,
-) -> PyResult<numpy::PyReadwriteArray1<'py, f32>> {
+    shape: &[usize],
+) -> PyResult<numpy::PyReadwriteArrayDyn<'py, f32>> {
     let arr = obj
-        .cast::<PyArray1<f32>>()
+        .cast::<PyArrayDyn<f32>>()
         .map_err(|_| PyTypeError::new_err(OUT_TYPE))?;
-    if arr.ndim() != 1 {
-        return Err(PyTypeError::new_err(OUT_TYPE));
-    }
     if !is_native_dtype(arr.as_untyped())? {
         return Err(PyTypeError::new_err(OUT_TYPE));
     }
@@ -157,8 +143,17 @@ pub fn as_writable_f32_out<'py>(
     if !c_contiguous || !writeable {
         return Err(PyValueError::new_err(OUT_CONTIG));
     }
-    if arr.len() != expected_len {
-        return Err(length_mismatch(expected_len, arr.len()));
+    if arr.shape() != shape {
+        let len = shape.iter().product();
+        if arr.len() != len {
+            return Err(length_mismatch(len, arr.len()));
+        }
+        let expected = PyTuple::new(obj.py(), shape)?;
+        return Err(PyValueError::new_err(format!(
+            "out must have shape {}, got {}",
+            expected.repr()?,
+            arr.getattr("shape")?.repr()?
+        )));
     }
     arr.try_readwrite()
         .map_err(|_| PyValueError::new_err(OUT_CONTIG))

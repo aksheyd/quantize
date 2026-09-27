@@ -40,6 +40,7 @@ pub fn quantize_with<S: Scale>(
             bits: Vec::new(),
             block,
             len: 0,
+            columns: None,
         });
     }
 
@@ -68,6 +69,7 @@ pub fn quantize_with<S: Scale>(
         bits,
         block,
         len: values.len(),
+        columns: None,
     })
 }
 

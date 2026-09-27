@@ -26,7 +26,7 @@ the other schemes return the same `Quantized` type:
 
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive.quantize(weights, block=32, tolerance=0.001)` picks each block's bit width from `tolerance`, the rounding error to aim for, in the same units as the weights
-- `learned.refine(q, weights)` refits each block's scale and zero-point to lower the error
+- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the error
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
 
 quantized values can be pickled.

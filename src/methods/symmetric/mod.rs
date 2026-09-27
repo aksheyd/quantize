@@ -100,6 +100,18 @@ mod tests {
     }
 
     #[test]
+    #[should_panic]
+    fn four_bit_dequantize_panics_on_short_codes() {
+        let short = Quantized::<f32>::Symmetric {
+            scales: vec![1.0; 2],
+            codes: Packed::from_raw(vec![0; 16], 4, 64),
+            block: 32,
+            len: 64,
+        };
+        short.dequantize();
+    }
+
+    #[test]
     fn fused_dot_matches_dequant_then_dot() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
         let q = quantize::<f32, 8, 32>(&w).unwrap();

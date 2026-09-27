@@ -32,7 +32,7 @@ pub fn write_dump(model: &LlamaNet, extracted: &[Extracted], first_token: u32) -
         }
         let reference = dense_mul(&spec.values, spec.rows, spec.columns, &activation);
         let quantized = weight
-            .matmul(&activation, spec.columns)
+            .matmul(&activation)
             .map_err(crate::wikitext::candle_msg)?;
         rows.push(LayerRow {
             name: spec.name.clone(),

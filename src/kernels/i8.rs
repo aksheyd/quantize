@@ -2,17 +2,18 @@
 
 use crate::packed::Packed;
 use crate::params::symmetric_scale;
+use crate::scale::Scale;
 
-use super::reduce::abs_max;
+use super::reduce::signed_extreme;
 
-pub(crate) fn pack_sym_i8(values: &[f32], block: usize) -> (Vec<f32>, Packed) {
+pub(crate) fn pack_sym_i8<S: Scale>(values: &[f32], block: usize) -> (Vec<S>, Packed) {
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut bytes = vec![0u8; values.len()];
     let mut off = 0;
     for chunk in values.chunks(block) {
-        let scale = symmetric_scale(abs_max(chunk), 8);
+        let scale = S::from_f32(symmetric_scale(signed_extreme(chunk), 8));
         scales.push(scale);
-        quant_chunk(chunk, scale, &mut bytes[off..off + chunk.len()]);
+        quant_chunk(chunk, scale.to_f32(), &mut bytes[off..off + chunk.len()]);
         off += chunk.len();
     }
     (scales, Packed::from_raw(bytes, 8, values.len()))

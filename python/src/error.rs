@@ -149,12 +149,31 @@ impl ShapeMismatchError {
     }
 }
 
-pub fn length_mismatch(expected: usize, got: usize) -> PyErr {
-    PyErr::new::<LengthMismatchError, _>((expected, got))
+#[pyclass(frozen, extends = QuantizeError, name = "NotAMatrixError", module = "quantize")]
+pub struct NotAMatrixError {
+    #[pyo3(get)]
+    len: usize,
 }
 
-pub fn shape_mismatch(len: usize, columns: usize) -> PyErr {
-    PyErr::new::<ShapeMismatchError, _>((len, columns))
+#[pymethods]
+impl NotAMatrixError {
+    #[new]
+    fn new(len: usize) -> PyClassInitializer<Self> {
+        let message =
+            format!("matmul needs a matrix, but this tensor is a flat vector of {len} values");
+        PyClassInitializer::from(QuantizeError::new(message)).add_subclass(Self { len })
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "matmul needs a matrix, but this tensor is a flat vector of {} values",
+            self.len
+        )
+    }
+}
+
+pub fn length_mismatch(expected: usize, got: usize) -> PyErr {
+    PyErr::new::<LengthMismatchError, _>((expected, got))
 }
 
 pub fn from_quantize(err: quantize::Error) -> PyErr {
@@ -168,6 +187,7 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::ShapeMismatch { len, columns } => {
             PyErr::new::<ShapeMismatchError, _>((len, columns))
         }
+        quantize::Error::NotAMatrix { len } => PyErr::new::<NotAMatrixError, _>(len),
         quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),
     }
 }

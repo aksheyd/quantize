@@ -5,17 +5,17 @@ from quantize._native import (
     InvalidBlockError,
     InvalidToleranceError,
     LengthMismatchError,
+    NotAMatrixError,
     QuantizeError,
     Quantized,
     Scale,
     Scheme,
     ShapeMismatchError,
+    __version__,
 )
 
 from . import adaptive, asymmetric, learned, symmetric
 from .symmetric import quantize, quantize_tensor
-
-__version__ = "0.2.2"
 
 __all__ = [
     "Scale",
@@ -27,6 +27,7 @@ __all__ = [
     "InvalidToleranceError",
     "LengthMismatchError",
     "ShapeMismatchError",
+    "NotAMatrixError",
     "quantize",
     "quantize_tensor",
     "symmetric",

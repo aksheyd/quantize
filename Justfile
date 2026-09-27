@@ -1,3 +1,4 @@
+system_python := if os_family() == "windows" { "python" } else { "python3" }
 venv := if os_family() == "windows" { ".venv/Scripts/python.exe" } else { ".venv/bin/python" }
 
 format:
@@ -18,7 +19,7 @@ minimum-rust:
     cargo +1.88 check --workspace --all-targets --all-features
 
 setup:
-    python -m venv .venv
+    {{system_python}} -m venv .venv
     {{venv}} -m pip install maturin numpy pytest
 
 python:
@@ -27,7 +28,7 @@ python:
     {{venv}} -m pytest python/tests
 
 python-test:
-    python -m pytest python/tests
+    {{system_python}} -m pytest python/tests
 
 wheels:
     maturin build --release --out dist

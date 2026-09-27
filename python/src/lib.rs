@@ -11,10 +11,10 @@ use ::quantize::Scheme;
 use pyo3::prelude::*;
 
 use crate::error::{
-    InvalidBitsError, InvalidBlockError, InvalidToleranceError, LengthMismatchError, QuantizeError,
-    ShapeMismatchError,
+    InvalidBitsError, InvalidBlockError, InvalidToleranceError, LengthMismatchError,
+    NotAMatrixError, QuantizeError, ShapeMismatchError,
 };
-use crate::input::as_f32_values;
+use crate::input::as_f32_array;
 use crate::learned::{fit_scale_and_zero_point, refine};
 use crate::quantized::PyQuantized;
 use crate::scale::PyScale;
@@ -26,9 +26,9 @@ fn quantize_values(
     scale: PyScale,
     scheme: impl FnOnce(usize) -> Scheme,
 ) -> PyResult<PyQuantized> {
-    let values = as_f32_values(&values)?;
+    let (values, shape) = as_f32_array(&values)?;
     let scheme = scheme(values.len());
-    py.detach(|| PyQuantized::from_scheme(scheme, &values, scale))
+    py.detach(|| PyQuantized::from_scheme(scheme, &values, &shape, scale))
 }
 
 #[pyfunction]
@@ -98,13 +98,14 @@ fn adaptive_quantize(
 #[pymodule]
 #[pyo3(name = "_native")]
 fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("__version__", "0.2.2")?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add_class::<QuantizeError>()?;
     m.add_class::<InvalidBitsError>()?;
     m.add_class::<InvalidBlockError>()?;
     m.add_class::<InvalidToleranceError>()?;
     m.add_class::<LengthMismatchError>()?;
     m.add_class::<ShapeMismatchError>()?;
+    m.add_class::<NotAMatrixError>()?;
     m.add_class::<PyScale>()?;
     m.add_class::<PyScheme>()?;
     m.add_class::<PyQuantized>()?;

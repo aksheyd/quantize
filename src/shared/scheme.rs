@@ -36,7 +36,8 @@ impl Scheme {
     /// Symmetric 8-bit blocks of 32 — the common default.
     pub const Q8_32: Self = Self::Symmetric { bits: 8, block: 32 };
 
-    /// Symmetric 4-bit blocks of 32 — GGML Q4_0-shaped storage.
+    /// Symmetric 4-bit blocks of 32. With `f16` scales it is the same size as
+    /// GGML Q4_0 (4.5 bits per value), but the bytes are laid out differently.
     pub const Q4_32: Self = Self::Symmetric { bits: 4, block: 32 };
 
     /// Run this scheme on `values`.

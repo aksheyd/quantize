@@ -5,7 +5,7 @@ use crate::params::{asymmetric_params, largest_code, smallest_code, symmetric_sc
 
 use super::i4::pack_sym_i4;
 use super::i8::pack_sym_i8;
-use super::reduce::{abs_max, min_max};
+use super::reduce::{min_max, signed_extreme};
 
 pub(crate) fn quantize_sym_packed(values: &[f32], bits: u32, block: usize) -> (Vec<f32>, Packed) {
     match bits {
@@ -19,7 +19,7 @@ fn pack_sym_general(values: &[f32], bits: u32, block: usize) -> (Vec<f32>, Packe
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut codes = Vec::with_capacity(values.len());
     for chunk in values.chunks(block) {
-        let scale = symmetric_scale(abs_max(chunk), bits);
+        let scale = symmetric_scale(signed_extreme(chunk), bits);
         let one_over_scale = 1.0 / scale;
         let code_min = smallest_code(bits) as f32;
         let code_max = largest_code(bits) as f32;

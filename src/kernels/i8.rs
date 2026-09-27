@@ -3,14 +3,14 @@
 use crate::packed::Packed;
 use crate::params::symmetric_scale;
 
-use super::reduce::abs_max;
+use super::reduce::signed_extreme;
 
 pub(crate) fn pack_sym_i8(values: &[f32], block: usize) -> (Vec<f32>, Packed) {
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut bytes = vec![0u8; values.len()];
     let mut off = 0;
     for chunk in values.chunks(block) {
-        let scale = symmetric_scale(abs_max(chunk), 8);
+        let scale = symmetric_scale(signed_extreme(chunk), 8);
         scales.push(scale);
         quant_chunk(chunk, scale, &mut bytes[off..off + chunk.len()]);
         off += chunk.len();

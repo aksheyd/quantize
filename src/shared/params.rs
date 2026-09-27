@@ -12,11 +12,17 @@ pub const fn smallest_code(bits: u32) -> i32 {
     -(1_i32 << (bits - 1))
 }
 
-/// Tick size so the biggest absolute value lands on [`largest_code`].
+/// Tick size so the value farthest from zero lands on [`smallest_code`].
+///
+/// Codes run from -8 to 7 at 4 bits, one more below zero than above. Putting
+/// the largest magnitude on 7 would never use -8; putting it on -8 uses all 16
+/// codes, so each tick is 1/8 of it instead of 1/7. A positive extreme gets a
+/// negative scale, so that -8 still decodes to it, and a value on the other
+/// side that would need code 8 gets 7. GGML's Q4_0 picks its scale this way.
 #[inline]
-pub fn symmetric_scale(max_abs: f32, bits: u32) -> f32 {
-    if max_abs > 0.0 {
-        max_abs / largest_code(bits) as f32
+pub fn symmetric_scale(extreme: f32, bits: u32) -> f32 {
+    if extreme != 0.0 {
+        extreme / smallest_code(bits) as f32
     } else {
         1.0
     }
@@ -34,7 +40,7 @@ pub fn asymmetric_params(lowest: f32, highest: f32, bits: u32) -> (f32, f32) {
         return (1.0, 0.0);
     }
     if lowest == highest {
-        return (symmetric_scale(highest.abs(), bits), 0.0);
+        return (symmetric_scale(highest, bits), 0.0);
     }
     let code_min = smallest_code(bits) as f32;
     let code_max = largest_code(bits) as f32;
@@ -68,6 +74,13 @@ mod tests {
     fn four_bit_codes_run_from_minus_eight_to_seven() {
         assert_eq!(largest_code(4), 7);
         assert_eq!(smallest_code(4), -8);
+    }
+
+    #[test]
+    fn symmetric_scale_puts_the_extreme_on_minus_eight() {
+        assert_eq!(symmetric_scale(-2.0, 4), 0.25);
+        assert_eq!(symmetric_scale(2.0, 4), -0.25);
+        assert_eq!(symmetric_scale(0.0, 4), 1.0);
     }
 
     #[test]

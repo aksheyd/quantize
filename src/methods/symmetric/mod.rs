@@ -58,6 +58,21 @@ mod tests {
     }
 
     #[test]
+    fn farthest_value_lands_on_the_most_negative_code() {
+        // With 0.8, 1.6, or 12.8 on code -8, -16, or -128, each tick is 0.1,
+        // so every multiple of 0.1 decodes exactly, on either side of zero.
+        for (bits, extreme) in [(4, 0.8_f32), (5, 1.6), (8, 12.8)] {
+            for sign in [1.0, -1.0] {
+                let w = [extreme, -0.4, 0.1, 0.1 - extreme].map(|value| value * sign);
+                let back = quantize_with::<f32>(&w, bits, 4).unwrap().dequantize();
+                for (a, b) in w.iter().zip(&back) {
+                    assert!((a - b).abs() < 1e-5, "{bits} bits: {a} vs {b}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn packed_four_bit_uses_half_byte_per_code() {
         let w = [0.1_f32; 32];
         let q = quantize::<f32, 4, 32>(&w).unwrap();

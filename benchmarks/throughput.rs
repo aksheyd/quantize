@@ -1,4 +1,5 @@
-//! Quantize / dequantize / fused-dot throughput vs candle.
+//! Quantize / dequantize / fused-dot / matmul throughput vs candle.
+//! `matmul` multiplies the weights by 16 vectors, so its ns/elt covers all 16.
 //!
 //! Run: `cargo run --release --example throughput`
 
@@ -48,6 +49,10 @@ fn main() -> candle_core::Result<()> {
     });
     bench("dot 8b×32", || {
         black_box(q8.dot(&values).unwrap());
+    });
+    let sixteen_vectors = &values[..16 * SIDE];
+    bench("matmul 4b×32 ×16", || {
+        black_box(q4.matmul(sixteen_vectors, SIDE).unwrap());
     });
 
     let device = Device::Cpu;

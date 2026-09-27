@@ -47,8 +47,12 @@ pub(crate) fn quantize_asym_block(block: &[f32], bits: u32, codes: &mut Vec<i32>
 pub(crate) fn dequant_sym_into(scales: &[f32], packed: &Packed, block: usize, out: &mut [f32]) {
     let mut codes = vec![0i32; packed.len()];
     packed.unpack_into(&mut codes);
-    for (index, &code) in codes.iter().enumerate() {
-        out[index] = code as f32 * scales[index / block];
+    let blocks = out.chunks_mut(block).zip(codes.chunks(block));
+    for (block_index, (block_out, block_codes)) in blocks.enumerate() {
+        let scale = scales[block_index];
+        for (slot, &code) in block_out.iter_mut().zip(block_codes) {
+            *slot = code as f32 * scale;
+        }
     }
 }
 
@@ -61,10 +65,13 @@ pub(crate) fn dequant_asym_into(
 ) {
     let mut codes = vec![0i32; packed.len()];
     packed.unpack_into(&mut codes);
-    for (index, &code) in codes.iter().enumerate() {
-        let scale = scales[index / block];
-        let zero_point = zero_points[index / block];
-        out[index] = (code as f32 - zero_point) * scale;
+    let blocks = out.chunks_mut(block).zip(codes.chunks(block));
+    for (block_index, (block_out, block_codes)) in blocks.enumerate() {
+        let scale = scales[block_index];
+        let zero_point = zero_points[block_index];
+        for (slot, &code) in block_out.iter_mut().zip(block_codes) {
+            *slot = (code as f32 - zero_point) * scale;
+        }
     }
 }
 

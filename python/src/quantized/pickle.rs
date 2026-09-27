@@ -167,8 +167,51 @@ fn parts<S: ScaleBits>(quantized: &Quantized<S>) -> Parts {
     }
 }
 
+/// Bytes that hold `count` codes of `bits` each, or `None` if `bits` is
+/// outside `2..=16` or the size overflows.
+fn packed_bytes(count: usize, bits: u32) -> Option<usize> {
+    if !(2..=16).contains(&bits) {
+        return None;
+    }
+    Some(count.checked_mul(bits as usize)?.div_ceil(8))
+}
+
+/// Bytes that hold every adaptive block, each packed at its own width.
+fn adaptive_bytes(parts: &Parts) -> Option<usize> {
+    let mut total = 0usize;
+    let mut remaining = parts.len;
+    for &bits in &parts.block_bits {
+        let count = remaining.min(parts.block);
+        total = total.checked_add(packed_bytes(count, bits)?)?;
+        remaining -= count;
+    }
+    Some(total)
+}
+
+/// Whether every buffer is exactly as long as `block`, `len`, and the bit
+/// widths say. Decoding trusts these sizes, so a pickle must agree with them.
+fn sizes_match(parts: &Parts, scale_count: usize, zero_point_count: usize) -> bool {
+    if parts.block == 0 {
+        return false;
+    }
+    let block_count = parts.len.div_ceil(parts.block);
+    let (expected_zero_points, expected_block_bits, expected_code_bytes) = match parts.kind {
+        Kind::Symmetric => (0, 0, packed_bytes(parts.len, parts.code_bits)),
+        Kind::Asymmetric => (block_count, 0, packed_bytes(parts.len, parts.code_bits)),
+        Kind::Adaptive => (block_count, block_count, adaptive_bytes(parts)),
+    };
+    scale_count == block_count
+        && zero_point_count == expected_zero_points
+        && parts.block_bits.len() == expected_block_bits
+        && expected_code_bytes == Some(parts.codes.len())
+}
+
 fn rebuild<S: ScaleBits>(parts: Parts) -> PyResult<Quantized<S>> {
     let scales = decode(&parts.scales)?;
+    let zero_points = decode(&parts.zero_points)?;
+    if !sizes_match(&parts, scales.len(), zero_points.len()) {
+        return Err(malformed());
+    }
     match parts.kind {
         Kind::Symmetric => Ok(Quantized::Symmetric {
             scales,
@@ -178,14 +221,14 @@ fn rebuild<S: ScaleBits>(parts: Parts) -> PyResult<Quantized<S>> {
         }),
         Kind::Asymmetric => Ok(Quantized::Asymmetric {
             scales,
-            zero_points: decode(&parts.zero_points)?,
+            zero_points,
             codes: Packed::from_raw(parts.codes, parts.code_bits, parts.len),
             block: parts.block,
             len: parts.len,
         }),
         Kind::Adaptive => Ok(Quantized::Adaptive {
             scales,
-            zero_points: decode(&parts.zero_points)?,
+            zero_points,
             bytes: parts.codes,
             bits: parts.block_bits,
             block: parts.block,

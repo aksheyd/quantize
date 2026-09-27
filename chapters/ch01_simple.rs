@@ -9,7 +9,7 @@
 //! Spoiler: every single one becomes `0`.
 
 fn quantize_simple(x: f32) -> i8 {
-    x as i8 // truncates toward zero, saturates at the i8 boundary
+    x as i8 // drops the fraction, and clamps anything outside -128..=127
 }
 
 fn dequantize_simple(q: i8) -> f32 {
@@ -27,6 +27,6 @@ fn main() {
         println!("{w:>8.2}  {q:>4}  {back:>8.2}");
     }
 
-    println!("\nevery weight collapsed to 0. Chapter 2 (`naive`) fixes this");
+    println!("\nevery weight collapsed to 0. Chapter 2 (`ch02_naive`) fixes this");
     println!("by introducing a *scale* before the cast.");
 }

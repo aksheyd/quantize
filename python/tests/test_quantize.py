@@ -11,6 +11,7 @@ from quantize import (
     QuantizeError,
     Scale,
     Scheme,
+    ShapeMismatchError,
     adaptive,
     asymmetric,
     quantize,
@@ -82,17 +83,17 @@ def test_fused_matmul_matches_dequant_then_multiply():
 
 def test_matmul_length_mismatch():
     quantized = quantize([0.1] * 64, bits=8, block=32)
-    with pytest.raises(LengthMismatchError) as raised:
+    with pytest.raises(ShapeMismatchError) as raised:
         quantized.matmul([0.1] * 3, columns=32)
-    assert raised.value.expected == 32
-    assert raised.value.got == 3
+    assert raised.value.len == 3
+    assert raised.value.columns == 32
 
 
 def test_matmul_zero_columns():
     quantized = quantize([0.1] * 8, bits=8, block=8)
-    with pytest.raises(InvalidBlockError) as raised:
+    with pytest.raises(ShapeMismatchError, match="rows of 0 columns") as raised:
         quantized.matmul([0.1] * 8, columns=0)
-    assert raised.value.block == 0
+    assert raised.value.columns == 0
 
 
 def test_matmul_batch_is_row_major():

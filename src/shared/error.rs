@@ -24,6 +24,20 @@ pub enum Error {
         /// Length the caller actually passed.
         got: usize,
     },
+    /// `columns` is zero or doesn't split `len` values into whole rows.
+    ShapeMismatch {
+        /// Number of values that were to be split into rows.
+        len: usize,
+        /// Requested row length.
+        columns: usize,
+    },
+    /// A `batch × rows` matmul result has more values than can be allocated.
+    OutputTooLarge {
+        /// Number of input vectors.
+        batch: usize,
+        /// Number of matrix rows.
+        rows: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -40,6 +54,15 @@ impl fmt::Display for Error {
             }
             Self::LengthMismatch { expected, got } => {
                 write!(f, "length mismatch: expected {expected}, got {got}")
+            }
+            Self::ShapeMismatch { len, columns } => {
+                write!(
+                    f,
+                    "{len} values can't be split into rows of {columns} columns"
+                )
+            }
+            Self::OutputTooLarge { batch, rows } => {
+                write!(f, "a {batch} x {rows} output is too large to allocate")
             }
         }
     }
@@ -95,5 +118,17 @@ mod tests {
             got: 1,
         };
         assert_eq!(err.to_string(), "length mismatch: expected 4, got 1");
+    }
+
+    #[test]
+    fn display_names_the_values_and_columns_that_do_not_fit() {
+        let err = Error::ShapeMismatch {
+            len: 64,
+            columns: 24,
+        };
+        assert_eq!(
+            err.to_string(),
+            "64 values can't be split into rows of 24 columns"
+        );
     }
 }

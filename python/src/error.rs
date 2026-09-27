@@ -1,6 +1,6 @@
 //! Python exceptions.
 
-use pyo3::exceptions::PyException;
+use pyo3::exceptions::{PyException, PyMemoryError};
 use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
@@ -120,8 +120,41 @@ impl LengthMismatchError {
     }
 }
 
+#[pyclass(
+    frozen,
+    extends = QuantizeError,
+    name = "ShapeMismatchError",
+    module = "quantize"
+)]
+pub struct ShapeMismatchError {
+    #[pyo3(get)]
+    len: usize,
+    #[pyo3(get)]
+    columns: usize,
+}
+
+#[pymethods]
+impl ShapeMismatchError {
+    #[new]
+    fn new(len: usize, columns: usize) -> PyClassInitializer<Self> {
+        let message = format!("{len} values can't be split into rows of {columns} columns");
+        PyClassInitializer::from(QuantizeError::new(message)).add_subclass(Self { len, columns })
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "{} values can't be split into rows of {} columns",
+            self.len, self.columns
+        )
+    }
+}
+
 pub fn length_mismatch(expected: usize, got: usize) -> PyErr {
     PyErr::new::<LengthMismatchError, _>((expected, got))
+}
+
+pub fn shape_mismatch(len: usize, columns: usize) -> PyErr {
+    PyErr::new::<ShapeMismatchError, _>((len, columns))
 }
 
 pub fn from_quantize(err: quantize::Error) -> PyErr {
@@ -132,5 +165,9 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::LengthMismatch { expected, got } => {
             PyErr::new::<LengthMismatchError, _>((expected, got))
         }
+        quantize::Error::ShapeMismatch { len, columns } => {
+            PyErr::new::<ShapeMismatchError, _>((len, columns))
+        }
+        quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),
     }
 }

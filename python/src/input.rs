@@ -9,6 +9,7 @@ use crate::error::length_mismatch;
 
 const VALUES_TYPE: &str = "values must be a 1-D float32 array or a sequence of floats";
 const VALUES_ENDIAN: &str = "values must be native-endian";
+const MATMUL_SHAPE: &str = "values must have shape (columns,) or (batch, columns)";
 const MATMUL_MATRIX: &str =
     "2-D values must be a C-contiguous native-endian float32 array of shape (batch, columns)";
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
@@ -53,21 +54,34 @@ pub fn as_f32_values(obj: &Bound<'_, PyAny>) -> PyResult<Vec<f32>> {
         .map_err(|_| PyTypeError::new_err(VALUES_TYPE))
 }
 
-/// Flatten 2-D C-contiguous float32 `(batch, columns)` so matmul can treat
-/// it as `k * columns`. 1-D reuses `as_f32_values`; the `usize` is the
-/// default column count (`len` or `shape[1]`).
-pub fn as_f32_matmul_values(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<f32>, usize)> {
+/// Read matmul input: one vector of shape `(columns,)`, or a batch of shape
+/// `(batch, columns)` flattened row after row. Returns the values and, for a
+/// batch, its size.
+pub fn as_f32_matmul_values(
+    obj: &Bound<'_, PyAny>,
+    columns: usize,
+) -> PyResult<(Vec<f32>, Option<usize>)> {
     if let Ok(arr) = obj.cast::<PyUntypedArray>() {
-        if arr.ndim() == 2 {
-            return flatten_c_contiguous_f32_matrix(arr);
+        match arr.ndim() {
+            1 => {}
+            2 => {
+                let (batch, input_columns) = (arr.shape()[0], arr.shape()[1]);
+                if input_columns != columns {
+                    return Err(length_mismatch(columns, input_columns));
+                }
+                return Ok((flatten_c_contiguous_f32_matrix(arr)?, Some(batch)));
+            }
+            _ => return Err(PyTypeError::new_err(MATMUL_SHAPE)),
         }
     }
     let values = as_f32_values(obj)?;
-    let columns = values.len();
-    Ok((values, columns))
+    if values.len() != columns {
+        return Err(length_mismatch(columns, values.len()));
+    }
+    Ok((values, None))
 }
 
-fn flatten_c_contiguous_f32_matrix(arr: &Bound<'_, PyUntypedArray>) -> PyResult<(Vec<f32>, usize)> {
+fn flatten_c_contiguous_f32_matrix(arr: &Bound<'_, PyUntypedArray>) -> PyResult<Vec<f32>> {
     let typed = arr
         .cast::<PyArray2<f32>>()
         .map_err(|_| PyTypeError::new_err(MATMUL_MATRIX))?;
@@ -77,9 +91,8 @@ fn flatten_c_contiguous_f32_matrix(arr: &Bound<'_, PyUntypedArray>) -> PyResult<
     if !arr.is_c_contiguous() {
         return Err(PyValueError::new_err(MATMUL_MATRIX));
     }
-    let columns = arr.shape()[1];
     let readonly = typed.try_readonly()?;
-    Ok((readonly.as_slice()?.to_vec(), columns))
+    Ok(readonly.as_slice()?.to_vec())
 }
 
 pub fn as_i32_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {

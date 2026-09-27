@@ -1,6 +1,6 @@
 //! One enum, one variant per scheme.
 
-use crate::decode::{dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_of};
+use crate::decode::{dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
 use crate::error::{check_len, Error, Result};
 use crate::packed::Packed;
 use crate::scale::Scale;
@@ -151,22 +151,64 @@ impl<S: Scale> Quantized<S> {
         })
     }
 
-    pub fn matmul(&self, rhs: &[f32], columns: usize) -> Result<Vec<f32>> {
-        if columns == 0 {
-            return Err(Error::InvalidBlock { block: 0 });
+    /// Multiply a batch of input vectors by this tensor, read as a matrix.
+    ///
+    /// - The tensor is a row-major `rows × columns` matrix `W`, where
+    ///   `rows = self.len() / columns`.
+    /// - `inputs` holds `batch` vectors of `columns` values each, back to back.
+    /// - The result holds `batch × rows` values, row-major: value
+    ///   `b * rows + r` is input `b` dotted with row `r` of `W`. That is
+    ///   `inputs · Wᵀ`, which is what a linear layer computes.
+    ///
+    /// ```
+    /// use quantize::quantize;
+    ///
+    /// // W has 2 rows × 3 columns.
+    /// let w = quantize::<f32, 8, 3>(&[1.0, 0.0, 0.0,
+    ///                                 0.0, 1.0, 1.0]).unwrap();
+    ///
+    /// // A batch of 2 inputs, 3 values each.
+    /// let inputs = [1.0, 2.0, 3.0,
+    ///               4.0, 5.0, 6.0];
+    ///
+    /// // 2 inputs × 2 rows.
+    /// let out = w.matmul(&inputs, 3).unwrap();
+    /// assert_eq!(out, [1.0, 5.0,
+    ///                  4.0, 11.0]);
+    /// ```
+    ///
+    /// Each row is decoded straight from the packed codes when `columns` is a
+    /// multiple of the block size and each row fills whole bytes. Otherwise,
+    /// and for adaptive tensors, every call first decodes the whole matrix.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::ShapeMismatch`] if `columns` is 0 or doesn't split the tensor
+    /// or `inputs` into whole rows, and [`Error::OutputTooLarge`] if the
+    /// `batch × rows` result can't be allocated.
+    pub fn matmul(&self, inputs: &[f32], columns: usize) -> Result<Vec<f32>> {
+        for len in [self.len(), inputs.len()] {
+            if columns == 0 || !len.is_multiple_of(columns) {
+                return Err(Error::ShapeMismatch { len, columns });
+            }
         }
-        if !self.len().is_multiple_of(columns) {
-            return Err(Error::LengthMismatch {
-                expected: self.len(),
-                got: columns,
-            });
+        let rows = self.len() / columns;
+        let batch = inputs.len() / columns;
+
+        // A wrong `columns` can ask for an enormous result. Multiply with an
+        // overflow check and reserve the memory up front, so a result too big
+        // for memory is an error instead of an abort.
+        let too_large = Error::OutputTooLarge { batch, rows };
+        let Some(output_len) = batch.checked_mul(rows) else {
+            return Err(too_large);
+        };
+        let mut out = Vec::new();
+        if out.try_reserve_exact(output_len).is_err() {
+            return Err(too_large);
         }
-        if !rhs.len().is_multiple_of(columns) {
-            return Err(Error::LengthMismatch {
-                expected: columns,
-                got: rhs.len(),
-            });
-        }
-        Ok(matmul_of(self, rhs, columns))
+        out.resize(output_len, 0.0);
+
+        matmul_into(self, inputs, columns, &mut out);
+        Ok(out)
     }
 }

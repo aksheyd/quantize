@@ -5,7 +5,7 @@ use quantize::{learned, Quantized, Scale, Scheme};
 use crate::error::from_quantize;
 use crate::scale::PyScale;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub(crate) enum QuantizedInner {
     F32(Quantized<f32>),
     F16(Quantized<f16>),
@@ -75,9 +75,22 @@ impl QuantizedInner {
     pub(crate) fn refine(&mut self, values: &[f32]) -> quantize::Result<()> {
         with_inner!(self, |quantized| learned::refine(quantized, values))
     }
+
+    pub(crate) fn to_bytes(&self) -> Vec<u8> {
+        with_inner!(self, |quantized| quantized.to_bytes())
+    }
+
+    pub(crate) fn from_bytes(scale: PyScale, bytes: &[u8]) -> quantize::Result<Self> {
+        match scale {
+            PyScale::F32 => Quantized::from_bytes(bytes).map(Self::F32),
+            PyScale::F16 => Quantized::from_bytes(bytes).map(Self::F16),
+            PyScale::Bf16 => Quantized::from_bytes(bytes).map(Self::Bf16),
+        }
+    }
 }
 
-#[pyclass(name = "Quantized", module = "quantize")]
+#[pyclass(name = "Quantized", module = "quantize", eq)]
+#[derive(PartialEq)]
 pub struct PyQuantized {
     pub(crate) inner: QuantizedInner,
 }

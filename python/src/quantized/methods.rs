@@ -1,14 +1,17 @@
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
+use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyBytes, PyTuple};
 
 use quantize::{Error, Packed, Quantized, Scale};
 
-use super::inner::{with_inner, PyQuantized};
-use super::pickle::{from_pickle, pickle_state};
+use super::inner::{with_inner, PyQuantized, QuantizedInner};
 use crate::error::{from_quantize, length_mismatch};
 use crate::input::{as_f32_matmul_values, as_f32_values, as_writable_f32_out};
 use crate::scale::PyScale;
+
+/// A pickled tensor: its scale type and [`quantize::Quantized::to_bytes`].
+type Pickled<'py> = (PyScale, Bound<'py, PyBytes>);
 
 fn f32_array<'py>(py: Python<'py>, values: Vec<f32>) -> Bound<'py, PyAny> {
     values.into_pyarray(py).into_any()
@@ -239,23 +242,21 @@ impl PyQuantized {
         })
     }
 
-    fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        pickle_state(py, &self.inner)
+    fn __hash__(&self) -> PyResult<isize> {
+        Err(PyTypeError::new_err("unhashable type: 'Quantized'"))
     }
 
-    fn __reduce__<'py>(
-        slf: &Bound<'py, Self>,
-    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyAny>,))> {
+    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<(Bound<'py, PyAny>, Pickled<'py>)> {
         let callable = slf.getattr("_from_pickle")?;
-        let state = slf.borrow().__getstate__(slf.py())?;
-        Ok((callable, (state,)))
+        let quantized = slf.borrow();
+        let bytes = PyBytes::new(slf.py(), &quantized.inner.to_bytes());
+        Ok((callable, (quantized.inner.scale(), bytes)))
     }
 
     #[staticmethod]
-    fn _from_pickle(state: Bound<'_, PyAny>) -> PyResult<Self> {
-        Ok(Self {
-            inner: from_pickle(state)?,
-        })
+    fn _from_pickle(scale: PyScale, bytes: &[u8]) -> PyResult<Self> {
+        let inner = QuantizedInner::from_bytes(scale, bytes).map_err(from_quantize)?;
+        Ok(Self { inner })
     }
 }
 

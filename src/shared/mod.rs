@@ -7,4 +7,5 @@ pub mod scale;
 pub mod scheme;
 pub mod tensor;
 
+mod bytes;
 pub(crate) mod decode;

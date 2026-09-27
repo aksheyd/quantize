@@ -273,9 +273,10 @@ mod tests {
             asymmetric::quantize_with(&values, 4, 8).unwrap(),
             adaptive::quantize_with(&values, 8, 0.001).unwrap(),
         ];
-        for quantized in &tensors {
+        for quantized in tensors {
             let weights = quantized.dequantize();
-            let fused = quantized.matmul(&inputs, columns).unwrap();
+            let matrix = quantized.into_matrix(rows, columns).unwrap();
+            let fused = matrix.matmul(&inputs).unwrap();
             for (vector, input) in inputs.chunks_exact(columns).enumerate() {
                 for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
                     let naive: f32 = row_weights.iter().zip(input).map(|(a, b)| a * b).sum();

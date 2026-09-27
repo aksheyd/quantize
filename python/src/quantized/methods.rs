@@ -1,11 +1,12 @@
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
 use pyo3::prelude::*;
+use pyo3::types::PyTuple;
 
-use quantize::{Packed, Quantized, Scale};
+use quantize::{Error, Packed, Quantized, Scale};
 
 use super::inner::{with_inner, PyQuantized};
 use super::pickle::{from_pickle, pickle_state};
-use crate::error::{from_quantize, length_mismatch, shape_mismatch};
+use crate::error::{from_quantize, length_mismatch};
 use crate::input::{as_f32_matmul_values, as_f32_values, as_writable_f32_out};
 use crate::scale::PyScale;
 
@@ -64,16 +65,18 @@ fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
 
 #[pymethods]
 impl PyQuantized {
+    /// Decode the values into an array of the tensor's `shape`. `out`, if
+    /// given, must be a float32 array of that shape, and is returned.
     #[pyo3(signature = (out = None))]
     fn dequantize<'py>(
         slf: &Bound<'py, Self>,
         out: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let py = slf.py();
-        let len = slf.borrow().len();
+        let shape = slf.borrow().inner.shape();
         match out {
             Some(out) => {
-                let mut output = as_writable_f32_out(&out, len)?;
+                let mut output = as_writable_f32_out(&out, &shape)?;
                 slf.borrow()
                     .dequantize_into(output.as_slice_mut()?)
                     .map_err(from_quantize)?;
@@ -82,7 +85,7 @@ impl PyQuantized {
             None => {
                 let inner = slf.borrow().inner.clone();
                 let values = py.detach(|| with_inner!(&inner, |quantized| quantized.dequantize()));
-                Ok(f32_array(py, values))
+                Ok(values.into_pyarray(py).reshape(shape)?.into_any())
             }
         }
     }
@@ -100,8 +103,8 @@ impl PyQuantized {
         })
     }
 
-    /// Multiply `values` by the tensor, read as a row-major `(rows, columns)`
-    /// matrix `W` with `rows = len(self) // columns`.
+    /// Multiply `values` by this tensor's matrix `W`, of shape
+    /// `(rows, columns)`, which the tensor was quantized from.
     ///
     /// `values` is one vector of shape `(columns,)` or a batch of shape
     /// `(batch, columns)`. The result is `values @ W.T`, of shape `(rows,)`
@@ -110,20 +113,15 @@ impl PyQuantized {
         &self,
         py: Python<'py>,
         values: Bound<'_, PyAny>,
-        columns: usize,
     ) -> PyResult<Bound<'py, PyAny>> {
-        // Check `columns` before the input's shape, so a bad column count is
-        // reported as such rather than as a mismatch with the input.
-        let len = self.len();
-        if columns == 0 || !len.is_multiple_of(columns) {
-            return Err(shape_mismatch(len, columns));
-        }
-        let rows = len / columns;
-        let (values, batch) = as_f32_matmul_values(&values, columns)?;
         let inner = self.inner.clone();
+        let Some((rows, columns)) = with_inner!(&inner, |quantized| quantized.shape()) else {
+            return Err(from_quantize(Error::NotAMatrix { len: self.len() }));
+        };
+        let (values, batch) = as_f32_matmul_values(&values, columns)?;
         let output = py.detach(|| {
             with_inner!(&inner, |quantized| quantized
-                .matmul(&values, columns)
+                .matmul(&values)
                 .map_err(from_quantize))
         })?;
         let output = output.into_pyarray(py);
@@ -145,6 +143,12 @@ impl PyQuantized {
 
     fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// `(rows, columns)` for a tensor quantized from a 2-D array, or `(len,)`.
+    #[getter]
+    fn shape<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyTuple>> {
+        PyTuple::new(py, self.inner.shape())
     }
 
     #[getter]
@@ -218,22 +222,21 @@ impl PyQuantized {
         with_inner!(&self.inner, |quantized| quantized.bits_per_element())
     }
 
-    fn __repr__(&self) -> String {
-        match self.bits() {
+    fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
+        let shape = self.shape(py)?.repr()?;
+        Ok(match self.bits() {
             Some(bits) => format!(
-                "Quantized(kind='{}', bits={bits}, block={}, len={}, scale={})",
+                "Quantized(kind='{}', bits={bits}, block={}, shape={shape}, scale={})",
                 self.kind(),
                 self.block(),
-                self.len(),
                 self.scale()
             ),
             None => format!(
-                "Quantized(kind='adaptive', block={}, len={}, scale={})",
+                "Quantized(kind='adaptive', block={}, shape={shape}, scale={})",
                 self.block(),
-                self.len(),
                 self.scale()
             ),
-        }
+        })
     }
 
     fn __getstate__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {

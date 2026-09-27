@@ -17,7 +17,8 @@ pub enum Error {
     },
     /// Reconstruction tolerance must be finite and strictly positive.
     InvalidTolerance,
-    /// Output or partner buffer length does not match the quantized tensor.
+    /// A buffer or matrix shape holds a different number of values than the
+    /// quantized tensor.
     LengthMismatch {
         /// Length required by the quantized tensor.
         expected: usize,
@@ -30,6 +31,12 @@ pub enum Error {
         len: usize,
         /// Requested row length.
         columns: usize,
+    },
+    /// [`matmul`](crate::Quantized::matmul) needs a matrix, but the tensor is
+    /// a flat vector.
+    NotAMatrix {
+        /// Number of values in the vector.
+        len: usize,
     },
     /// A `batch × rows` matmul result has more values than can be allocated.
     OutputTooLarge {
@@ -59,6 +66,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "{len} values can't be split into rows of {columns} columns"
+                )
+            }
+            Self::NotAMatrix { len } => {
+                write!(
+                    f,
+                    "matmul needs a matrix, but this tensor is a flat vector of {len} values"
                 )
             }
             Self::OutputTooLarge { batch, rows } => {

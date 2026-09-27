@@ -69,18 +69,13 @@ impl Linear {
         }
         match &self.kind {
             Kind::Dense(inner) => inner.forward(hidden),
-            Kind::Packed(weight) => packed_matmul(weight, hidden, self.rows, self.columns),
+            Kind::Packed(weight) => packed_matmul(weight, hidden, self.rows),
             Kind::CandlePacked(weight) => weight.forward(hidden),
         }
     }
 }
 
-fn packed_matmul(
-    weight: &Quantized<f16>,
-    hidden: &Tensor,
-    rows: usize,
-    columns: usize,
-) -> Result<Tensor> {
+fn packed_matmul(weight: &Quantized<f16>, hidden: &Tensor, rows: usize) -> Result<Tensor> {
     let dtype = hidden.dtype();
     let device = hidden.device().clone();
     let mut shape = hidden.dims().to_vec();
@@ -88,7 +83,7 @@ fn packed_matmul(
         .to_dtype(DType::F32)?
         .flatten_all()?
         .to_vec1::<f32>()?;
-    let product = weight.matmul(&values, columns).map_err(candle_msg)?;
+    let product = weight.matmul(&values).map_err(candle_msg)?;
     if let Some(last) = shape.last_mut() {
         *last = rows;
     }

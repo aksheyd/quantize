@@ -23,6 +23,13 @@ def test_refine_keeps_kind_and_identity():
     np.testing.assert_array_equal(quantized.unpacked_codes, before.unpacked_codes)
 
 
+def test_refine_takes_the_matrix_it_refines():
+    weights = np.linspace(-0.5, 0.5, 64, dtype=np.float32).reshape(2, 32)
+    quantized = quantize(weights, bits=4, block=32)
+    learned.refine(quantized, weights)
+    assert quantized.shape == (2, 32)
+
+
 def test_refine_length_mismatch_including_empty():
     quantized = quantize([0.1] * 4, bits=8, block=4)
     with pytest.raises(LengthMismatchError):

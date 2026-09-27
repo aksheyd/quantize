@@ -193,13 +193,24 @@ mod tests {
 
     #[test]
     fn refine_keeps_flat_block() {
-        // Stored as bf16, the fitted zero-point would decode this block as 0.5.
+        // Stored as bf16, the fitted zero-point would decode this block as 0.
         let values = [0.3_f32; 32];
         let mut q = crate::asymmetric::quantize::<half::bf16, 8, 32>(&values).unwrap();
         refine(&mut q, &values).unwrap();
         for back in q.dequantize() {
             assert!((back - 0.3).abs() < 1e-3, "{back}");
         }
+    }
+
+    #[test]
+    fn refine_keeps_the_matrix_shape() {
+        let values: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 - 0.3).collect();
+        let mut q = crate::quantize::<f32, 8, 32>(&values)
+            .unwrap()
+            .into_matrix(2, 32)
+            .unwrap();
+        refine(&mut q, &values).unwrap();
+        assert_eq!(q.shape(), Some((2, 32)));
     }
 
     #[test]

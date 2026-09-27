@@ -4,15 +4,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
   - package-ecosystem: pip
     directory: /
-    schedule:
-      interval: weekly
-  - package-ecosystem: pip
-    directory: /python
     schedule:
       interval: weekly

@@ -8,13 +8,15 @@ on:
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
 
       - uses: extractions/setup-just@v4
 
@@ -24,14 +26,29 @@ jobs:
       - name: Test
         run: just test
 
+      - name: Docs
+        run: just doc
+
+      - name: Chapters
+        run: just chapters
+
+  minimum-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: extractions/setup-just@v4
+
+      - name: Check
+        run: just minimum-rust
+
   python:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
 
       - uses: actions/setup-python@v7
         with:

@@ -9,6 +9,7 @@ from quantize._native import (
     Quantized,
     Scale,
     Scheme,
+    ShapeMismatchError,
 )
 
 from . import adaptive, asymmetric, learned, symmetric
@@ -25,6 +26,7 @@ __all__ = [
     "InvalidBlockError",
     "InvalidToleranceError",
     "LengthMismatchError",
+    "ShapeMismatchError",
     "quantize",
     "quantize_tensor",
     "symmetric",

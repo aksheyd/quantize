@@ -1,0 +1,39 @@
+[package]
+name = "chapters"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+license = "MIT"
+description = "Tutorial chapters that derive quantization from first principles."
+repository = "https://github.com/aksheyd/quantize"
+
+[lints]
+workspace = true
+
+[[example]]
+name = "ch01_simple"
+path = "ch01_simple.rs"
+
+[[example]]
+name = "ch02_naive"
+path = "ch02_naive.rs"
+
+[[example]]
+name = "ch03_bits"
+path = "ch03_bits.rs"
+
+[[example]]
+name = "ch04_block"
+path = "ch04_block.rs"
+
+[[example]]
+name = "ch05_asymmetric"
+path = "ch05_asymmetric.rs"
+
+[[example]]
+name = "ch06_adaptive"
+path = "ch06_adaptive.rs"
+
+[[example]]
+name = "ch07_learned"
+path = "ch07_learned.rs"

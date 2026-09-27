@@ -17,6 +17,11 @@
 //! assert!((back[0] - weights[0]).abs() < 0.01);
 //! ```
 //!
+//! `S` is the scale type: `f32`, [`f16`](struct@f16), or [`bf16`], the last two
+//! re-exported from the `half` crate. Each block shares one scale, so one `f16`
+//! per 32 values adds 16 / 32 = 0.5 bits to each value: 4-bit codes cost 4.5
+//! bits per value.
+//!
 //! `BITS` and `BLOCK` are const generics, so `quantize::<f32, 4, 32>(...)`,
 //! `quantize::<f32, 8, 64>(...)`, etc. all compile to specialized code.
 //!
@@ -35,6 +40,9 @@ mod methods;
 mod shared;
 
 pub use methods::{adaptive, asymmetric, learned, symmetric};
+
+#[doc(no_inline)]
+pub use half::{bf16, f16};
 
 pub use shared::error::{Error, Result};
 pub use shared::packed::Packed;

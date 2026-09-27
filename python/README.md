@@ -14,8 +14,8 @@ from quantize import Scale, quantize
 weights = [0.42, -0.10, 0.70, -0.50]
 
 q = quantize(weights, bits=8, block=32, scale=Scale.F16)
-back = q.dequantize()  # [0.419, -0.099, 0.700, -0.502]
-dot = q.dot(weights)  # 0.927
+back = q.dequantize()  # [0.421, -0.098, 0.700, -0.498]
+dot = q.dot(weights)  # 0.926
 ```
 
 `bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.Bf16`. values can be a list of floats or a 1-d numpy array.

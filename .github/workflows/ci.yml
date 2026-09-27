@@ -15,9 +15,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
 
       - uses: extractions/setup-just@v4
 
@@ -48,9 +47,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
 
       - uses: actions/setup-python@v7
         with:

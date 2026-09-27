@@ -24,6 +24,7 @@ impl Harness {
             .map(|(i, m)| {
                 let n = mses[i].len() as f32;
                 MethodReport {
+                    name: m.name,
                     bits_per_element: m.bits_per_element.evaluate(elements),
                     mse: mses[i].iter().sum::<f32>() / n,
                 }

@@ -1,6 +1,6 @@
 [package]
 name = "quantize"
-version = "0.2.2"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "A simple quantization library."
@@ -25,6 +25,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 members = ["python", "chapters"]
 default-members = [".", "chapters"]
 resolver = "3"
+
+[workspace.package]
+# Shared with the Python package.
+version = "0.2.2"
 
 [workspace.dependencies]
 half = "2"

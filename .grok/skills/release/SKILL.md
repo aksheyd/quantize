@@ -3,11 +3,11 @@ name: release
 description: Helps with releasing new versions of this Rust crate
 ---
 
-Bump `version` in `Cargo.toml`, `python/Cargo.toml`, and `pyproject.toml`.
+The version lives only in `[workspace.package]` in the root `Cargo.toml`. The crate, `python/Cargo.toml`, and `pyproject.toml` (through maturin) all read it.
 
-Then:
+To release:
 
-1. Commit
+1. Set the release version, run `just test` so `Cargo.lock` picks it up, and commit
 2. `cargo publish -p quantize` (a bare `cargo publish` also selects the unpublished `chapters` package)
 3. `git tag -a <ver> -m "Release <ver>"` (plain version, e.g. `0.1.1`)
 4. `git push && git push --tags`

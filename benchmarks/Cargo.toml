@@ -1,0 +1,52 @@
+[package]
+name = "benchmarks"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "MIT"
+description = "Benchmarks that compare quantize with candle's quantized formats."
+repository = "https://github.com/aksheyd/quantize"
+
+[features]
+workload = [
+    "dep:candle-nn",
+    "dep:candle-transformers",
+    "dep:hf-hub",
+    "dep:tokenizers",
+    "dep:serde",
+    "dep:serde_json",
+    "dep:ureq",
+]
+
+[dependencies]
+quantize = { path = ".." }
+half = { workspace = true }
+candle-core = "0.11"
+rand = "0.10"
+candle-nn = { version = "0.11", optional = true }
+candle-transformers = { version = "0.11", optional = true }
+hf-hub = { version = "0.5", default-features = false, features = ["ureq"], optional = true }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+ureq = { version = "3", optional = true }
+
+[lints]
+workspace = true
+
+[[example]]
+name = "compare"
+path = "compare.rs"
+
+[[example]]
+name = "update_readme"
+path = "update_readme.rs"
+
+[[example]]
+name = "throughput"
+path = "throughput.rs"
+
+[[example]]
+name = "wikitext"
+path = "wikitext.rs"
+required-features = ["workload"]

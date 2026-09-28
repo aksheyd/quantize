@@ -24,7 +24,7 @@ requires rust 1.88 or newer. with rustup, the first build installs the repo's pi
 cargo add quantize
 ```
 
-requires rust 1.88 or newer. older toolchains may get version 0.1.0 instead, which has a different api.
+requires rust 1.88 or newer. older toolchains may get an older version instead, which has a different api.
 
 ```rust
 use quantize::{f16, quantize};

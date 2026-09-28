@@ -1,7 +1,5 @@
 //! One enum, one variant per scheme.
 
-use core::fmt;
-
 use crate::decode::{dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
 use crate::error::{check_bits, check_block, check_len, malformed, Error, Result};
 use crate::packed::Packed;
@@ -338,8 +336,8 @@ impl<S: Scale> Quantized<S> {
 /// A one-line summary, like
 /// `Symmetric { bits: 4, block: 32, len: 64, shape: None, scale: "f32", nbytes: 40, .. }`.
 /// The scales and codes are left out, since one layer holds millions of them.
-impl<S: Scale> fmt::Debug for Quantized<S> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl<S: Scale> core::fmt::Debug for Quantized<S> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let (kind, bits) = match self {
             Self::Symmetric { codes, .. } => ("Symmetric", Some(codes.bits())),
             Self::Asymmetric { codes, .. } => ("Asymmetric", Some(codes.bits())),

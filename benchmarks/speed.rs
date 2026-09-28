@@ -17,7 +17,7 @@ pub const ITERATIONS: usize = 50;
 /// How long to call a kernel before timing it. A CPU coming out of idle takes
 /// about 100 ms to reach full speed, and calls timed sooner catch that ramp.
 const WARM_UP: Duration = Duration::from_millis(200);
-const PASSES: usize = 5;
+pub const PASSES: usize = 5;
 
 /// One kernel's time in each library, in nanoseconds per value.
 #[derive(Clone, Copy)]

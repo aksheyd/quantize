@@ -17,12 +17,12 @@ pub fn refine<'py>(
     quantized: Bound<'py, PyQuantized>,
     values: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyQuantized>> {
-    let (owned, values_shape) = as_f32_array(&values)?;
+    let (array, values_shape) = as_f32_array(&values)?;
     let tensor_shape = quantized.borrow().inner.shape();
     check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
-        .refine(owned.as_slice()?)
+        .refine(array.as_slice()?)
         .map_err(from_quantize)?;
     Ok(quantized)
 }
@@ -39,12 +39,12 @@ pub fn alternate<'py>(
     quantized: Bound<'py, PyQuantized>,
     values: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyQuantized>> {
-    let (owned, values_shape) = as_f32_array(&values)?;
+    let (array, values_shape) = as_f32_array(&values)?;
     let tensor_shape = quantized.borrow().inner.shape();
     check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
-        .alternate(owned.as_slice()?)
+        .alternate(array.as_slice()?)
         .map_err(from_quantize)?;
     Ok(quantized)
 }
@@ -57,9 +57,9 @@ pub fn fit_scale_and_zero_point(
     values: Bound<'_, PyAny>,
     codes: Bound<'_, PyAny>,
 ) -> PyResult<(f32, f32)> {
-    let owned_values = as_f32_values(&values)?;
+    let array = as_f32_values(&values)?;
     let owned_codes = as_i32_codes(&codes)?;
-    let values = owned_values.as_slice()?;
+    let values = array.as_slice()?;
     if values.len() != owned_codes.len() {
         return Err(length_mismatch("codes", values.len(), owned_codes.len()));
     }

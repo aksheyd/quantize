@@ -80,6 +80,10 @@ fn quantize_tensor(
 /// scale and a zero-point, so values that aren't centered on zero can use
 /// every code. Each value decodes as `(code - zero_point) * scale`. The other
 /// arguments work as in `quantize`.
+///
+/// `Scale.F16` and `Scale.BF16` round each zero-point, which caps the
+/// accuracy above about 10 bits, or sooner on blocks far from zero, so use
+/// `Scale.F32` there.
 #[pyfunction]
 #[pyo3(
     signature = (values, bits = 8, block = 32, *, scale = PyScale::F32),

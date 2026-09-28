@@ -9,7 +9,7 @@ use crate::params::{assert_bits_in_range, largest_code, smallest_code};
 ///
 /// Codes are stored as `bits`-wide two's-complement fields, packed LSB-first
 /// into a `Vec<u8>`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Packed {
     bytes: Vec<u8>,
     bits: u32,
@@ -104,6 +104,17 @@ impl Packed {
         for (index, slot) in (start..).zip(out) {
             *slot = read_code(&self.bytes, index, self.bits);
         }
+    }
+}
+
+/// A one-line summary, like `Packed { bits: 4, len: 64, .. }`. The bytes are
+/// left out, since one layer holds millions of codes.
+impl core::fmt::Debug for Packed {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Packed")
+            .field("bits", &self.bits)
+            .field("len", &self.len)
+            .finish_non_exhaustive()
     }
 }
 
@@ -243,6 +254,12 @@ mod tests {
     #[should_panic(expected = "every code must fit in 4 bits")]
     fn a_code_too_wide_for_its_bits_panics_in_debug_builds() {
         Packed::from_i32s(&[9, -9, 100, 7, -8], 4);
+    }
+
+    #[test]
+    fn debug_prints_a_summary_instead_of_every_byte() {
+        let p = Packed::from_i32s(&[3; 64], 4);
+        assert_eq!(format!("{p:?}"), "Packed { bits: 4, len: 64, .. }");
     }
 
     #[test]

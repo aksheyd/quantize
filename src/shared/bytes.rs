@@ -83,16 +83,19 @@ impl<S: Scale> Quantized<S> {
     /// # Errors
     ///
     /// [`Error::ScaleMismatch`] if the tensor was saved with another scale
-    /// type, [`Error::Malformed`] if the bytes end early, go on past the
-    /// tensor, or don't hold one, and any error from
+    /// type, [`Error::NewerFormat`] if a newer version of quantize saved it in
+    /// a format this one can't read, [`Error::Malformed`] if the bytes end
+    /// early, go on past the tensor, or don't hold one, and any error from
     /// [`validate`](Self::validate).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let mut reader = Reader { bytes };
         if reader.take(MAGIC.len())? != MAGIC {
             return Err(malformed("the bytes don't start with QNTZ"));
         }
-        if reader.byte()? != VERSION {
-            return Err(malformed("unsupported format version"));
+        match reader.byte()? {
+            VERSION => {}
+            version if version > VERSION => return Err(Error::NewerFormat { version }),
+            _ => return Err(malformed("unsupported format version")),
         }
         let kind = reader.byte()?;
         let name_len = usize::from(reader.byte()?);
@@ -327,8 +330,12 @@ mod tests {
             Quantized::<f32>::from_bytes(&changed)
         };
         assert!(matches!(load_with(0, b'X'), Err(Error::Malformed { .. })));
-        assert!(matches!(
+        assert_eq!(
             load_with(version, 2),
+            Err(Error::NewerFormat { version: 2 })
+        );
+        assert!(matches!(
+            load_with(version, 0),
             Err(Error::Malformed { .. })
         ));
         assert!(matches!(load_with(kind, 3), Err(Error::Malformed { .. })));

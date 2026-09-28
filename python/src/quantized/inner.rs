@@ -95,7 +95,7 @@ impl QuantizedInner {
         with_inner!(self, |quantized| learned::refine(quantized, values))
     }
 
-    pub(crate) fn alternate(&mut self, values: &[f32]) -> quantize::Result<()> {
+    pub(crate) fn alternate(&mut self, values: &[f32]) -> quantize::Result<bool> {
         with_inner!(self, |quantized| learned::alternate(quantized, values))
     }
 
@@ -168,7 +168,7 @@ impl PyQuantized {
         self.inner.refine(values)
     }
 
-    pub fn alternate(&mut self, values: &[f32]) -> quantize::Result<()> {
+    pub fn alternate(&mut self, values: &[f32]) -> quantize::Result<bool> {
         self.inner.alternate(values)
     }
 

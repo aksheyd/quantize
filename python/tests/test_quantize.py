@@ -556,6 +556,13 @@ def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
             Quantized.from_bytes(b"not a tensor")
 
 
+def test_from_bytes_says_a_newer_format_needs_a_newer_quantize_py():
+    data = bytearray(quantize([0.1] * 64).to_bytes())
+    data[4] = 2  # the format version, right after QNTZ
+    with pytest.raises(QuantizeError, match="format version 2; upgrade quantize-py to load it"):
+        Quantized.from_bytes(data)
+
+
 # quantize([0.42, -0.10, 0.70, -0.50], bits=8, block=4), pickled by quantize-py 0.2.2.
 PICKLED_BY_0_2 = (
     b"\x80\x04\x95\xa5\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\x07geta"

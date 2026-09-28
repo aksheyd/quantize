@@ -2,7 +2,7 @@ use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
 use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBytes, PyTuple};
+use pyo3::types::{PyBytes, PyTuple, PyType};
 
 use quantize::{Error, Quantized, Scale};
 
@@ -283,6 +283,11 @@ impl PyQuantized {
         Ok(Self { inner })
     }
 
+    #[new]
+    fn new(py: Python<'_>, data: PyBuffer<u8>) -> PyResult<Self> {
+        Self::from_bytes(py, data)
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
         let shape = self.shape(py)?.repr()?;
         Ok(match self.bits() {
@@ -303,11 +308,11 @@ impl PyQuantized {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
-    fn __reduce__<'py>(
-        slf: &Bound<'py, Self>,
-    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
-        let from_bytes = slf.getattr("from_bytes")?;
-        Ok((from_bytes, (slf.borrow().to_bytes(slf.py()),)))
+    // Pickles rebuild the tensor by calling the class, so that `torch.load`
+    // loads them once `add_safe_globals([Quantized])` allows it. A static
+    // method would pickle as a call to `getattr`, which `torch.load` refuses.
+    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> (Bound<'py, PyType>, (Bound<'py, PyBytes>,)) {
+        (slf.get_type(), (slf.borrow().to_bytes(slf.py()),))
     }
 
     /// Pickles saved by quantize-py 0.2 call this with one tuple, which starts

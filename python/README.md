@@ -29,7 +29,7 @@ the other schemes return the same `Quantized` type:
 - `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the error
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
 
-quantized values can be pickled, and compared with `==`.
+quantized values can be pickled, and compared with `==`. `q.to_bytes()` saves one as bytes, in the same format as the rust crate, and `Quantized.from_bytes(data)` loads it back. to keep it in an `np.savez` or safetensors file, store `np.frombuffer(q.to_bytes(), np.uint8)`.
 
 to save a quantized value another way, like with `np.savez`, keep its `kind`, `shape`, `block`, `codes`, `scales`, `zero_points`, `bits`, `block_bits`, and `scale`, and pass them back by name to `Quantized.from_parts`.
 

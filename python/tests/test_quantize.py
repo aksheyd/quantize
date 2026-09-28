@@ -299,19 +299,40 @@ def test_pickle_keeps_the_matrix_shape():
     np.testing.assert_array_equal(restored.matmul(np.ones(32)), quantized.matmul(np.ones(32)))
 
 
-def test_pickle_rejects_inconsistent_state():
+def test_bytes_round_trip_every_kind_and_scale_type_through_numpy():
+    weights = weight_matrix(3, 30)
+    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+        for quantized in [
+            quantize(weights, bits=4, block=32, scale=scale),
+            asymmetric.quantize(weights, bits=5, block=16, scale=scale),
+            adaptive.quantize(weights.ravel(), block=32, scale=scale),
+            quantize([], scale=scale),
+        ]:
+            data = quantized.to_bytes()
+            assert Quantized.from_bytes(data) == quantized
+            saved = saved_and_loaded_with_numpy({"layer": np.frombuffer(data, np.uint8)})
+            assert Quantized.from_bytes(saved["layer"]) == quantized
+
+
+def test_pickles_hold_the_bytes_that_from_bytes_loads():
+    quantized = quantize(weight_matrix(8, 32), bits=4, scale=Scale.F16)
+    rebuild, (data,) = quantized.__reduce__()
+    assert rebuild == Quantized.from_bytes
+    assert data == quantized.to_bytes()
+
+
+def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
     for quantized in [
         quantize([0.1] * 64, bits=4, block=32),
         adaptive.quantize([i * 0.01 for i in range(40)], block=32),
     ]:
-        rebuild, (scale, data) = quantized.__reduce__()
-        assert rebuild(scale, data) == quantized
+        data = quantized.to_bytes()
         with pytest.raises(ValueError, match="malformed"):
-            rebuild(scale, data[:-1])
+            Quantized.from_bytes(data[:-1])
         with pytest.raises(ValueError, match="another scale type"):
-            rebuild(Scale.F16, data)
+            Quantized.from_bytes(data.replace(b"f32", b"f64", 1))
         with pytest.raises(ValueError, match="QNTZ"):
-            rebuild(scale, b"not a tensor")
+            Quantized.from_bytes(b"not a tensor")
 
 
 def test_quantized_compares_by_value():

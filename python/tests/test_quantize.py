@@ -574,16 +574,15 @@ def test_from_parts_rebuilds_parts_saved_with_numpy_as_the_readme_says():
                 "kind": quantized.kind,
                 "shape": quantized.shape,
                 "block": quantized.block,
+                "bits": quantized.bits,
+                "block_bits": quantized.block_bits,
                 "codes": quantized.codes,
                 "scales": quantized.scales,
                 "zero_points": quantized.zero_points,
                 "scale": quantized.scale.name,
             }
-            if quantized.kind == "adaptive":
-                parts["block_bits"] = quantized.block_bits
-            else:
-                parts["bits"] = quantized.bits
-            rebuilt = Quantized.from_parts(**saved_and_loaded_with_numpy(parts))
+            saved = {name: part for name, part in parts.items() if part is not None}
+            rebuilt = Quantized.from_parts(**saved_and_loaded_with_numpy(saved))
             assert rebuilt == quantized
 
 

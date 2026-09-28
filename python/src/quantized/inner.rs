@@ -138,6 +138,10 @@ impl QuantizedInner {
 /// Scales can be negative: a symmetric block puts its value farthest from
 /// zero on the most negative code, even when that value is positive.
 /// Zero-points are rarely whole numbers.
+///
+/// `Quantized(data)` loads a tensor that `to_bytes` saved, like `from_bytes`.
+/// Pickles load through it, so `torch.load` accepts them once
+/// `torch.serialization.add_safe_globals([Quantized])` allows the class.
 #[pyclass(name = "Quantized", module = "quantize", eq)]
 #[derive(PartialEq)]
 pub struct PyQuantized {

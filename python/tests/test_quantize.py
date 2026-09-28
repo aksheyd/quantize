@@ -1,4 +1,5 @@
 import array
+import codecs
 import io
 import pickle
 import re
@@ -453,11 +454,33 @@ def test_bytes_round_trip_every_kind_and_scale_type_through_numpy():
             assert Quantized.from_bytes(saved["layer"]) == quantized
 
 
-def test_pickles_hold_the_bytes_that_from_bytes_loads():
+def test_pickles_call_the_class_with_the_bytes_that_to_bytes_saves():
     quantized = quantize(weight_matrix(8, 32), bits=4, scale=Scale.F16)
     rebuild, (data,) = quantized.__reduce__()
-    assert rebuild == Quantized.from_bytes
+    assert rebuild is Quantized
     assert data == quantized.to_bytes()
+    assert Quantized(data) == Quantized.from_bytes(data) == quantized
+
+
+class OnlyQuantizedUnpickler(pickle.Unpickler):
+    """Stands in for `torch.load`, which by default refuses any global it
+    doesn't trust, after `torch.serialization.add_safe_globals([Quantized])`.
+    It also trusts `_codecs.encode`, as `torch.load` does, since pickles below
+    protocol 3 store bytes with it."""
+
+    def find_class(self, module, name):
+        if (module, name) == ("quantize", "Quantized"):
+            return Quantized
+        if (module, name) == ("_codecs", "encode"):
+            return codecs.encode
+        raise pickle.UnpicklingError(f"{module}.{name} isn't allowed")
+
+
+def test_pickles_load_when_only_the_class_is_allowed_as_in_torch_load():
+    checkpoint = {"layer": quantize(weight_matrix(8, 32), bits=4, scale=Scale.F16)}
+    for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
+        data = pickle.dumps(checkpoint, protocol)
+        assert OnlyQuantizedUnpickler(io.BytesIO(data)).load() == checkpoint
 
 
 def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
@@ -492,6 +515,22 @@ def test_a_pickle_from_0_2_says_how_to_move_the_tensor_over():
     assert "Quantized.from_parts" in str(raised.value)
     with pytest.raises(ValueError, match="malformed"):
         Quantized._from_pickle((2, "symmetric"))
+
+
+# quantize([0.42, -0.10, 0.70, -0.50], bits=8, block=4), pickled through
+# Quantized.from_bytes by a development build of quantize-py 0.3.0.
+PICKLED_THROUGH_FROM_BYTES = (
+    b"\x80\x04\x95t\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\x07getattr"
+    b"\x94\x93\x94\x8c\x08quantize\x94\x8c\tQuantized\x94\x93\x94\x8c\nfrom_bytes\x94"
+    b"\x86\x94R\x94C+QNTZ\x01\x00\x03f32\x08\x04\x00\x00\x00\x00\x00\x00\x00\x04\x00"
+    b"\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0033\xb3\xbb\xb3\x12\x80["
+    b"\x94\x85\x94R\x94."
+)
+
+
+def test_a_pickle_through_from_bytes_still_loads():
+    weights = [0.42, -0.10, 0.70, -0.50]
+    assert pickle.loads(PICKLED_THROUGH_FROM_BYTES) == quantize(weights, bits=8, block=4)
 
 
 def test_quantized_compares_by_value():

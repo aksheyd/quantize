@@ -39,6 +39,8 @@ np.savez("layer.npz", kind=q.kind, shape=q.shape, block=q.block, bits=q.bits,
 q = Quantized.from_parts(**np.load("layer.npz"))
 ```
 
+each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
+
 to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):
 
 ```

@@ -23,34 +23,54 @@ use crate::scale::Scale;
 pub enum Quantized<S: Scale> {
     /// One scale per block.
     Symmetric {
+        /// One scale per block.
         scales: Vec<S>,
+        /// One code per value, all at one width.
         codes: Packed,
+        /// How many values share each scale.
         block: usize,
+        /// Number of values.
         len: usize,
+        /// Each row's length for a matrix, or `None` for a flat vector.
         columns: Option<usize>,
     },
     /// Scale and zero-point per block.
     Asymmetric {
+        /// One scale per block.
         scales: Vec<S>,
+        /// One zero-point per block.
         zero_points: Vec<S>,
+        /// One code per value, all at one width.
         codes: Packed,
+        /// How many values share each scale.
         block: usize,
+        /// Number of values.
         len: usize,
+        /// Each row's length for a matrix, or `None` for a flat vector.
         columns: Option<usize>,
     },
     /// Per-block bit width; codes packed at that width.
     Adaptive {
+        /// One scale per block.
         scales: Vec<S>,
+        /// One zero-point per block.
         zero_points: Vec<S>,
+        /// Each block's codes, packed at that block's width and starting on a
+        /// new byte.
         codes: Vec<u8>,
+        /// Each block's code width.
         block_bits: Vec<u8>,
+        /// How many values share each scale.
         block: usize,
+        /// Number of values.
         len: usize,
+        /// Each row's length for a matrix, or `None` for a flat vector.
         columns: Option<usize>,
     },
 }
 
 impl<S: Scale> Quantized<S> {
+    /// Number of values, `rows × columns` for a matrix.
     pub fn len(&self) -> usize {
         match self {
             Self::Symmetric { len, .. }
@@ -59,6 +79,7 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
+    /// Whether the tensor holds no values.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -107,6 +128,7 @@ impl<S: Scale> Quantized<S> {
         Ok(())
     }
 
+    /// How many values share each scale.
     pub fn block(&self) -> usize {
         match self {
             Self::Symmetric { block, .. }
@@ -115,6 +137,7 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
+    /// One scale per block.
     pub fn scales(&self) -> &[S] {
         match self {
             Self::Symmetric { scales, .. }
@@ -123,6 +146,7 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
+    /// One zero-point per block, or none for a symmetric tensor.
     pub fn zero_points(&self) -> &[S] {
         match self {
             Self::Symmetric { .. } => &[],
@@ -132,6 +156,10 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
+    /// The codes packed into bytes, low bits first, so at 4 bits the first
+    /// code of each byte is its low nibble. An adaptive tensor packs each
+    /// block at its own width from [`block_bits`](Self::block_bits), starting
+    /// on a new byte.
     pub fn codes(&self) -> &[u8] {
         match self {
             Self::Symmetric { codes, .. } | Self::Asymmetric { codes, .. } => codes.as_bytes(),
@@ -155,6 +183,8 @@ impl<S: Scale> Quantized<S> {
         unpacked
     }
 
+    /// Each block's code width for an adaptive tensor, or `None` for the
+    /// others, whose codes all share one width.
     pub fn block_bits(&self) -> Option<&[u8]> {
         match self {
             Self::Adaptive { block_bits, .. } => Some(block_bits),
@@ -162,6 +192,8 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
+    /// Bytes held by the codes, scales, zero-points, and block widths: what
+    /// [`to_bytes`](Self::to_bytes) writes, minus its header.
     pub fn nbytes(&self) -> usize {
         let extra = match self {
             Self::Adaptive { block_bits, .. } => core::mem::size_of_val(block_bits.as_slice()),
@@ -173,6 +205,8 @@ impl<S: Scale> Quantized<S> {
             + extra
     }
 
+    /// Bits per value, counting the scales: 4-bit codes with one `f16` scale
+    /// per 32 values cost 4.5.
     pub fn bits_per_element(&self) -> f32 {
         if self.is_empty() {
             0.0
@@ -261,12 +295,18 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
+    /// Decode every value, row after row for a matrix.
     pub fn dequantize(&self) -> Vec<f32> {
         let mut out = vec![0.0; self.len()];
         let _ = self.dequantize_into(&mut out);
         out
     }
 
+    /// Decode every value into `out`, row after row for a matrix.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::LengthMismatch`] if `out` isn't [`len`](Self::len) long.
     pub fn dequantize_into(&self, out: &mut [f32]) -> Result<()> {
         check_len(self.len(), out.len())?;
         if self.is_empty() {
@@ -334,6 +374,13 @@ impl<S: Scale> Quantized<S> {
         Ok(())
     }
 
+    /// The dot product of the decoded values with `rhs`, without storing the
+    /// decoded values. To multiply a matrix by a batch of vectors, use
+    /// [`matmul`](Self::matmul).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::LengthMismatch`] if `rhs` isn't [`len`](Self::len) long.
     pub fn dot(&self, rhs: &[f32]) -> Result<f32> {
         check_len(self.len(), rhs.len())?;
         Ok(if self.is_empty() {

@@ -60,6 +60,8 @@
 //! block are unaffected. An infinity is kept, which stretches its block's
 //! range to infinity, so every finite value in that block decodes to NaN.
 
+#![warn(missing_docs)]
+
 mod kernels;
 mod methods;
 mod shared;

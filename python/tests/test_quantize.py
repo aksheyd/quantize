@@ -175,6 +175,16 @@ def test_values_that_are_not_real_numbers_are_rejected_with_what_arrived():
         quantize(Tensor(np.zeros((2, 2, 2), np.float32)))
 
 
+def test_masked_arrays_are_rejected_instead_of_losing_their_mask():
+    masked = np.ma.masked_array([0.1, 0.2, 99.0], mask=[False, False, True])
+    with pytest.raises(TypeError, match=r"masked array.*values\.filled\(0\)"):
+        quantize(masked, bits=8, block=3)
+    with pytest.raises(TypeError, match="masked array"):
+        quantize(weight_matrix(2, 3)).matmul(masked)
+    back = quantize(masked.filled(0), bits=8, block=3).dequantize()
+    np.testing.assert_allclose(back, [0.1, 0.2, 0.0], atol=1e-3)
+
+
 def test_quantize_rejects_a_matrix_with_no_columns():
     with pytest.raises(ShapeMismatchError, match="rows of 0 columns") as raised:
         quantize(np.zeros((4, 0), np.float32))

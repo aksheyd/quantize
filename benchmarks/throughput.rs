@@ -12,7 +12,11 @@ use speed::{time_per_value, ITERATIONS, SIDE};
 
 fn main() -> candle_core::Result<()> {
     let values = speed::values();
-    println!("{SIDE}x{SIDE} values, f16 scales, median of {ITERATIONS} calls, in ns per value\n");
+    println!("{SIDE}x{SIDE} values, f16 scales, median of {ITERATIONS} calls, in ns per value");
+    println!(
+        "the quant and dequant rows are each the fastest of {} such medians\n",
+        speed::PASSES
+    );
     println!("{:<18}{:>10}{:>10}", "kernel", "quantize", "candle");
     println!("{:-<38}", "");
     for kernel in speed::measure(&values)? {

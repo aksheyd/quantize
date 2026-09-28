@@ -18,6 +18,8 @@ workload = [
     "dep:ureq",
 ]
 
+# Only wikitext uses these. They'd be dev-dependencies too, but Cargo doesn't
+# allow optional dev-dependencies.
 [dependencies]
 candle-nn = { version = "0.11", optional = true }
 candle-transformers = { version = "0.11", optional = true }

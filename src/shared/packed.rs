@@ -1,12 +1,14 @@
 //! Bit-packed signed integer codes.
 //!
-//! Codes are stored as `bits`-wide two's-complement fields, packed LSB-first
-//! into a `Vec<u8>`. 4-bit and 8-bit paths are specialized; other widths use
-//! a general bit-buffer.
+//! 4-bit and 8-bit paths are specialized; other widths use a general
+//! bit-buffer.
 
 use crate::params::{assert_bits_in_range, largest_code, smallest_code};
 
 /// Packed signed codes plus the bit width they were written with.
+///
+/// Codes are stored as `bits`-wide two's-complement fields, packed LSB-first
+/// into a `Vec<u8>`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Packed {
     bytes: Vec<u8>,

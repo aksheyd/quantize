@@ -71,10 +71,10 @@ pub use half::{bf16, f16};
 
 pub use shared::error::{Error, Result};
 pub use shared::packed::Packed;
+pub use shared::params;
 pub use shared::scale::Scale;
 pub use shared::scheme::Scheme;
 pub use shared::tensor::Quantized;
-pub use shared::{error, packed, params, scale, scheme, tensor};
 pub use symmetric::{quantize, quantize_tensor};
 
-pub(crate) use shared::decode;
+pub(crate) use shared::{decode, error, packed, scale, tensor};

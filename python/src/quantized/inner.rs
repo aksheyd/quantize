@@ -124,8 +124,9 @@ impl QuantizedInner {
 
 /// Quantized values: small integer codes, with one scale for each block of
 /// `block` values, and one zero-point too for asymmetric and adaptive ones.
-/// Value `i` is in block `i // block`, counting a matrix row after row, and
-/// decodes as
+/// `len(q)` is the number of values, `rows * columns` for a matrix, as in
+/// Rust, and `shape` gives the rows and columns. Value `i` is in block
+/// `i // block`, counting a matrix row after row, and decodes as
 ///
 ///     code * scale                   (symmetric)
 ///     (code - zero_point) * scale    (asymmetric and adaptive)

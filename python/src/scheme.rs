@@ -50,8 +50,7 @@ impl PyScheme {
         }
     }
 
-    /// The method of `quantize`. Like the other two, it checks its settings
-    /// only when it quantizes.
+    /// The method of `quantize`.
     #[classmethod]
     #[pyo3(signature = (bits = 8, block = 32))]
     fn symmetric(_cls: &Bound<'_, PyType>, bits: u32, block: usize) -> Self {

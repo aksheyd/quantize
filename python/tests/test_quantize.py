@@ -342,19 +342,21 @@ def test_scale_enum_selects_storage():
     weights = [0.42, -0.10, 0.70, -0.50]
     assert quantize(weights, bits=8, block=4).scale == Scale.F32
     assert quantize(weights, bits=8, block=4, scale=Scale.F16).scale == Scale.F16
-    assert quantize(weights, bits=8, block=4, scale=Scale.Bf16).scale == Scale.Bf16
+    assert quantize(weights, bits=8, block=4, scale=Scale.BF16).scale == Scale.BF16
     assert Scheme.Q8_32.quantize(weights, scale=Scale.F16).scale == Scale.F16
     assert Scale.F32 != Scale.F16
     assert (
         repr(quantize(weights, bits=8, block=4, scale=Scale.F16))
         == "Quantized(kind='symmetric', bits=8, block=4, shape=(4,), scale=Scale.F16)"
     )
+    assert repr(Scale.BF16) == "Scale.BF16"
+    assert repr(quantize(weights, scale=Scale.BF16)).endswith("scale=Scale.BF16)")
 
 
 def test_scale_can_be_given_by_name():
-    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+    for scale in [Scale.F32, Scale.F16, Scale.BF16]:
         assert quantize([0.1], scale=scale.name).scale == scale
-    assert Scale.Bf16.name == "bf16"
+    assert Scale.BF16.name == "bf16"
     with pytest.raises(QuantizeError, match="scale must be a Scale or its name"):
         quantize([0.1], scale="float32")
 
@@ -417,7 +419,7 @@ def test_pickle_keeps_the_matrix_shape():
 
 def test_bytes_round_trip_every_kind_and_scale_type_through_numpy():
     weights = weight_matrix(3, 30)
-    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+    for scale in [Scale.F32, Scale.F16, Scale.BF16]:
         for quantized in [
             quantize(weights, bits=4, block=32, scale=scale),
             asymmetric.quantize(weights, bits=5, block=16, scale=scale),
@@ -494,7 +496,7 @@ def saved_and_loaded_with_numpy(arrays):
 
 def test_from_parts_rebuilds_parts_saved_with_numpy_as_the_readme_says():
     weights = weight_matrix(3, 30)
-    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+    for scale in [Scale.F32, Scale.F16, Scale.BF16]:
         for quantized in [
             quantize(weights, bits=4, block=32, scale=scale),
             asymmetric.quantize(weights, bits=5, block=16, scale=scale),

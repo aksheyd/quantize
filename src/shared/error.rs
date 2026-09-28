@@ -93,6 +93,12 @@ pub enum Error {
         /// The scale type it was loaded as.
         expected: &'static str,
     },
+    /// [`from_bytes`](crate::Quantized::from_bytes) read a tensor saved in a
+    /// newer format version than this version of quantize reads.
+    NewerFormat {
+        /// The format version the tensor was saved in.
+        version: u8,
+    },
 }
 
 impl fmt::Display for Error {
@@ -161,6 +167,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "the tensor was saved with {saved} scales, not {expected}"
+                )
+            }
+            Self::NewerFormat { version } => {
+                write!(
+                    f,
+                    "the tensor was saved by a newer version of quantize, in format version {version}; upgrade quantize to load it"
                 )
             }
         }
@@ -293,6 +305,15 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "the tensor was saved with f16 scales, not f32"
+        );
+    }
+
+    #[test]
+    fn display_suggests_a_newer_quantize() {
+        let err = Error::NewerFormat { version: 2 };
+        assert_eq!(
+            err.to_string(),
+            "the tensor was saved by a newer version of quantize, in format version 2; upgrade quantize to load it"
         );
     }
 }

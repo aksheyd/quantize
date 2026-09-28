@@ -1,6 +1,8 @@
 //! One enum, one variant per scheme.
 
-use crate::decode::{decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
+use crate::decode::{
+    decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into, unpack_codes,
+};
 use crate::error::{Error, Result, check_bits, check_block, check_len, malformed};
 use crate::packed::Packed;
 use crate::scale::Scale;
@@ -135,6 +137,22 @@ impl<S: Scale> Quantized<S> {
             Self::Symmetric { codes, .. } | Self::Asymmetric { codes, .. } => codes.as_bytes(),
             Self::Adaptive { codes, .. } => codes,
         }
+    }
+
+    /// One code per value, unpacked from [`codes`](Self::codes), row after
+    /// row for a matrix.
+    ///
+    /// ```
+    /// use quantize::quantize;
+    ///
+    /// // 0.8 is farthest from zero, so it lands on code -8 and the scale is -0.1.
+    /// let q = quantize::<f32, 4, 4>(&[0.8, -0.4, 0.1, 0.0]).unwrap();
+    /// assert_eq!(q.unpacked_codes(), [-8, 4, -1, 0]);
+    /// ```
+    pub fn unpacked_codes(&self) -> Vec<i32> {
+        let mut unpacked = vec![0; self.len()];
+        unpack_codes(self, &mut unpacked);
+        unpacked
     }
 
     pub fn block_bits(&self) -> Option<&[u8]> {
@@ -430,7 +448,28 @@ fn too_large() -> Error {
 
 #[cfg(test)]
 mod tests {
-    use crate::{adaptive, symmetric};
+    use crate::{Packed, Quantized, adaptive, symmetric};
+
+    #[test]
+    fn unpacked_adaptive_codes_repack_to_the_original_bytes() {
+        let values: Vec<f32> = (0..40).map(|index| index as f32 * 0.02 - 0.4).collect();
+        let quantized = adaptive::quantize_with::<f32>(&values, 32, 0.002).unwrap();
+        let unpacked = quantized.unpacked_codes();
+        let Quantized::Adaptive {
+            codes,
+            block_bits,
+            block,
+            ..
+        } = &quantized
+        else {
+            unreachable!()
+        };
+        let mut repacked = Vec::new();
+        for (block_codes, &bit_width) in unpacked.chunks(*block).zip(block_bits) {
+            repacked.extend_from_slice(Packed::from_i32s(block_codes, bit_width.into()).as_bytes());
+        }
+        assert_eq!(&repacked, codes);
+    }
 
     #[test]
     fn debug_prints_a_summary_instead_of_every_code() {

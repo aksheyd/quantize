@@ -84,7 +84,7 @@ impl Packed {
     /// Unpack `n` codes of width `bits` from a raw byte slice.
     ///
     /// Panics if `bits` is outside `2..=16`.
-    pub fn unpack_slice(bytes: &[u8], bits: u32, out: &mut [i32], n: usize) {
+    pub(crate) fn unpack_slice(bytes: &[u8], bits: u32, out: &mut [i32], n: usize) {
         assert_bits_in_range(bits);
         match bits {
             8 => unpack_i8(bytes, out, n),

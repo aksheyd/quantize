@@ -7,6 +7,7 @@ use pyo3::types::{PyBool, PyTuple};
 
 use crate::error::{length_mismatch, InvalidBitsError, InvalidBlockError};
 
+const MASKED_VALUES: &str = "values can't be a masked array, since its mask would be ignored; fill in the masked values first, like values.filled(0)";
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
 const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
 const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
@@ -44,6 +45,9 @@ fn read_f32(
     wanted: &str,
 ) -> PyResult<(Vec<f32>, Vec<usize>)> {
     let numpy = obj.py().import("numpy")?;
+    if obj.is_instance(&numpy.getattr("ma")?.getattr("MaskedArray")?)? {
+        return Err(PyTypeError::new_err(MASKED_VALUES));
+    }
     let converted = numpy.call_method1("asarray", (obj,))?;
     let array = converted.cast::<PyUntypedArray>()?;
     if !matches!(dtype_kind(array)?.as_str(), "b" | "i" | "u" | "f") {

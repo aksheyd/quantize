@@ -228,8 +228,7 @@ impl PyQuantized {
     /// asymmetric tensors take `bits`, adaptive ones take `block_bits`, and
     /// symmetric ones take no `zero_points`. `kind` and `scale` can be the 0-d
     /// arrays that `numpy.load` returns for saved strings. Parts that don't fit
-    /// together raise `ValueError`, or a `QuantizeError` for a field out of
-    /// range.
+    /// together, or a field out of range, raise `QuantizeError`.
     #[staticmethod]
     #[pyo3(signature = (
         *, kind, shape, block, codes, scales, scale, zero_points = None, bits = None,
@@ -274,8 +273,7 @@ impl PyQuantized {
 
     /// Load a tensor that `to_bytes` saved, in Python or in Rust. `data` is
     /// `bytes` or another bytes-like object, such as a uint8 NumPy array.
-    /// Bytes that don't hold a valid tensor raise `ValueError`, or a
-    /// `QuantizeError` for a field out of range.
+    /// Bytes that don't hold a valid tensor raise `QuantizeError`.
     #[staticmethod]
     fn from_bytes(py: Python<'_>, data: PyBuffer<u8>) -> PyResult<Self> {
         let inner = QuantizedInner::from_bytes(&data.to_vec(py)?).map_err(from_quantize)?;

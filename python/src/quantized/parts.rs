@@ -1,10 +1,9 @@
 //! Rebuild a tensor from the values its getters return.
 
-use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use quantize::{Error, Packed, Quantized, Scale};
 
-use crate::error::from_quantize;
+use crate::error::{QuantizeError, from_quantize};
 
 const SHAPE_DIMENSIONS: &str = "shape must be (len,) or (rows, columns)";
 const SHAPE_TOO_LARGE: &str = "the shape holds too many values";
@@ -32,9 +31,9 @@ impl Parts {
             [len] => (len, None),
             [rows, columns] => match rows.checked_mul(columns) {
                 Some(len) => (len, Some(columns)),
-                None => return Err(PyValueError::new_err(SHAPE_TOO_LARGE)),
+                None => return Err(PyErr::new::<QuantizeError, _>(SHAPE_TOO_LARGE)),
             },
-            _ => return Err(PyValueError::new_err(SHAPE_DIMENSIONS)),
+            _ => return Err(PyErr::new::<QuantizeError, _>(SHAPE_DIMENSIONS)),
         };
         let block = self.block;
         let scales: Vec<S> = self.scales.into_iter().map(S::from_f32).collect();
@@ -65,7 +64,7 @@ impl Parts {
                 len,
                 columns,
             },
-            _ => return Err(PyValueError::new_err(KIND_PARTS)),
+            _ => return Err(PyErr::new::<QuantizeError, _>(KIND_PARTS)),
         };
         quantized.validate().map_err(from_quantize)?;
         Ok(quantized)

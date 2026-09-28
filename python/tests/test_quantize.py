@@ -466,11 +466,11 @@ def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
         adaptive.quantize([i * 0.01 for i in range(40)], block=32, tolerance=0.001),
     ]:
         data = quantized.to_bytes()
-        with pytest.raises(ValueError, match="malformed"):
+        with pytest.raises(QuantizeError, match="malformed"):
             Quantized.from_bytes(data[:-1])
-        with pytest.raises(ValueError, match="saved with f64 scales, not f32"):
+        with pytest.raises(QuantizeError, match="saved with f64 scales, not f32"):
             Quantized.from_bytes(data.replace(b"f32", b"f64", 1))
-        with pytest.raises(ValueError, match="QNTZ"):
+        with pytest.raises(QuantizeError, match="QNTZ"):
             Quantized.from_bytes(b"not a tensor")
 
 
@@ -560,15 +560,15 @@ def test_from_parts_rejects_parts_that_do_not_fit_together():
         ({"bits": 17}, InvalidBitsError, "bits must be from 2 to 16, got 17"),
         ({"block": 0}, InvalidBlockError, "block must be at least 1, got 0"),
         ({"shape": (90, 0)}, ShapeMismatchError, "rows of 0 columns"),
-        ({"shape": (4, 30)}, ValueError, "one scale"),
-        ({"shape": (3, 3, 10)}, ValueError, "shape must be"),
-        ({"codes": quantized.codes[:-1]}, ValueError, "codes must fill"),
+        ({"shape": (4, 30)}, QuantizeError, "one scale"),
+        ({"shape": (3, 3, 10)}, QuantizeError, "shape must be"),
+        ({"codes": quantized.codes[:-1]}, QuantizeError, "codes must fill"),
         ({"codes": quantized.unpacked_codes}, TypeError, "uint8"),
-        ({"zero_points": None}, ValueError, "one zero-point"),
-        ({"kind": "symmetric"}, ValueError, "no zero_points"),
-        ({"kind": "adaptive"}, ValueError, "'adaptive', with block_bits"),
-        ({"block_bits": [4, 4, 4]}, ValueError, "'asymmetric', with bits"),
-        ({"kind": "int4"}, ValueError, "kind must be"),
+        ({"zero_points": None}, QuantizeError, "one zero-point"),
+        ({"kind": "symmetric"}, QuantizeError, "no zero_points"),
+        ({"kind": "adaptive"}, QuantizeError, "'adaptive', with block_bits"),
+        ({"block_bits": [4, 4, 4]}, QuantizeError, "'asymmetric', with bits"),
+        ({"kind": "int4"}, QuantizeError, "kind must be"),
     ]:
         with pytest.raises(error, match=message):
             Quantized.from_parts(**{**parts, **changed})

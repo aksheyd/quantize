@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn a_block_that_needs_more_than_eight_bits_is_an_error() {
         // 8 bits round block 0's range of 1 to within about 0.002, not 0.001.
-        // Block 1 is twice as wide, so every block needs twice that.
+        // Block 1 is twice as wide, so it sets the smallest tolerance.
         let values = [0.0_f32, 1.0, 0.0, 2.0];
         assert_eq!(
             quantize::<f32, 2>(&values, 0.001),

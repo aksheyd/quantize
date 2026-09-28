@@ -1,6 +1,7 @@
 //! WikiText-2: fp32 vs packed Q4_32 vs packed Candle Q4_0.
 //!
-//! `just wikitext`
+//! `just wikitext`, or `just wikitext --max-tokens 64` for a quick run on the
+//! first 64 tokens.
 
 #[path = "wikitext/mod.rs"]
 mod wikitext;

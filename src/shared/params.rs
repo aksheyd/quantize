@@ -1,8 +1,8 @@
 //! Integer grids, scale selection, and mixed-precision bit choice.
 
-/// Panic unless `bits` is in `2..=16`, the widths codes can have. Past that,
-/// the shifts that build a grid overflow, and in a release build they wrap
-/// around instead: 40 bits shift like 8 and give the 8-bit answer.
+/// Panic unless `bits` is in `2..=16`, the widths codes can have. Without
+/// this, a release build would wrap an overlong shift around, so 40 bits
+/// would get the 8-bit answer.
 pub(crate) const fn assert_bits_in_range(bits: u32) {
     assert!(2 <= bits && bits <= 16, "bits must be in 2..=16");
 }

@@ -68,8 +68,8 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 | bits/value | quantize mse | candle mse |
 | ---: | ---: | ---: |
-| 4.5 | 0.060251 | 0.060289 |
-| 5.5 | 0.013847 | 0.013856 |
+| 4.5 | 0.060212 | 0.060252 |
+| 5.5 | 0.013844 | 0.013854 |
 | 8.5 | 0.000200 | 0.000201 |
 
 <!-- comparison:end -->
@@ -88,8 +88,8 @@ quantize and dequantize with f16 scales. both libraries allocate their output on
 | --- | ---: | ---: | ---: | ---: |
 | quantize, aarch64 | 0.30 | 0.30 | 0.08 | 0.07 |
 | candle, aarch64 | 0.41 | 0.43 | 0.20 | 0.25 |
-| quantize, x86_64 | 3.90 | 3.75 | 1.09 | 0.38 |
-| candle, x86_64 | 2.22 | 4.31 | 0.46 | 0.45 |
+| quantize, x86_64 | 3.90 | 3.74 | 1.06 | 0.36 |
+| candle, x86_64 | 2.22 | 4.29 | 0.45 | 0.45 |
 
 <!-- speed:end -->
 

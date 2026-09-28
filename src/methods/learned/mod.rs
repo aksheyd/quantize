@@ -6,9 +6,15 @@
 //!
 //! A symmetric block has no zero-point, so its line must pass through zero:
 //! `original ≈ scale * code`, and only the scale is fitted.
+//!
+//! Once the line moves, a value may sit closer to a neighboring code.
+//! [`alternate`] rounds every value again on the new line and refits, until no
+//! code moves.
 
 use crate::decode::unpack_codes;
 use crate::error::{check_len, Result};
+use crate::packed::Packed;
+use crate::params::{largest_code, smallest_code};
 use crate::scale::Scale;
 use crate::tensor::Quantized;
 
@@ -136,6 +142,117 @@ fn squared_error<S: Scale>(values: &[f32], codes: &[i32], (scale, zero_point): (
         .sum()
 }
 
+/// Let the codes move too: [`refine`], then round every value to its nearest
+/// code on its block's new line, and repeat until no code moves.
+///
+/// Rounding picks the best codes for each line, and [`refine`] keeps a line
+/// only if it decodes its block better, so the error never rises: it ends no
+/// higher than [`refine`] alone leaves it. The tensor keeps its scheme and each
+/// block its bit width, so its size doesn't change.
+///
+/// Blocks of 32 settle within about 15 passes, but a block as large as a whole
+/// tensor can keep moving codes for thousands, so this stops after 100. Call
+/// it again to keep going.
+///
+/// # Errors
+///
+/// [`crate::Error::LengthMismatch`] if `values.len() != quantized.len()`.
+pub fn alternate<S: Scale>(quantized: &mut Quantized<S>, values: &[f32]) -> Result<()> {
+    for _ in 0..100 {
+        refine(quantized, values)?;
+        if !round_to_nearest_codes(quantized, values) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Round every value to its nearest code on its block's line, and return
+/// whether any code moved.
+fn round_to_nearest_codes<S: Scale>(quantized: &mut Quantized<S>, values: &[f32]) -> bool {
+    let block = quantized.block();
+    let mut codes = vec![0i32; quantized.len()];
+    unpack_codes(quantized, &mut codes);
+    let mut nearest = vec![0i32; quantized.len()];
+    let blocks = values.chunks(block).zip(nearest.chunks_mut(block));
+    match quantized {
+        Quantized::Symmetric {
+            scales,
+            codes: packed,
+            ..
+        } => {
+            let (zero, bits) = (S::from_f32(0.0), packed.bits());
+            for ((block_values, block_codes), &scale) in blocks.zip(scales.iter()) {
+                round_block(block_values, block_codes, (scale, zero), bits);
+            }
+        }
+        Quantized::Asymmetric {
+            scales,
+            zero_points,
+            codes: packed,
+            ..
+        } => {
+            let bits = packed.bits();
+            let lines = scales.iter().zip(zero_points.iter());
+            for ((block_values, block_codes), (&scale, &zero_point)) in blocks.zip(lines) {
+                round_block(block_values, block_codes, (scale, zero_point), bits);
+            }
+        }
+        Quantized::Adaptive {
+            scales,
+            zero_points,
+            bits,
+            ..
+        } => {
+            let lines = scales.iter().zip(zero_points.iter()).zip(bits.iter());
+            for ((block_values, block_codes), ((&scale, &zero_point), &bit_width)) in
+                blocks.zip(lines)
+            {
+                round_block(block_values, block_codes, (scale, zero_point), bit_width);
+            }
+        }
+    }
+    if nearest == codes {
+        return false;
+    }
+    pack_codes(quantized, &nearest);
+    true
+}
+
+/// Each value's nearest `bits`-wide code on the line `scale * (code - zero_point)`.
+fn round_block<S: Scale>(
+    values: &[f32],
+    codes: &mut [i32],
+    (scale, zero_point): (S, S),
+    bits: u32,
+) {
+    let (scale, zero_point) = (scale.to_f32(), zero_point.to_f32());
+    let smallest = smallest_code(bits) as f32;
+    let largest = largest_code(bits) as f32;
+    for (&value, code) in values.iter().zip(codes) {
+        let nearest = (value / scale + zero_point).round();
+        *code = nearest.clamp(smallest, largest) as i32;
+    }
+}
+
+/// Write `codes` back into `quantized`, each block packed at its own width.
+fn pack_codes<S: Scale>(quantized: &mut Quantized<S>, codes: &[i32]) {
+    match quantized {
+        Quantized::Symmetric { codes: packed, .. }
+        | Quantized::Asymmetric { codes: packed, .. } => {
+            *packed = Packed::from_i32s(codes, packed.bits());
+        }
+        Quantized::Adaptive {
+            bytes, bits, block, ..
+        } => {
+            bytes.clear();
+            for (block_codes, &bit_width) in codes.chunks(*block).zip(bits.iter()) {
+                bytes.extend_from_slice(Packed::from_i32s(block_codes, bit_width).as_bytes());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +335,78 @@ mod tests {
         let mut q = crate::quantize::<f32, 8, 4>(&[0.1, 0.2, 0.3, 0.4]).unwrap();
         assert_eq!(
             refine(&mut q, &[0.1, 0.2]),
+            Err(crate::Error::LengthMismatch {
+                expected: 4,
+                got: 2
+            })
+        );
+    }
+
+    #[test]
+    fn alternate_moves_a_value_to_a_closer_code() {
+        // Seven small values and one outlier. Once the fit moves the line,
+        // 0.02 sits closer to code 6 than to its code 5.
+        let values = [0.02_f32, -0.09, 0.10, 0.03, -0.04, 0.13, 0.04, -0.90];
+        let mut q = crate::asymmetric::quantize::<f32, 4, 8>(&values).unwrap();
+        let mut codes = [0; 8];
+        unpack_codes(&q, &mut codes);
+        assert_eq!(codes, [5, 4, 7, 6, 5, 7, 6, -8]);
+        alternate(&mut q, &values).unwrap();
+        unpack_codes(&q, &mut codes);
+        assert_eq!(codes, [6, 4, 7, 6, 5, 7, 6, -8]);
+    }
+
+    #[test]
+    fn alternate_ends_below_refine_and_keeps_each_scheme() {
+        // Each block is wider than the last, so adaptive packs them at 4 to 7 bits.
+        let values: Vec<f32> = (0..256)
+            .map(|i| (i as f32).sin() * (1 + i / 32) as f32)
+            .collect();
+        let squared_error = |q: &Quantized<half::f16>| -> f32 {
+            values
+                .iter()
+                .zip(q.dequantize())
+                .map(|(a, b)| (a - b) * (a - b))
+                .sum()
+        };
+        let tensors: [Quantized<half::f16>; 3] = [
+            crate::symmetric::quantize_with(&values, 4, 32).unwrap(),
+            crate::asymmetric::quantize_with(&values, 4, 32).unwrap(),
+            crate::adaptive::quantize_with(&values, 32, 0.1).unwrap(),
+        ];
+        for original in tensors {
+            let original = original.into_matrix(8, 32).unwrap();
+            let (mut refined, mut alternated) = (original.clone(), original.clone());
+            refine(&mut refined, &values).unwrap();
+            alternate(&mut alternated, &values).unwrap();
+            assert!(squared_error(&alternated) < squared_error(&refined));
+            assert_eq!(
+                core::mem::discriminant(&alternated),
+                core::mem::discriminant(&original)
+            );
+            assert_eq!(alternated.nbytes(), original.nbytes());
+            assert_eq!(alternated.block_bits(), original.block_bits());
+            assert_eq!(alternated.shape(), Some((8, 32)));
+        }
+    }
+
+    #[test]
+    fn alternate_stops_once_no_code_moves() {
+        let values: Vec<f32> = (0..256).map(|i| (i as f32).sin()).collect();
+        let mut q = crate::asymmetric::quantize::<f32, 4, 32>(&values).unwrap();
+        alternate(&mut q, &values).unwrap();
+        let settled = q.clone();
+        alternate(&mut q, &values).unwrap();
+        assert_eq!(q.codes(), settled.codes());
+        assert_eq!(q.scales(), settled.scales());
+        assert_eq!(q.zero_points(), settled.zero_points());
+    }
+
+    #[test]
+    fn alternate_rejects_wrong_length() {
+        let mut q = crate::quantize::<f32, 8, 4>(&[0.1, 0.2, 0.3, 0.4]).unwrap();
+        assert_eq!(
+            alternate(&mut q, &[0.1, 0.2]),
             Err(crate::Error::LengthMismatch {
                 expected: 4,
                 got: 2

@@ -98,5 +98,5 @@ fn main() {
     println!("\nNo code wants to move, so we stop. The first two lines are chapters 5 and 7;");
     println!("rounding again moved one value to a better code, and the MSE kept falling.");
     println!("On typical blocks of 32 weights it falls by about 14%, not this block's 73%.");
-    println!("The library stops at chapter 7, and this is where the tutorial stops for now.");
+    println!("The library does this in `quantize::learned::alternate`. We stop here for now.");
 }

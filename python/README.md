@@ -30,7 +30,7 @@ the other schemes return the same `Quantized` type:
 - `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
 
-quantized values can be pickled, and compared with `==`. to load them from a `torch.save` checkpoint, call `torch.serialization.add_safe_globals([Quantized])` before `torch.load`. `q.to_bytes()` saves one as bytes, in the same format as the rust crate, and `Quantized.from_bytes(data)` loads it back. to keep it in an `np.savez` or safetensors file, store `np.frombuffer(q.to_bytes(), np.uint8)`.
+quantized values can be pickled, and compared with `==`. `q.to_bytes()` saves one as bytes, in the same format as the rust crate, and `Quantized.from_bytes(data)` loads it back. to keep it in an `np.savez` or safetensors file, store `np.frombuffer(q.to_bytes(), np.uint8)`.
 
 to save its parts as plain arrays instead, like with `np.savez`, pass them back by name to `Quantized.from_parts`. an adaptive tensor keeps `block_bits` instead of `bits`:
 
@@ -39,6 +39,8 @@ np.savez("layer.npz", kind=q.kind, shape=q.shape, block=q.block, bits=q.bits,
          codes=q.codes, scales=q.scales, zero_points=q.zero_points, scale=q.scale.name)
 q = Quantized.from_parts(**np.load("layer.npz"))
 ```
+
+to load quantized values from a `torch.save` checkpoint, call `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
 
 each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
 

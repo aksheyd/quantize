@@ -42,6 +42,41 @@ def test_four_bit_packed_byte_count():
     assert quantized.codes.size == 16
 
 
+def test_values_decode_as_the_docs_say():
+    weights = weight_matrix(3, 30)
+    for quantized in [
+        quantize(weights, bits=4, block=32),
+        asymmetric.quantize(weights, bits=5, block=16),
+        adaptive.quantize(weights, block=32),
+    ]:
+        block_of_each_value = np.arange(len(quantized)) // quantized.block
+        codes = quantized.unpacked_codes
+        scales = quantized.scales[block_of_each_value]
+        if quantized.kind == "symmetric":
+            decoded = codes * scales
+        else:
+            decoded = (codes - quantized.zero_points[block_of_each_value]) * scales
+        np.testing.assert_allclose(decoded, quantized.dequantize().ravel(), rtol=1e-6)
+    four_bit = quantize(weights, bits=4)
+    low_nibbles = four_bit.codes & 0x0F
+    first_codes = np.where(low_nibbles > 7, low_nibbles.astype(np.int32) - 16, low_nibbles)
+    np.testing.assert_array_equal(first_codes, four_bit.unpacked_codes[::2])
+    assert (four_bit.scales < 0).any()
+
+
+def test_help_shows_the_default_scale():
+    for function in [
+        quantize,
+        quantize_tensor,
+        asymmetric.quantize,
+        asymmetric.quantize_tensor,
+        adaptive.quantize,
+        Scheme.Q8_32.quantize,
+    ]:
+        assert function.__doc__
+        assert "scale='f32'" in function.__text_signature__
+
+
 def test_remainder_block_length():
     weights = [i * 0.01 - 0.2 for i in range(40)]
     quantized = quantize(weights, bits=8, block=32)

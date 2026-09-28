@@ -118,6 +118,22 @@ impl QuantizedInner {
     }
 }
 
+/// Quantized values: small integer codes, with one scale for each block of
+/// `block` values, and one zero-point too for asymmetric and adaptive ones.
+/// Value `i` is in block `i // block`, counting a matrix row after row, and
+/// decodes as
+///
+///     code * scale                   (symmetric)
+///     (code - zero_point) * scale    (asymmetric and adaptive)
+///
+/// Codes are signed and `bits` wide: -8 to 7 at 4 bits. `codes` packs them
+/// low bits first, so at 4 bits the first code of each byte is its low
+/// nibble, and `unpacked_codes` gives one per value. An adaptive tensor packs
+/// each block at its own width from `block_bits`, starting on a new byte.
+///
+/// Scales can be negative: a symmetric block puts its value farthest from
+/// zero on the most negative code, even when that value is positive.
+/// Zero-points are rarely whole numbers.
 #[pyclass(name = "Quantized", module = "quantize", eq)]
 #[derive(PartialEq)]
 pub struct PyQuantized {

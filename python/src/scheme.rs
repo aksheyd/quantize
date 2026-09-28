@@ -8,6 +8,10 @@ use crate::quantize_values;
 use crate::quantized::PyQuantized;
 use crate::scale::PyScale;
 
+/// A quantization method and its settings, picked at run time.
+/// `Scheme.symmetric`, `Scheme.asymmetric`, and `Scheme.adaptive` build one,
+/// and `quantize` runs it. `Scheme.Q8_32` and `Scheme.Q4_32` are symmetric
+/// 8-bit and 4-bit codes, with blocks of 32.
 #[pyclass(frozen, name = "Scheme", module = "quantize", eq, skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
 pub struct PyScheme {
@@ -46,6 +50,7 @@ impl PyScheme {
         }
     }
 
+    /// The method of `quantize`.
     #[classmethod]
     #[pyo3(signature = (bits = 8, block = 32))]
     fn symmetric(_cls: &Bound<'_, PyType>, bits: u32, block: usize) -> Self {
@@ -54,6 +59,7 @@ impl PyScheme {
         }
     }
 
+    /// The method of `asymmetric.quantize`.
     #[classmethod]
     #[pyo3(signature = (bits = 8, block = 32))]
     fn asymmetric(_cls: &Bound<'_, PyType>, bits: u32, block: usize) -> Self {
@@ -62,6 +68,7 @@ impl PyScheme {
         }
     }
 
+    /// The method of `adaptive.quantize`.
     #[classmethod]
     #[pyo3(signature = (block = 32, tolerance = 0.001))]
     fn adaptive(_cls: &Bound<'_, PyType>, block: usize, tolerance: f32) -> Self {
@@ -70,7 +77,11 @@ impl PyScheme {
         }
     }
 
-    #[pyo3(signature = (values, *, scale = PyScale::F32))]
+    /// Quantize `values` with this scheme. `scale` works as in `quantize`.
+    #[pyo3(
+        signature = (values, *, scale = PyScale::F32),
+        text_signature = "($self, values, *, scale='f32')"
+    )]
     fn quantize(
         &self,
         py: Python<'_>,
@@ -80,6 +91,7 @@ impl PyScheme {
         quantize_values(py, values, scale, |_| self.inner)
     }
 
+    /// `'symmetric'`, `'asymmetric'`, or `'adaptive'`.
     #[getter]
     fn kind(&self) -> &'static str {
         match self.inner {
@@ -89,6 +101,7 @@ impl PyScheme {
         }
     }
 
+    /// The code width, or `None` for an adaptive scheme.
     #[getter]
     fn bits(&self) -> Option<u32> {
         match self.inner {
@@ -98,6 +111,7 @@ impl PyScheme {
         }
     }
 
+    /// How many values share each scale.
     #[getter]
     fn block(&self) -> usize {
         match self.inner {
@@ -107,6 +121,7 @@ impl PyScheme {
         }
     }
 
+    /// The rounding error an adaptive scheme aims for, or `None`.
     #[getter]
     fn tolerance(&self) -> Option<f32> {
         match self.inner {

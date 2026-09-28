@@ -96,6 +96,9 @@ impl PyQuantized {
         }
     }
 
+    /// The dot product of the decoded values with `values`, a 1-D array of
+    /// `len(q)` numbers, without storing the decoded values. For a matrix
+    /// times a vector, use `matmul`.
     fn dot(&self, py: Python<'_>, values: Bound<'_, PyAny>) -> PyResult<f32> {
         let values = as_f32_values(&values)?;
         if values.len() != self.len() {
@@ -137,6 +140,8 @@ impl PyQuantized {
         }
     }
 
+    /// An independent copy of the tensor, such as the original to keep before
+    /// `learned.refine` changes it.
     fn copy(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -147,6 +152,7 @@ impl PyQuantized {
         self.len()
     }
 
+    /// Whether the tensor holds no values.
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -157,26 +163,33 @@ impl PyQuantized {
         PyTuple::new(py, self.inner.shape())
     }
 
+    /// `'symmetric'`, `'asymmetric'`, or `'adaptive'`.
     #[getter]
     fn kind(&self) -> &'static str {
         with_inner!(&self.inner, |quantized| kind(quantized))
     }
 
+    /// How the scales and zero-points are stored, as a `Scale`.
     #[getter]
     fn scale(&self) -> PyScale {
         self.inner.scale()
     }
 
+    /// The width of every code, or `None` for an adaptive tensor, whose
+    /// widths are in `block_bits`.
     #[getter]
     fn bits(&self) -> Option<u32> {
         with_inner!(&self.inner, |quantized| bits(quantized))
     }
 
+    /// How many values share each scale.
     #[getter]
     fn block(&self) -> usize {
         with_inner!(&self.inner, |quantized| quantized.block())
     }
 
+    /// One scale per block, as float32. A symmetric block whose value farthest
+    /// from zero is positive gets a negative scale.
     #[getter]
     fn scales<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
         let values = with_inner!(&self.inner, |quantized| quantized
@@ -188,6 +201,7 @@ impl PyQuantized {
         f32_array(py, values)
     }
 
+    /// One zero-point per block, as float32, or none for a symmetric tensor.
     #[getter]
     fn zero_points<'py>(&self, py: Python<'py>) -> Bound<'py, PyAny> {
         let values = with_inner!(&self.inner, |quantized| quantized
@@ -199,18 +213,21 @@ impl PyQuantized {
         f32_array(py, values)
     }
 
+    /// The codes packed into bytes, low bits first, as uint8.
     #[getter]
     fn codes<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<u8>> {
         let bytes = with_inner!(&self.inner, |quantized| quantized.codes().to_vec());
         bytes.into_pyarray(py)
     }
 
+    /// One code per value, as int32, row after row for a matrix.
     #[getter]
     fn unpacked_codes<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<i32>> {
         let codes = with_inner!(&self.inner, |quantized| unpacked_codes(quantized));
         codes.into_pyarray(py)
     }
 
+    /// Each block's code width for an adaptive tensor, as uint32, or `None`.
     #[getter]
     fn block_bits<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArray1<u32>>> {
         with_inner!(&self.inner, |quantized| quantized
@@ -218,11 +235,14 @@ impl PyQuantized {
             .map(|bits| bits.to_vec().into_pyarray(py)))
     }
 
+    /// Bytes held by the codes, scales, zero-points, and block widths.
     #[getter]
     fn nbytes(&self) -> usize {
         with_inner!(&self.inner, |quantized| quantized.nbytes())
     }
 
+    /// Bits per value, counting the scales: 4-bit codes with one f16 scale
+    /// per 32 values cost 4.5.
     #[getter]
     fn bits_per_element(&self) -> f32 {
         with_inner!(&self.inner, |quantized| quantized.bits_per_element())

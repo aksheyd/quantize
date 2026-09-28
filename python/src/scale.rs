@@ -5,7 +5,10 @@ use pyo3::prelude::*;
 
 use crate::error::QuantizeError;
 
-/// Runtime choice of `Quantized<f32>`, `Quantized<f16>`, or `Quantized<bf16>`.
+/// How each block's scale and zero-point are stored. `Scale.F32` keeps them
+/// exactly, in 4 bytes each. `Scale.F16` and `Scale.Bf16` round them to 2
+/// bytes: f16 keeps more digits, and bf16 more range. `scale=` also takes
+/// the name that `name` returns.
 #[pyclass(
     eq,
     frozen,

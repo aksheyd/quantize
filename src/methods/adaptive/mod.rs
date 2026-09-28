@@ -7,9 +7,22 @@ use crate::params::{choose_bits, half_step};
 use crate::scale::Scale;
 use crate::tensor::Quantized;
 
-/// Quantize with a per-block bit width chosen so the half-step `<= tolerance`.
+/// Quantize with a per-block bit width chosen from `tolerance`, the largest
+/// rounding error to allow for any value.
 ///
-/// Each block is packed at its own width and concatenated.
+/// Rounding to the nearest code is off by at most half a step, so each block
+/// gets the fewest bits, from 2 to 8, whose half-step is `<= tolerance`. Each
+/// block is packed at its own width and concatenated.
+///
+/// `tolerance` is in the same units as `values`, so one number can be loose
+/// for one layer and tight for the next. Pick it from the values' spread: a
+/// tenth of their standard deviation gives normal weights about 5 bits a
+/// block, whatever their size.
+///
+/// With `f16` or `bf16` scales, a value can land slightly past the tolerance,
+/// since each block's scale and zero-point are rounded to fit, and several
+/// times past on blocks far from zero, as [`asymmetric`](crate::asymmetric)
+/// explains.
 ///
 /// # Errors
 ///

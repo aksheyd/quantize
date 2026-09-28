@@ -25,7 +25,7 @@ the scales count toward the size: 4-bit codes with one f16 scale per 32 values c
 the other schemes return the same `Quantized` type:
 
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
-- `adaptive.quantize(weights, block=32, tolerance=0.001)` picks each block's bit width from `tolerance`, the rounding error to aim for, in the same units as the weights
+- `adaptive.quantize(weights, block=32, tolerance=0.001)` gives each block the fewest bits, from 2 to 8, that round every weight within `tolerance`. it's in the weights' own units, so the default only suits weights of one size: pick it from yours, like `tolerance=0.1 * np.std(weights)`, which gives about 5 bits a block
 - `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the error. it changes `q` in place, so call `q.copy()` first to keep the original
 - `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time

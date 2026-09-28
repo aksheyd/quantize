@@ -1,6 +1,6 @@
 //! Mixed-precision: pick bits per block from a tolerance.
 
-use crate::error::{check_block, Error, Result};
+use crate::error::{Error, Result, check_block};
 use crate::kernels::{min_max, quantize_asym_block};
 use crate::packed::Packed;
 use crate::params::{choose_bits, half_step};
@@ -80,7 +80,7 @@ pub fn quantize_with<S: Scale>(
                 return Err(Error::ToleranceTooTight {
                     block_index,
                     smallest_tolerance: smallest_tolerance(values, block),
-                })
+                });
             }
         };
         codes.clear();

@@ -33,10 +33,10 @@ fn cache_path() -> PathBuf {
 
 pub fn wikitext2_test() -> Result<String> {
     let path = cache_path();
-    if let Ok(text) = fs::read_to_string(&path) {
-        if !text.is_empty() {
-            return Ok(text);
-        }
+    if let Ok(text) = fs::read_to_string(&path)
+        && !text.is_empty()
+    {
+        return Ok(text);
     }
     let text = download()?;
     if let Ok(mut file) = fs::File::create(&path) {

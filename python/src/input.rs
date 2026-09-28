@@ -7,7 +7,7 @@ use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyTuple};
 
-use crate::error::{length_mismatch, InvalidBitsError, InvalidBlockError};
+use crate::error::{InvalidBitsError, InvalidBlockError, length_mismatch};
 
 const MASKED_VALUES: &str = "values can't be a masked array, since its mask would be ignored; fill in the masked values first, like values.filled(0)";
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";

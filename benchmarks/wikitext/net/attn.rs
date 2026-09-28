@@ -1,4 +1,4 @@
-use crate::wikitext::net::cache::{causal_mask, masked_fill, KvCache};
+use crate::wikitext::net::cache::{KvCache, causal_mask, masked_fill};
 use crate::wikitext::net::linear::Linear;
 use candle_core::{DType, Result, Tensor};
 use candle_transformers::models::llama::Config;

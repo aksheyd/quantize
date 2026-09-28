@@ -1,7 +1,7 @@
 //! One enum, one variant per scheme.
 
 use crate::decode::{decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
-use crate::error::{check_bits, check_block, check_len, malformed, Error, Result};
+use crate::error::{Error, Result, check_bits, check_block, check_len, malformed};
 use crate::packed::Packed;
 use crate::scale::Scale;
 
@@ -181,10 +181,10 @@ impl<S: Scale> Quantized<S> {
             | Self::Asymmetric { columns, .. }
             | Self::Adaptive { columns, .. } => *columns,
         };
-        if let Some(columns) = columns {
-            if columns == 0 || !len.is_multiple_of(columns) {
-                return Err(Error::ShapeMismatch { len, columns });
-            }
+        if let Some(columns) = columns
+            && (columns == 0 || !len.is_multiple_of(columns))
+        {
+            return Err(Error::ShapeMismatch { len, columns });
         }
 
         let blocks = len.div_ceil(block);

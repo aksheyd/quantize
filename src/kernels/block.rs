@@ -3,7 +3,7 @@
 use crate::error::Result;
 use crate::packed::Packed;
 use crate::params::{asymmetric_params, largest_code, smallest_code, symmetric_scale};
-use crate::scale::{store_scale, store_zero_point, Scale};
+use crate::scale::{Scale, store_scale, store_zero_point};
 
 use super::i4::pack_sym_i4;
 use super::i8::pack_sym_i8;

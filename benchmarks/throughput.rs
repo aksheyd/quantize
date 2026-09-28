@@ -8,7 +8,7 @@ mod speed;
 
 use half::f16;
 use quantize::quantize;
-use speed::{time_per_value, ITERATIONS, SIDE};
+use speed::{ITERATIONS, SIDE, time_per_value};
 
 fn main() -> candle_core::Result<()> {
     let values = speed::values();

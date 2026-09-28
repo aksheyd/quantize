@@ -1,6 +1,6 @@
 //! Symmetric quantization: one scale per group, codes centered on zero.
 
-use crate::error::{check_bits, check_block, Result};
+use crate::error::{Result, check_bits, check_block};
 use crate::kernels::quantize_sym_packed;
 use crate::packed::Packed;
 use crate::scale::Scale;

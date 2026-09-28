@@ -3,7 +3,7 @@
 use core::cmp::Ordering;
 use core::mem::size_of;
 
-use crate::error::{check_block, malformed, Error, Result};
+use crate::error::{Error, Result, check_block, malformed};
 use crate::packed::Packed;
 use crate::scale::Scale;
 use crate::tensor::Quantized;

@@ -6,10 +6,10 @@
 //! overhead, computed from actual storage facts (no magic numbers).
 
 use super::{
-    quant::{eval_q4_0, eval_q5_0, eval_q8_0, eval_quantize},
     Sample,
+    quant::{eval_q4_0, eval_q5_0, eval_q8_0, eval_quantize},
 };
-use candle_core::{quantized::GgmlDType, Device, Result};
+use candle_core::{Device, Result, quantized::GgmlDType};
 
 pub(super) type EvalFn = fn(&Sample, &Device) -> Result<Vec<f32>>;
 

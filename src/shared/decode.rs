@@ -266,32 +266,6 @@ mod tests {
     use crate::{adaptive, asymmetric, symmetric, Quantized};
 
     #[test]
-    fn matmul_matches_dequant_then_multiply_for_every_scheme() {
-        let values: Vec<f32> = (0..80).map(|i| (i as f32) * 0.02 - 0.8).collect();
-        let inputs: Vec<f32> = (0..80).map(|i| (i as f32) * 0.01 - 0.3).collect();
-        let (rows, columns) = (2, 40);
-        let tensors: [Quantized<f32>; 5] = [
-            symmetric::quantize_with(&values, 8, 8).unwrap(),
-            symmetric::quantize_with(&values, 4, 8).unwrap(),
-            symmetric::quantize_with(&values, 5, 8).unwrap(),
-            asymmetric::quantize_with(&values, 4, 8).unwrap(),
-            adaptive::quantize_with(&values, 8, 0.001).unwrap(),
-        ];
-        for quantized in tensors {
-            let weights = quantized.dequantize();
-            let matrix = quantized.into_matrix(rows, columns).unwrap();
-            let fused = matrix.matmul(&inputs).unwrap();
-            for (vector, input) in inputs.chunks_exact(columns).enumerate() {
-                for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
-                    let naive: f32 = row_weights.iter().zip(input).map(|(a, b)| a * b).sum();
-                    let got = fused[vector * rows + row];
-                    assert!((naive - got).abs() < 1e-4, "{naive} vs {got}");
-                }
-            }
-        }
-    }
-
-    #[test]
     fn dot_stays_precise_when_every_product_is_positive() {
         // Summing a non-negative tensor, by dotting it with ones, adds 262,144
         // positive products. One running total over all of them would lose up
@@ -315,6 +289,32 @@ mod tests {
             let got = quantized.dot(&ones).unwrap() as f64;
             let relative_error = ((got - exact) / exact).abs();
             assert!(relative_error < 2e-5, "{relative_error}");
+        }
+    }
+
+    #[test]
+    fn matmul_matches_dequant_then_multiply_for_every_scheme() {
+        let values: Vec<f32> = (0..80).map(|i| (i as f32) * 0.02 - 0.8).collect();
+        let inputs: Vec<f32> = (0..80).map(|i| (i as f32) * 0.01 - 0.3).collect();
+        let (rows, columns) = (2, 40);
+        let tensors: [Quantized<f32>; 5] = [
+            symmetric::quantize_with(&values, 8, 8).unwrap(),
+            symmetric::quantize_with(&values, 4, 8).unwrap(),
+            symmetric::quantize_with(&values, 5, 8).unwrap(),
+            asymmetric::quantize_with(&values, 4, 8).unwrap(),
+            adaptive::quantize_with(&values, 8, 0.001).unwrap(),
+        ];
+        for quantized in tensors {
+            let weights = quantized.dequantize();
+            let matrix = quantized.into_matrix(rows, columns).unwrap();
+            let fused = matrix.matmul(&inputs).unwrap();
+            for (vector, input) in inputs.chunks_exact(columns).enumerate() {
+                for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
+                    let naive: f32 = row_weights.iter().zip(input).map(|(a, b)| a * b).sum();
+                    let got = fused[vector * rows + row];
+                    assert!((naive - got).abs() < 1e-4, "{naive} vs {got}");
+                }
+            }
         }
     }
 }

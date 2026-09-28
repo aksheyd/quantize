@@ -24,7 +24,7 @@ requires rust 1.88 or newer. with rustup, the first build installs the repo's pi
 cargo add quantize
 ```
 
-requires rust 1.88 or newer. older toolchains may get version 0.1.0 instead, which has a different api.
+requires rust 1.88 or newer. older toolchains may get an older version instead, which has a different api.
 
 ```rust
 use quantize::{f16, quantize};
@@ -42,8 +42,8 @@ let dot = q.dot(&weights).unwrap(); // 0.926
 
 - `asymmetric::quantize` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive::quantize` picks each block's bit width from an error tolerance in the values' own units, like a tenth of their standard deviation
-- `learned::refine` refits each block's scale, and its zero-point if it has one, to lower the error
-- `learned::alternate` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves
+- `learned::refine` refits each block's scale, and its zero-point if it has one, to lower the mean squared error
+- `learned::alternate` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. both can raise the worst error past an adaptive tensor's tolerance
 - `Scheme` picks one at run time, like `Scheme::Q4_32.quantize::<f16>(&weights)`
 
 for a weight matrix, `q.set_shape(rows, columns)` records its shape, so `q.matmul(&inputs)` can multiply a batch of inputs by it, like a linear layer, and `q.dequantize_row_into(row, &mut out)` can decode one row, like an embedding lookup. `q.to_bytes()` saves a tensor, shape included, and `Quantized::from_bytes` loads it back.
@@ -74,7 +74,7 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 <!-- comparison:end -->
 
-on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93.
+on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93. lower is better, and `cargo run --release --example wikitext --features benchmarks/workload` reproduces them.
 
 ### speed
 

@@ -37,9 +37,10 @@
 //!   tolerance in the values' own units, like a tenth of their standard
 //!   deviation
 //! - [`learned::refine`] refits each block's scale, and its zero-point if it
-//!   has one, to lower the error
+//!   has one, to lower the mean squared error
 //! - [`learned::alternate`] refits too, then rounds each value to the nearest
-//!   code on its block's new line, and repeats until no code moves
+//!   code on its block's new line, and repeats until no code moves. Both can
+//!   raise the worst error past an adaptive tensor's tolerance
 //! - [`Scheme`] picks one at run time, like
 //!   `Scheme::Q4_32.quantize::<f16>(&weights)`
 //!
@@ -59,6 +60,12 @@
 //! measures its range and is stored as code 0, so the other values in that
 //! block are unaffected. An infinity is kept, which stretches its block's
 //! range to infinity, so every finite value in that block decodes to NaN.
+//!
+//! ## Features
+//!
+//! `std`, on by default, is reserved for future `no_std` support. For now the
+//! crate always uses the standard library, and `std` only implements
+//! [`std::error::Error`] for [`Error`].
 
 #![warn(missing_docs)]
 

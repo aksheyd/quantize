@@ -11,7 +11,7 @@
 //! Fit one line per block by *least squares*: it picks the line with the
 //! smallest *mean squared error* (MSE), the average squared gap between each
 //! value and what comes back. Min/max is just one such line, so for the same
-//! codes the fit never does worse.
+//! codes the fit never raises the MSE, though it can raise the worst error.
 //!
 //! **Still wrong**: codes are frozen. Learning the codes together with the
 //! scale is the next step.

@@ -7,8 +7,12 @@ use crate::input::{as_f32_array, as_f32_values, as_i32_codes, check_shape};
 use crate::quantized::PyQuantized;
 
 /// Refit each block's scale, and its zero-point if it has one, to lower the
-/// error against `values`, the numbers `quantized` was quantized from, in
-/// the same shape. The codes don't move, so the tensor keeps its size.
+/// mean squared error against `values`, the numbers `quantized` was
+/// quantized from, in the same shape. The codes don't move, so the tensor
+/// keeps its size.
+///
+/// A block's worst error can still rise, so a value in an adaptive tensor can
+/// land past the tolerance it was quantized with.
 ///
 /// This changes `quantized` in place and returns it. Call
 /// `quantized.copy()` first to keep the original.
@@ -29,24 +33,25 @@ pub fn refine<'py>(
 
 /// Refit like `refine`, then round each of `values` to its nearest code on
 /// its block's new line, and repeat until no code moves, for at most 100
-/// passes. The error ends no higher than `refine` alone leaves it, and the
-/// tensor keeps its kind, bit widths, and size.
+/// passes. The mean squared error ends no higher than `refine` alone leaves
+/// it, and the tensor keeps its kind, bit widths, and size.
 ///
-/// Like `refine`, this changes `quantized` in place and returns it. Call
-/// `quantized.copy()` first to keep the original.
+/// A block's worst error can still rise, so a value in an adaptive tensor can
+/// land past the tolerance it was quantized with.
+///
+/// Like `refine`, this changes `quantized` in place, so call
+/// `quantized.copy()` first to keep the original. Unlike `refine`, it returns
+/// whether the codes settled: `True` once no code moves, or `False` if it
+/// stopped after 100 passes. Call it again while it returns `False`.
 #[pyfunction]
-pub fn alternate<'py>(
-    quantized: Bound<'py, PyQuantized>,
-    values: Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyQuantized>> {
+pub fn alternate(quantized: Bound<'_, PyQuantized>, values: Bound<'_, PyAny>) -> PyResult<bool> {
     let (array, values_shape) = as_f32_array(&values)?;
     let tensor_shape = quantized.borrow().inner.shape();
     check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
         .alternate(array.as_slice()?)
-        .map_err(from_quantize)?;
-    Ok(quantized)
+        .map_err(from_quantize)
 }
 
 /// The `(scale, zero_point)` that best fit

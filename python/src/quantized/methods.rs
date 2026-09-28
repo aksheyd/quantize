@@ -225,35 +225,37 @@ impl PyQuantized {
         with_inner!(&self.inner, |quantized| quantized.bits_per_element())
     }
 
-    /// Rebuild a tensor from the values its getters return, such as arrays
-    /// saved with `numpy.savez`. `shape` is `(len,)` or `(rows, columns)`.
-    /// Symmetric and asymmetric tensors take `bits`, adaptive ones take
-    /// `block_bits`, and symmetric ones take no `zero_points`. Parts that
-    /// don't fit together raise `ValueError`, or a `QuantizeError` for a
-    /// field out of range.
+    /// Rebuild a tensor from the values its getters return, such as parts
+    /// saved with `numpy.savez`. `scale` is a `Scale` or its name, like
+    /// `q.scale.name`. `shape` is `(len,)` or `(rows, columns)`. Symmetric and
+    /// asymmetric tensors take `bits`, adaptive ones take `block_bits`, and
+    /// symmetric ones take no `zero_points`. `kind` and `scale` can be the 0-d
+    /// arrays that `numpy.load` returns for saved strings. Parts that don't fit
+    /// together raise `ValueError`, or a `QuantizeError` for a field out of
+    /// range.
     #[staticmethod]
     #[pyo3(signature = (
-        *, kind, shape, block, codes, scales, zero_points = None, bits = None, block_bits = None,
-        scale = PyScale::F32
+        *, kind, shape, block, codes, scales, scale, zero_points = None, bits = None,
+        block_bits = None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn from_parts(
-        kind: String,
+        kind: Bound<'_, PyAny>,
         shape: Vec<usize>,
         block: usize,
         codes: Bound<'_, PyAny>,
         scales: Bound<'_, PyAny>,
+        scale: PyScale,
         zero_points: Option<Bound<'_, PyAny>>,
         bits: Option<u32>,
         block_bits: Option<Vec<u32>>,
-        scale: PyScale,
     ) -> PyResult<Self> {
         let zero_points = match zero_points {
             Some(zero_points) => as_f32_values(&zero_points)?,
             None => Vec::new(),
         };
         let parts = Parts {
-            kind,
+            kind: kind.str()?.to_string(),
             shape,
             block,
             codes: as_packed_codes(&codes)?,

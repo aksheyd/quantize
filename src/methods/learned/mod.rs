@@ -201,10 +201,10 @@ fn round_to_nearest_codes<S: Scale>(quantized: &mut Quantized<S>, values: &[f32]
         Quantized::Adaptive {
             scales,
             zero_points,
-            bits,
+            block_bits,
             ..
         } => {
-            let lines = scales.iter().zip(zero_points.iter()).zip(bits.iter());
+            let lines = scales.iter().zip(zero_points.iter()).zip(block_bits.iter());
             for ((block_values, block_codes), ((&scale, &zero_point), &bit_width)) in
                 blocks.zip(lines)
             {
@@ -248,10 +248,13 @@ fn pack_codes<S: Scale>(quantized: &mut Quantized<S>, codes: &[i32]) {
             *packed = Packed::from_i32s(codes, packed.bits());
         }
         Quantized::Adaptive {
-            bytes, bits, block, ..
+            codes: bytes,
+            block_bits,
+            block,
+            ..
         } => {
             bytes.clear();
-            for (block_codes, &bit_width) in codes.chunks(*block).zip(bits.iter()) {
+            for (block_codes, &bit_width) in codes.chunks(*block).zip(block_bits.iter()) {
                 let packed = Packed::from_i32s(block_codes, bit_width.into());
                 bytes.extend_from_slice(packed.as_bytes());
             }

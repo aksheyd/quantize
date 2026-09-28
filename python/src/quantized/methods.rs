@@ -44,19 +44,19 @@ fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
             codes.unpack_into(&mut unpacked);
         }
         Quantized::Adaptive {
-            bytes,
-            bits,
+            codes,
+            block_bits,
             block,
             len,
             ..
         } => {
             let mut byte_offset = 0;
             let mut value_offset = 0;
-            for &bit_width in bits {
+            for &bit_width in block_bits {
                 let count = (*len - value_offset).min(*block);
                 let byte_count = (count * bit_width as usize).div_ceil(8);
                 Packed::unpack_slice(
-                    &bytes[byte_offset..byte_offset + byte_count],
+                    &codes[byte_offset..byte_offset + byte_count],
                     bit_width.into(),
                     &mut unpacked[value_offset..value_offset + count],
                     count,
@@ -366,19 +366,22 @@ mod tests {
         let unpacked = unpacked_codes(&quantized);
 
         let Quantized::Adaptive {
-            bytes, bits, block, ..
+            codes,
+            block_bits,
+            block,
+            ..
         } = quantized
         else {
             unreachable!()
         };
         let mut repacked = Vec::new();
-        for (block_index, &bit_width) in bits.iter().enumerate() {
+        for (block_index, &bit_width) in block_bits.iter().enumerate() {
             let start = block_index * block;
             let end = (start + block).min(unpacked.len());
             repacked.extend_from_slice(
                 Packed::from_i32s(&unpacked[start..end], bit_width.into()).as_bytes(),
             );
         }
-        assert_eq!(repacked, bytes);
+        assert_eq!(repacked, codes);
     }
 }

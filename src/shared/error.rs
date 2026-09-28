@@ -4,6 +4,7 @@ use core::fmt;
 
 /// An error produced by a fallible quantization API.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
     /// `bits` is outside the supported `2..=16` range.
     InvalidBits {

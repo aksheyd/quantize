@@ -94,6 +94,6 @@ fn main() {
 
     println!("\nSame tensor, two precisions: the quiet block needs only 2 bits, while the");
     println!("busy block gets 8, the most we allow, and still misses the tolerance. The");
-    println!("library does this in `quantize::adaptive::quantize`. Chapter 7");
-    println!("(`ch07_learned`) fits scale and zero-point to the values instead.");
+    println!("library does this in `quantize::adaptive::quantize`, but a miss is an error.");
+    println!("Chapter 7 (`ch07_learned`) fits scale and zero-point to the values instead.");
 }

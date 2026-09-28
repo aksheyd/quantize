@@ -27,9 +27,10 @@ fn quantize_values(
     scale: PyScale,
     scheme: impl FnOnce(usize) -> Scheme,
 ) -> PyResult<PyQuantized> {
-    let (values, shape) = as_f32_array(&values)?;
+    let (array, shape) = as_f32_array(&values)?;
+    let values = array.as_slice()?;
     let scheme = scheme(values.len());
-    py.detach(|| PyQuantized::from_scheme(scheme, &values, &shape, scale))
+    py.detach(|| PyQuantized::from_scheme(scheme, values, &shape, scale))
 }
 
 // Each `text_signature` repeats its `signature` so that `help()` shows the

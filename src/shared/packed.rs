@@ -4,6 +4,8 @@
 //! into a `Vec<u8>`. 4-bit and 8-bit paths are specialized; other widths use
 //! a general bit-buffer.
 
+use crate::params::{assert_bits_in_range, largest_code, smallest_code};
+
 /// Packed signed codes plus the bit width they were written with.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Packed {
@@ -14,7 +16,19 @@ pub struct Packed {
 
 impl Packed {
     /// Pack `codes` using `bits` bits each.
+    ///
+    /// Panics if `bits` is outside `2..=16`. Each code must fit in `bits`,
+    /// from [`smallest_code`] to [`largest_code`]. Debug builds check that;
+    /// release builds keep a code's low `bits` bits, which read back as
+    /// another code.
     pub fn from_i32s(codes: &[i32], bits: u32) -> Self {
+        assert_bits_in_range(bits);
+        debug_assert!(
+            codes
+                .iter()
+                .all(|code| (smallest_code(bits)..=largest_code(bits)).contains(code)),
+            "every code must fit in {bits} bits"
+        );
         let mut p = Self {
             bytes: vec![0u8; nbytes(codes.len(), bits)],
             bits,
@@ -68,7 +82,10 @@ impl Packed {
     }
 
     /// Unpack `n` codes of width `bits` from a raw byte slice.
+    ///
+    /// Panics if `bits` is outside `2..=16`.
     pub fn unpack_slice(bytes: &[u8], bits: u32, out: &mut [i32], n: usize) {
+        assert_bits_in_range(bits);
         match bits {
             8 => unpack_i8(bytes, out, n),
             4 => unpack_i4(bytes, out, n),
@@ -195,6 +212,26 @@ mod tests {
         let mut out = [0i32; 5];
         p.unpack_into(&mut out);
         assert_eq!(out, codes);
+    }
+
+    #[test]
+    #[should_panic(expected = "bits must be in 2..=16")]
+    fn packing_at_seventeen_bits_panics() {
+        Packed::from_i32s(&[0], 17);
+    }
+
+    #[test]
+    #[should_panic(expected = "bits must be in 2..=16")]
+    fn unpacking_at_one_bit_panics() {
+        Packed::unpack_slice(&[0], 1, &mut [0], 1);
+    }
+
+    // Without the check, 9, -9, and 100 would come back as -7, 7, and 4.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "every code must fit in 4 bits")]
+    fn a_code_too_wide_for_its_bits_panics_in_debug_builds() {
+        Packed::from_i32s(&[9, -9, 100, 7, -8], 4);
     }
 
     #[test]

@@ -73,8 +73,9 @@ pub fn quantize_with<S: Scale>(
         let bit_width = match choose_bits(range, tolerance) {
             Some(bit_width) => bit_width,
             // An infinity decodes its block to NaN at any width, as the crate
-            // docs say, so no tolerance applies to it.
-            None if range.is_infinite() => 8,
+            // docs say, so no tolerance applies to it. A block of only
+            // infinities has a NaN range, inf - inf, rather than an infinite one.
+            None if !range.is_finite() => 8,
             None => {
                 return Err(Error::ToleranceTooTight {
                     block_index,
@@ -87,7 +88,7 @@ pub fn quantize_with<S: Scale>(
             quantize_asym_block::<S>(chunk, block_index, bit_width, &mut codes)?;
         scales.push(scale);
         zero_points.push(zero_point);
-        bits.push(bit_width);
+        bits.push(bit_width as u8);
         bytes.extend_from_slice(Packed::from_i32s(&codes, bit_width).as_bytes());
     }
 
@@ -103,7 +104,8 @@ pub fn quantize_with<S: Scale>(
 }
 
 /// The smallest tolerance that 8 bits meet in every block: half an 8-bit step
-/// of the widest range. Infinite ranges are skipped, as in [`quantize_with`].
+/// of the widest range. Ranges that aren't finite are skipped, as in
+/// [`quantize_with`].
 fn smallest_tolerance(values: &[f32], block: usize) -> f32 {
     let mut widest_range = 0.0_f32;
     for chunk in values.chunks(block) {
@@ -189,6 +191,11 @@ mod tests {
         let back = quantize::<f32, 32>(&values, 0.001).unwrap().dequantize();
         assert!(back[..3].iter().chain(&back[4..32]).all(|v| v.is_nan()));
         assert!(back[32..].iter().all(|v| (v - 0.1).abs() < 1e-3));
+        // A block of only infinities measures inf - inf, a NaN range.
+        let back = quantize::<f32, 2>(&[f32::INFINITY; 2], 0.001)
+            .unwrap()
+            .dequantize();
+        assert!(back.iter().all(|v| v.is_nan()));
     }
 
     #[test]

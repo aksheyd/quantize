@@ -2,7 +2,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use quantize::{Packed, Quantized, Scale};
+use quantize::{Error, Packed, Quantized, Scale};
 
 use crate::error::from_quantize;
 
@@ -60,7 +60,7 @@ impl Parts {
                 scales,
                 zero_points,
                 bytes: self.codes,
-                bits: block_bits,
+                bits: block_widths(block_bits)?,
                 block,
                 len,
                 columns,
@@ -70,4 +70,13 @@ impl Parts {
         quantized.validate().map_err(from_quantize)?;
         Ok(quantized)
     }
+}
+
+/// Each block's width in a byte. A width too large for one is far outside 2
+/// to 16, so it raises `InvalidBitsError`, as 17 does.
+fn block_widths(block_bits: Vec<u32>) -> PyResult<Vec<u8>> {
+    block_bits
+        .into_iter()
+        .map(|bits| u8::try_from(bits).map_err(|_| from_quantize(Error::InvalidBits { bits })))
+        .collect()
 }

@@ -31,11 +31,11 @@ fn quantize_shaped<S: Scale>(
     values: &[f32],
     shape: &[usize],
 ) -> quantize::Result<Quantized<S>> {
-    let quantized = scheme.quantize(values)?;
-    match *shape {
-        [rows, columns] => quantized.into_matrix(rows, columns),
-        _ => Ok(quantized),
+    let mut quantized = scheme.quantize(values)?;
+    if let [rows, columns] = *shape {
+        quantized.set_shape(rows, columns)?;
     }
+    Ok(quantized)
 }
 
 impl QuantizedInner {

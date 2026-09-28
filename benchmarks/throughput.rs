@@ -36,10 +36,8 @@ fn main() -> candle_core::Result<()> {
         black_box(quantize::<f16, 8, 32>(&values).unwrap());
     });
 
-    let q4 = quantize::<f16, 4, 32>(&values)
-        .unwrap()
-        .into_matrix(SIDE, SIDE)
-        .unwrap();
+    let mut q4 = quantize::<f16, 4, 32>(&values).unwrap();
+    q4.set_shape(SIDE, SIDE).unwrap();
     let q8 = quantize::<f16, 8, 32>(&values).unwrap();
     let mut out = vec![0.0f32; N];
     bench("dequant 4b×32", || {

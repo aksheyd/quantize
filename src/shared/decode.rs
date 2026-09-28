@@ -327,10 +327,10 @@ mod tests {
             asymmetric::quantize_with(&values, 4, 8).unwrap(),
             adaptive::quantize_with(&values, 8, 0.001).unwrap(),
         ];
-        for quantized in tensors {
+        for mut quantized in tensors {
             let weights = quantized.dequantize();
-            let matrix = quantized.into_matrix(rows, columns).unwrap();
-            let fused = matrix.matmul(&inputs).unwrap();
+            quantized.set_shape(rows, columns).unwrap();
+            let fused = quantized.matmul(&inputs).unwrap();
             for (vector, input) in inputs.chunks_exact(columns).enumerate() {
                 for (row, row_weights) in weights.chunks_exact(columns).enumerate() {
                     let naive: f32 = row_weights.iter().zip(input).map(|(a, b)| a * b).sum();
@@ -358,12 +358,12 @@ mod tests {
             asymmetric::quantize_with(&values, 3, 7).unwrap(),
             adaptive::quantize_with(&values, 9, 0.01).unwrap(),
         ];
-        for quantized in tensors {
+        for mut quantized in tensors {
             let every_value = quantized.dequantize();
-            let matrix = quantized.into_matrix(rows, columns).unwrap();
+            quantized.set_shape(rows, columns).unwrap();
             let mut row_values = vec![0.0; columns];
             for (row, expected) in every_value.chunks_exact(columns).enumerate() {
-                matrix.dequantize_row(row, &mut row_values).unwrap();
+                quantized.dequantize_row(row, &mut row_values).unwrap();
                 assert_eq!(row_values, expected, "row {row}");
             }
         }

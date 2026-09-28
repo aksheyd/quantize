@@ -25,8 +25,10 @@ impl LlamaNet {
     pub fn packed(loaded: &Loaded, extracted: &[Extracted]) -> Result<Self> {
         let mut linears = HashMap::new();
         for layer in extracted {
-            let packed = quantize::<f16, 4, 32>(&layer.values)
-                .and_then(|quantized| quantized.into_matrix(layer.rows, layer.columns))
+            let mut packed =
+                quantize::<f16, 4, 32>(&layer.values).map_err(crate::wikitext::candle_msg)?;
+            packed
+                .set_shape(layer.rows, layer.columns)
                 .map_err(crate::wikitext::candle_msg)?;
             linears.insert(
                 layer.name.clone(),

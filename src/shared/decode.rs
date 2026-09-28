@@ -108,19 +108,19 @@ pub(crate) fn unpack_codes<S: Scale>(quantized: &Quantized<S>, out: &mut [i32]) 
             codes.unpack_into(out);
         }
         Quantized::Adaptive {
-            bytes,
-            bits,
+            codes,
+            block_bits,
             block,
             len,
             ..
         } => {
             let mut byte_offset = 0;
             let mut value_index = 0;
-            for &bit_width in bits {
+            for &bit_width in block_bits {
                 let count = (*len - value_index).min(*block);
                 let byte_count = nbytes(count, bit_width.into());
                 Packed::unpack_slice(
-                    &bytes[byte_offset..byte_offset + byte_count],
+                    &codes[byte_offset..byte_offset + byte_count],
                     bit_width.into(),
                     &mut out[value_index..value_index + count],
                     count,
@@ -263,8 +263,8 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
         Quantized::Adaptive {
             scales,
             zero_points,
-            bytes,
-            bits,
+            codes,
+            block_bits,
             len,
             ..
         } => {
@@ -272,7 +272,7 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
             // start after those of every block before it.
             let first_block = start / block;
             let end_block = (start + out.len()).div_ceil(block);
-            let byte_offset: usize = bits[..first_block]
+            let byte_offset: usize = block_bits[..first_block]
                 .iter()
                 .map(|&bit_width| nbytes(block, bit_width.into()))
                 .sum();
@@ -282,8 +282,8 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
             dequant_adaptive(
                 &scales[blocks.clone()],
                 &zero_points[blocks.clone()],
-                &bytes[byte_offset..],
-                &bits[blocks],
+                &codes[byte_offset..],
+                &block_bits[blocks],
                 block,
                 decoded.len(),
                 &mut decoded,

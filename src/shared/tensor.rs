@@ -40,8 +40,8 @@ pub enum Quantized<S: Scale> {
     Adaptive {
         scales: Vec<S>,
         zero_points: Vec<S>,
-        bytes: Vec<u8>,
-        bits: Vec<u8>,
+        codes: Vec<u8>,
+        block_bits: Vec<u8>,
         block: usize,
         len: usize,
         columns: Option<usize>,
@@ -133,20 +133,20 @@ impl<S: Scale> Quantized<S> {
     pub fn codes(&self) -> &[u8] {
         match self {
             Self::Symmetric { codes, .. } | Self::Asymmetric { codes, .. } => codes.as_bytes(),
-            Self::Adaptive { bytes, .. } => bytes,
+            Self::Adaptive { codes, .. } => codes,
         }
     }
 
     pub fn block_bits(&self) -> Option<&[u8]> {
         match self {
-            Self::Adaptive { bits, .. } => Some(bits),
+            Self::Adaptive { block_bits, .. } => Some(block_bits),
             _ => None,
         }
     }
 
     pub fn nbytes(&self) -> usize {
         let extra = match self {
-            Self::Adaptive { bits, .. } => core::mem::size_of_val(bits.as_slice()),
+            Self::Adaptive { block_bits, .. } => core::mem::size_of_val(block_bits.as_slice()),
             _ => 0,
         };
         self.codes().len()
@@ -204,8 +204,8 @@ impl<S: Scale> Quantized<S> {
                     return Err(malformed("the packed codes must hold len values"));
                 }
             }
-            Self::Adaptive { bits, .. } => {
-                if bits.len() != blocks {
+            Self::Adaptive { block_bits, .. } => {
+                if block_bits.len() != blocks {
                     return Err(malformed("every block needs one bit width"));
                 }
             }
@@ -227,10 +227,13 @@ impl<S: Scale> Quantized<S> {
                 packed_size(self.len(), codes.bits())
             }
             Self::Adaptive {
-                bits, block, len, ..
+                block_bits,
+                block,
+                len,
+                ..
             } => {
                 let mut total = 0_usize;
-                for (block_index, &bit_width) in bits.iter().enumerate() {
+                for (block_index, &bit_width) in block_bits.iter().enumerate() {
                     let count = (*block).min(len - block_index * block);
                     let block_bytes = packed_size(count, bit_width.into())?;
                     total = total.checked_add(block_bytes).ok_or(too_large())?;
@@ -268,12 +271,12 @@ impl<S: Scale> Quantized<S> {
             Self::Adaptive {
                 scales,
                 zero_points,
-                bytes,
-                bits,
+                codes,
+                block_bits,
                 block,
                 len,
                 ..
-            } => dequant_adaptive(scales, zero_points, bytes, bits, *block, *len, out),
+            } => dequant_adaptive(scales, zero_points, codes, block_bits, *block, *len, out),
         }
         Ok(())
     }

@@ -59,14 +59,14 @@ pub enum Error {
         len: usize,
     },
     /// [`matmul`](crate::Quantized::matmul) and
-    /// [`dequantize_row`](crate::Quantized::dequantize_row) need a matrix, but
-    /// the tensor is a flat vector.
+    /// [`dequantize_row_into`](crate::Quantized::dequantize_row_into) need a
+    /// matrix, but the tensor is a flat vector.
     NotAMatrix {
         /// Number of values in the vector.
         len: usize,
     },
-    /// [`dequantize_row`](crate::Quantized::dequantize_row) asked for a row
-    /// past the end of the matrix.
+    /// [`dequantize_row_into`](crate::Quantized::dequantize_row_into) asked
+    /// for a row past the end of the matrix.
     RowOutOfRange {
         /// Requested row.
         row: usize,

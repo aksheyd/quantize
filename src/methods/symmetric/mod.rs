@@ -321,20 +321,20 @@ mod tests {
     }
 
     #[test]
-    fn dequantize_row_rejects_a_flat_vector_a_row_past_the_end_and_a_wrong_output() {
+    fn dequantize_row_into_rejects_a_flat_vector_a_row_past_the_end_and_a_wrong_output() {
         let mut q = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
         let mut out = [0.0; 32];
         assert_eq!(
-            q.dequantize_row(0, &mut out),
+            q.dequantize_row_into(0, &mut out),
             Err(crate::Error::NotAMatrix { len: 64 })
         );
         q.set_shape(2, 32).unwrap();
         assert_eq!(
-            q.dequantize_row(2, &mut out),
+            q.dequantize_row_into(2, &mut out),
             Err(crate::Error::RowOutOfRange { row: 2, rows: 2 })
         );
         assert_eq!(
-            q.dequantize_row(1, &mut [0.0; 16]),
+            q.dequantize_row_into(1, &mut [0.0; 16]),
             Err(crate::Error::LengthMismatch {
                 expected: 32,
                 got: 16

@@ -1,0 +1,3 @@
+# The chapters keep the 2021 formatting style, which spreads a short
+# `if`/`else` at the end of a function over several lines instead of one.
+style_edition = "2021"

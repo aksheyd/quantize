@@ -12,7 +12,7 @@
 //! code moves.
 
 use crate::decode::unpack_codes;
-use crate::error::{check_len, Result};
+use crate::error::{Result, check_len};
 use crate::packed::Packed;
 use crate::params::{largest_code, smallest_code};
 use crate::scale::Scale;

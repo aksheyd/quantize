@@ -3,7 +3,7 @@
 use crate::error::Result;
 use crate::packed::Packed;
 use crate::params::symmetric_scale;
-use crate::scale::{store_scale, Scale};
+use crate::scale::{Scale, store_scale};
 
 use super::reduce::signed_extreme;
 
@@ -45,25 +45,27 @@ fn quant_chunk(values: &[f32], scale: f32, out: &mut [u8]) {
 
 #[cfg(target_arch = "aarch64")]
 unsafe fn quant_16(src: *const f32, inv: f32, dst: *mut u8) {
-    use core::arch::aarch64::*;
-    let vinv = vdupq_n_f32(inv);
-    let vmin = vdupq_n_f32(-128.0);
-    let vmax = vdupq_n_f32(127.0);
-    let q = |v| {
-        vcvtq_s32_f32(vmaxq_f32(
-            vminq_f32(vrndaq_f32(vmulq_f32(v, vinv)), vmax),
-            vmin,
-        ))
-    };
-    let p0 = vcombine_s16(
-        vmovn_s32(q(vld1q_f32(src))),
-        vmovn_s32(q(vld1q_f32(src.add(4)))),
-    );
-    let p1 = vcombine_s16(
-        vmovn_s32(q(vld1q_f32(src.add(8)))),
-        vmovn_s32(q(vld1q_f32(src.add(12)))),
-    );
-    vst1q_s8(dst.cast(), vcombine_s8(vmovn_s16(p0), vmovn_s16(p1)));
+    unsafe {
+        use core::arch::aarch64::*;
+        let vinv = vdupq_n_f32(inv);
+        let vmin = vdupq_n_f32(-128.0);
+        let vmax = vdupq_n_f32(127.0);
+        let q = |v| {
+            vcvtq_s32_f32(vmaxq_f32(
+                vminq_f32(vrndaq_f32(vmulq_f32(v, vinv)), vmax),
+                vmin,
+            ))
+        };
+        let p0 = vcombine_s16(
+            vmovn_s32(q(vld1q_f32(src))),
+            vmovn_s32(q(vld1q_f32(src.add(4)))),
+        );
+        let p1 = vcombine_s16(
+            vmovn_s32(q(vld1q_f32(src.add(8)))),
+            vmovn_s32(q(vld1q_f32(src.add(12)))),
+        );
+        vst1q_s8(dst.cast(), vcombine_s8(vmovn_s16(p0), vmovn_s16(p1)));
+    }
 }
 
 pub(crate) fn dequant_i8_blocks(scales: &[f32], bytes: &[u8], block: usize, out: &mut [f32]) {
@@ -94,27 +96,29 @@ fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
 
 #[cfg(target_arch = "aarch64")]
 unsafe fn dequant_16(src: *const u8, scale: f32, dst: *mut f32) {
-    use core::arch::aarch64::*;
-    let q = vld1q_s8(src.cast());
-    let lo = vmovl_s8(vget_low_s8(q));
-    let hi = vmovl_s8(vget_high_s8(q));
-    let vs = vdupq_n_f32(scale);
-    vst1q_f32(
-        dst,
-        vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(lo))), vs),
-    );
-    vst1q_f32(
-        dst.add(4),
-        vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(lo))), vs),
-    );
-    vst1q_f32(
-        dst.add(8),
-        vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(hi))), vs),
-    );
-    vst1q_f32(
-        dst.add(12),
-        vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(hi))), vs),
-    );
+    unsafe {
+        use core::arch::aarch64::*;
+        let q = vld1q_s8(src.cast());
+        let lo = vmovl_s8(vget_low_s8(q));
+        let hi = vmovl_s8(vget_high_s8(q));
+        let vs = vdupq_n_f32(scale);
+        vst1q_f32(
+            dst,
+            vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(lo))), vs),
+        );
+        vst1q_f32(
+            dst.add(4),
+            vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(lo))), vs),
+        );
+        vst1q_f32(
+            dst.add(8),
+            vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_low_s16(hi))), vs),
+        );
+        vst1q_f32(
+            dst.add(12),
+            vmulq_f32(vcvtq_f32_s32(vmovl_s16(vget_high_s16(hi))), vs),
+        );
+    }
 }
 
 pub(crate) fn dot_i8_blocks(scales: &[f32], bytes: &[u8], block: usize, rhs: &[f32]) -> f32 {

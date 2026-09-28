@@ -1,6 +1,6 @@
 use half::{bf16, f16};
 use pyo3::prelude::*;
-use quantize::{learned, Quantized, Scale, Scheme};
+use quantize::{Quantized, Scale, Scheme, learned};
 
 use super::parts::Parts;
 use crate::error::from_quantize;

@@ -1,5 +1,5 @@
-use crate::wikitext::net::cache::KvCache;
 use crate::wikitext::net::LlamaNet;
+use crate::wikitext::net::cache::KvCache;
 use crate::wikitext::{CONTEXT, STRIDE};
 use candle_core::{DType, Result};
 

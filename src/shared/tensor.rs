@@ -1,7 +1,7 @@
 //! One enum, one variant per scheme.
 
 use crate::decode::{decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
-use crate::error::{check_bits, check_block, check_len, malformed, Error, Result};
+use crate::error::{Error, Result, check_bits, check_block, check_len, malformed};
 use crate::packed::Packed;
 use crate::scale::Scale;
 

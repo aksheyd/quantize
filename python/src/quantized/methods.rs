@@ -6,7 +6,7 @@ use pyo3::types::{PyBytes, PyTuple};
 
 use quantize::{Error, Packed, Quantized, Scale};
 
-use super::inner::{with_inner, PyQuantized, QuantizedInner};
+use super::inner::{PyQuantized, QuantizedInner, with_inner};
 use super::parts::Parts;
 use crate::error::{from_quantize, length_mismatch};
 use crate::input::{as_f32_matmul_values, as_f32_values, as_packed_codes, as_writable_f32_out};

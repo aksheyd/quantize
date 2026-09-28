@@ -4,8 +4,8 @@
 //! writes them into README.md's speed table.
 
 use candle_core::{
-    quantized::{GgmlDType, QTensor},
     Device, Result, Tensor,
+    quantized::{GgmlDType, QTensor},
 };
 use half::f16;
 use quantize::quantize;

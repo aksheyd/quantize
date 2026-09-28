@@ -76,6 +76,7 @@ fn with_speed_rows(readme: &str, kernels: &[KernelTime; 4]) -> String {
     format!("{}{new_table}{}", &readme[..start], &readme[end..])
 }
 
-fn row(label: &str, [a, b, c, d]: [f64; 4]) -> String {
-    format!("| {label} | {a:.2} | {b:.2} | {c:.2} | {d:.2} |")
+fn row(label: &str, times: [f64; 4]) -> String {
+    let cells = times.map(|time| format!("{time:.2}")).join(" | ");
+    format!("| {label} | {cells} |")
 }

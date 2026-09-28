@@ -31,7 +31,13 @@ the other schemes return the same `Quantized` type:
 
 quantized values can be pickled, and compared with `==`. `q.to_bytes()` saves one as bytes, in the same format as the rust crate, and `Quantized.from_bytes(data)` loads it back. to keep it in an `np.savez` or safetensors file, store `np.frombuffer(q.to_bytes(), np.uint8)`.
 
-to save a quantized value another way, like with `np.savez`, keep its `kind`, `shape`, `block`, `codes`, `scales`, `zero_points`, `bits`, `block_bits`, and `scale`, and pass them back by name to `Quantized.from_parts`.
+to save its parts as plain arrays instead, like with `np.savez`, pass them back by name to `Quantized.from_parts`. an adaptive tensor keeps `block_bits` instead of `bits`:
+
+```python
+np.savez("layer.npz", kind=q.kind, shape=q.shape, block=q.block, bits=q.bits,
+         codes=q.codes, scales=q.scales, zero_points=q.zero_points, scale=q.scale.name)
+q = Quantized.from_parts(**np.load("layer.npz"))
+```
 
 to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):
 

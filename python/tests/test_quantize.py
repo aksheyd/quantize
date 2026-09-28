@@ -260,10 +260,11 @@ def test_scale_enum_selects_storage():
     )
 
 
-def test_bad_scale():
-    with pytest.raises(TypeError):
-        quantize([0.1], scale="f32")
-    with pytest.raises(TypeError):
+def test_scale_can_be_given_by_name():
+    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+        assert quantize([0.1], scale=scale.name).scale == scale
+    assert Scale.Bf16.name == "bf16"
+    with pytest.raises(QuantizeError, match="scale must be a Scale or its name"):
         quantize([0.1], scale="float32")
 
 
@@ -388,7 +389,7 @@ def saved_and_loaded_with_numpy(arrays):
         return dict(loaded)
 
 
-def test_from_parts_rebuilds_arrays_saved_with_numpy():
+def test_from_parts_rebuilds_parts_saved_with_numpy_as_the_readme_says():
     weights = weight_matrix(3, 30)
     for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
         for quantized in [
@@ -397,21 +398,20 @@ def test_from_parts_rebuilds_arrays_saved_with_numpy():
             adaptive.quantize(weights.ravel(), block=32, scale=scale),
             quantize([], scale=scale),
         ]:
-            arrays = {
+            parts = {
+                "kind": quantized.kind,
+                "shape": quantized.shape,
+                "block": quantized.block,
                 "codes": quantized.codes,
                 "scales": quantized.scales,
                 "zero_points": quantized.zero_points,
+                "scale": quantized.scale.name,
             }
-            if quantized.block_bits is not None:
-                arrays["block_bits"] = quantized.block_bits
-            rebuilt = Quantized.from_parts(
-                kind=quantized.kind,
-                shape=quantized.shape,
-                block=quantized.block,
-                bits=quantized.bits,
-                scale=quantized.scale,
-                **saved_and_loaded_with_numpy(arrays),
-            )
+            if quantized.kind == "adaptive":
+                parts["block_bits"] = quantized.block_bits
+            else:
+                parts["bits"] = quantized.bits
+            rebuilt = Quantized.from_parts(**saved_and_loaded_with_numpy(parts))
             assert rebuilt == quantized
 
 
@@ -425,8 +425,11 @@ def test_from_parts_rejects_parts_that_do_not_fit_together():
         "scales": quantized.scales,
         "zero_points": quantized.zero_points,
         "bits": 4,
+        "scale": "f32",
     }
     assert Quantized.from_parts(**parts) == quantized
+    with pytest.raises(TypeError, match="scale"):
+        Quantized.from_parts(**{name: part for name, part in parts.items() if name != "scale"})
     for changed, error, message in [
         ({"bits": 17}, InvalidBitsError, "bit width 17"),
         ({"block": 0}, InvalidBlockError, "block size 0"),

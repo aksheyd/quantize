@@ -51,7 +51,7 @@ def test_remainder_block_length():
 def test_dequantize_out_length_error():
     quantized = quantize([0.1] * 8, bits=8, block=8)
     out = np.zeros(3, dtype=np.float32)
-    with pytest.raises(LengthMismatchError) as raised:
+    with pytest.raises(LengthMismatchError, match="out must have length 8, got 3") as raised:
         quantized.dequantize(out)
     assert raised.value.expected == 8
     assert raised.value.got == 3
@@ -75,7 +75,7 @@ def test_fused_dot_matches_dequant_then_dot():
 
 def test_dot_length_mismatch():
     quantized = quantize([0.1] * 8, bits=8, block=8)
-    with pytest.raises(LengthMismatchError):
+    with pytest.raises(LengthMismatchError, match="values must have length 8, got 3"):
         quantized.dot([0.1] * 3)
 
 
@@ -133,7 +133,7 @@ def test_fused_matmul_matches_dequant_then_multiply():
 
 def test_matmul_length_mismatch():
     quantized = quantize(weight_matrix(2, 32), bits=8, block=32)
-    with pytest.raises(LengthMismatchError) as raised:
+    with pytest.raises(LengthMismatchError, match="each vector in values must have length 32") as raised:
         quantized.matmul([0.1] * 3)
     assert raised.value.expected == 32
     assert raised.value.got == 3
@@ -267,9 +267,21 @@ def test_bad_scale():
         quantize([0.1], scale="float32")
 
 
-def test_negative_bits_overflow():
-    with pytest.raises(OverflowError):
-        quantize([0.1], bits=-1)
+def test_bad_values_raise_value_errors_that_name_the_argument():
+    for bits in [-4, 1, 17]:
+        with pytest.raises(InvalidBitsError, match=f"bits must be from 2 to 16, got {bits}") as raised:
+            quantize([0.1], bits=bits)
+        assert raised.value.bits == bits
+        assert isinstance(raised.value, ValueError)
+    for block in [-32, 0]:
+        with pytest.raises(InvalidBlockError, match=f"block must be at least 1, got {block}") as raised:
+            asymmetric.quantize([0.1], block=block)
+        assert raised.value.block == block
+        assert isinstance(raised.value, ValueError)
+    with pytest.raises(InvalidBitsError, match="got -1"):
+        Scheme.symmetric(bits=-1)
+    with pytest.raises(ValueError, match="tolerance"):
+        adaptive.quantize([0.1], tolerance=-1.0)
 
 
 def test_asymmetric_and_adaptive_paths():
@@ -387,8 +399,8 @@ def test_from_parts_rejects_parts_that_do_not_fit_together():
     }
     assert Quantized.from_parts(**parts) == quantized
     for changed, error, message in [
-        ({"bits": 17}, InvalidBitsError, "bit width 17"),
-        ({"block": 0}, InvalidBlockError, "block size 0"),
+        ({"bits": 17}, InvalidBitsError, "bits must be from 2 to 16, got 17"),
+        ({"block": 0}, InvalidBlockError, "block must be at least 1, got 0"),
         ({"shape": (90, 0)}, ShapeMismatchError, "rows of 0 columns"),
         ({"shape": (4, 30)}, ValueError, "one scale"),
         ({"shape": (3, 3, 10)}, ValueError, "shape must be"),

@@ -53,5 +53,6 @@ def test_fit_rejects_packed_codes():
 
 
 def test_except_quantize_error_catches_length():
-    with pytest.raises(QuantizeError):
+    with pytest.raises(QuantizeError, match="codes must have length 1, got 2") as raised:
         learned.fit_scale_and_zero_point([0.1], [0, 1])
+    assert isinstance(raised.value, ValueError)

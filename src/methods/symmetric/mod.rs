@@ -138,9 +138,9 @@ mod tests {
 
     #[test]
     fn a_scale_that_f16_cannot_hold_is_an_error() {
-        // 1e6 on code -8 and 1e7 on code -128 need scales past f16's 65504,
-        // and 1e-4 on code -32768 needs -3e-9, which f16 rounds to 0.
-        for (bits, extreme) in [(4, 1e6_f32), (8, 1e7), (16, 1e-4)] {
+        // 1e6 on code -8, 1e7 on code -128, and 1e10 on code -32768 all need
+        // scales past f16's 65504.
+        for (bits, extreme) in [(4, 1e6_f32), (8, 1e7), (16, 1e10)] {
             let values = [0.5, -0.5, extreme, 0.0];
             assert_eq!(
                 quantize_with::<half::f16>(&values, bits, 2),

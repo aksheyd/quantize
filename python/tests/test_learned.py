@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from quantize import LengthMismatchError, QuantizeError, learned, quantize
+from quantize import LengthMismatchError, QuantizeError, adaptive, asymmetric, learned, quantize
 
 
 def test_fit_recovers_known_line():
@@ -38,6 +38,39 @@ def test_refine_length_mismatch_including_empty():
     with pytest.raises(LengthMismatchError):
         learned.refine(empty, [0.1])
     assert learned.refine(empty, []) is empty
+
+
+def test_alternate_moves_a_value_to_a_closer_code_in_place():
+    # Seven small values and one outlier. Once the fit moves the line,
+    # 0.02 sits closer to code 6 than to its code 5.
+    values = [0.02, -0.09, 0.10, 0.03, -0.04, 0.13, 0.04, -0.90]
+    quantized = asymmetric.quantize(values, bits=4, block=8)
+    assert list(quantized.unpacked_codes) == [5, 4, 7, 6, 5, 7, 6, -8]
+    assert learned.alternate(quantized, values) is quantized
+    assert list(quantized.unpacked_codes) == [6, 4, 7, 6, 5, 7, 6, -8]
+
+
+def squared_error(quantized, weights):
+    return np.sum((quantized.dequantize() - weights) ** 2)
+
+
+def test_alternate_ends_no_higher_than_refine_and_keeps_the_tensor():
+    # Each block is wider than the last, so adaptive packs them at 4 to 7 bits.
+    weights = (np.sin(np.arange(256)) * (1 + np.arange(256) // 32)).astype(np.float32)
+    weights = weights.reshape(8, 32)
+    for original in [
+        quantize(weights, bits=4),
+        asymmetric.quantize(weights, bits=4),
+        adaptive.quantize(weights, block=32, tolerance=0.1),
+    ]:
+        refined = learned.refine(original.copy(), weights)
+        alternated = learned.alternate(original.copy(), weights)
+        assert squared_error(alternated, weights) <= squared_error(refined, weights)
+        assert alternated.kind == original.kind
+        assert alternated.shape == (8, 32)
+        assert alternated.nbytes == original.nbytes
+    with pytest.raises(LengthMismatchError):
+        learned.alternate(quantize(weights), weights[:4])
 
 
 def test_fit_rejects_packed_codes():

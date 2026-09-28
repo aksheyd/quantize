@@ -1,5 +1,7 @@
+import array
 import io
 import pickle
+import re
 from collections.abc import Hashable
 
 import numpy as np
@@ -40,6 +42,41 @@ def test_four_bit_packed_byte_count():
     weights = [0.1] * 32
     quantized = quantize(weights, bits=4, block=32)
     assert quantized.codes.size == 16
+
+
+def test_values_decode_as_the_docs_say():
+    weights = weight_matrix(3, 30)
+    for quantized in [
+        quantize(weights, bits=4, block=32),
+        asymmetric.quantize(weights, bits=5, block=16),
+        adaptive.quantize(weights, block=32),
+    ]:
+        block_of_each_value = np.arange(len(quantized)) // quantized.block
+        codes = quantized.unpacked_codes
+        scales = quantized.scales[block_of_each_value]
+        if quantized.kind == "symmetric":
+            decoded = codes * scales
+        else:
+            decoded = (codes - quantized.zero_points[block_of_each_value]) * scales
+        np.testing.assert_allclose(decoded, quantized.dequantize().ravel(), rtol=1e-6)
+    four_bit = quantize(weights, bits=4)
+    low_nibbles = four_bit.codes & 0x0F
+    first_codes = np.where(low_nibbles > 7, low_nibbles.astype(np.int32) - 16, low_nibbles)
+    np.testing.assert_array_equal(first_codes, four_bit.unpacked_codes[::2])
+    assert (four_bit.scales < 0).any()
+
+
+def test_help_shows_the_default_scale():
+    for function in [
+        quantize,
+        quantize_tensor,
+        asymmetric.quantize,
+        asymmetric.quantize_tensor,
+        adaptive.quantize,
+        Scheme.Q8_32.quantize,
+    ]:
+        assert function.__doc__
+        assert "scale='f32'" in function.__text_signature__
 
 
 def test_remainder_block_length():
@@ -103,6 +140,39 @@ def test_quantize_reads_any_real_dtype_and_layout_row_by_row():
     for values in [weights.T, np.asfortranarray(weights.T), weights.T.astype(np.float64)]:
         np.testing.assert_array_equal(quantize(values).dequantize(), expected)
     assert quantize(np.arange(-4, 4).reshape(2, 4)).shape == (2, 4)
+
+
+class Tensor:
+    """Stands in for a PyTorch tensor, which NumPy reads through __array__."""
+
+    def __init__(self, values):
+        self.values = values
+
+    def __array__(self, dtype=None, copy=None):
+        return self.values
+
+
+def test_quantize_reads_anything_numpy_asarray_reads():
+    weights = weight_matrix(4, 32)
+    expected = quantize(weights)
+    for values in [
+        Tensor(weights),
+        weights.tolist(),
+        weights.astype(">f4"),
+        memoryview(weights),
+    ]:
+        assert quantize(values) == expected
+    row = array.array("f", weights[0])
+    assert quantize(row) == quantize(weights[0])
+    assert quantize(Tensor(weights)).matmul(Tensor(weights[:2])).shape == (2, 4)
+
+
+def test_values_that_are_not_real_numbers_are_rejected_with_what_arrived():
+    for values, dtype in [(np.array([1 + 2j]), "complex128"), (b"ab", "|S2"), ("0.5", "<U3")]:
+        with pytest.raises(TypeError, match=f"real numbers, got .* dtype {re.escape(dtype)}"):
+            quantize(values)
+    with pytest.raises(ValueError, match=r"Tensor with shape \(2, 2, 2\) and dtype float32"):
+        quantize(Tensor(np.zeros((2, 2, 2), np.float32)))
 
 
 def test_quantize_rejects_a_matrix_with_no_columns():
@@ -190,7 +260,7 @@ def test_matmul_reads_any_real_dtype_and_layout():
 
 def test_matmul_rejects_three_dimensional_values():
     quantized = quantize(weight_matrix(2, 32), bits=8, block=32)
-    with pytest.raises(TypeError, match="1-D or 2-D"):
+    with pytest.raises(ValueError, match="1-D or 2-D"):
         quantized.matmul(np.zeros((2, 2, 32), np.float32))
 
 
@@ -241,9 +311,9 @@ def test_scheme_factory_does_not_validate():
 
 
 def test_quantize_rejects_other_dimensions():
-    with pytest.raises(TypeError, match="1-D or 2-D"):
+    with pytest.raises(ValueError, match=r"1-D or 2-D array, got .* shape \(2, 2, 2\)"):
         quantize(np.zeros((2, 2, 2), dtype=np.float32))
-    with pytest.raises(TypeError, match="1-D or 2-D"):
+    with pytest.raises(ValueError, match=r"1-D or 2-D array, got .* shape \(\)"):
         quantize(np.array(0.1, dtype=np.float32))
 
 
@@ -260,10 +330,11 @@ def test_scale_enum_selects_storage():
     )
 
 
-def test_bad_scale():
-    with pytest.raises(TypeError):
-        quantize([0.1], scale="f32")
-    with pytest.raises(TypeError):
+def test_scale_can_be_given_by_name():
+    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+        assert quantize([0.1], scale=scale.name).scale == scale
+    assert Scale.Bf16.name == "bf16"
+    with pytest.raises(QuantizeError, match="scale must be a Scale or its name"):
         quantize([0.1], scale="float32")
 
 
@@ -323,19 +394,60 @@ def test_pickle_keeps_the_matrix_shape():
     np.testing.assert_array_equal(restored.matmul(np.ones(32)), quantized.matmul(np.ones(32)))
 
 
-def test_pickle_rejects_inconsistent_state():
+def test_bytes_round_trip_every_kind_and_scale_type_through_numpy():
+    weights = weight_matrix(3, 30)
+    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+        for quantized in [
+            quantize(weights, bits=4, block=32, scale=scale),
+            asymmetric.quantize(weights, bits=5, block=16, scale=scale),
+            adaptive.quantize(weights.ravel(), block=32, scale=scale),
+            quantize([], scale=scale),
+        ]:
+            data = quantized.to_bytes()
+            assert Quantized.from_bytes(data) == quantized
+            saved = saved_and_loaded_with_numpy({"layer": np.frombuffer(data, np.uint8)})
+            assert Quantized.from_bytes(saved["layer"]) == quantized
+
+
+def test_pickles_hold_the_bytes_that_from_bytes_loads():
+    quantized = quantize(weight_matrix(8, 32), bits=4, scale=Scale.F16)
+    rebuild, (data,) = quantized.__reduce__()
+    assert rebuild == Quantized.from_bytes
+    assert data == quantized.to_bytes()
+
+
+def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
     for quantized in [
         quantize([0.1] * 64, bits=4, block=32),
         adaptive.quantize([i * 0.01 for i in range(40)], block=32),
     ]:
-        rebuild, (scale, data) = quantized.__reduce__()
-        assert rebuild(scale, data) == quantized
+        data = quantized.to_bytes()
         with pytest.raises(ValueError, match="malformed"):
-            rebuild(scale, data[:-1])
+            Quantized.from_bytes(data[:-1])
         with pytest.raises(ValueError, match="another scale type"):
-            rebuild(Scale.F16, data)
+            Quantized.from_bytes(data.replace(b"f32", b"f64", 1))
         with pytest.raises(ValueError, match="QNTZ"):
-            rebuild(scale, b"not a tensor")
+            Quantized.from_bytes(b"not a tensor")
+
+
+# quantize([0.42, -0.10, 0.70, -0.50], bits=8, block=4), pickled by quantize-py 0.2.2.
+PICKLED_BY_0_2 = (
+    b"\x80\x04\x95\xa5\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\x07geta"
+    b"ttr\x94\x93\x94\x8c\x08quantize\x94\x8c\tQuantized\x94\x93\x94\x8c\x0c_from_"
+    b"pickle\x94\x86\x94R\x94(K\x01\x8c\tsymmetric\x94h\x02\x8c\x08quantize\x94"
+    b"\x8c\x05Scale\x94\x93\x94\x8c\x0c_from_pickle\x94\x86\x94R\x94\x8c\x03f32"
+    b"\x94\x85\x94R\x94K\x04K\x04C\x04L\xee\x7f\xa5\x94K\x08)C\x04l\x9c\xb4;\x94C"
+    b"\x00\x94t\x94\x85\x94R\x94."
+)
+
+
+def test_a_pickle_from_0_2_says_how_to_move_the_tensor_over():
+    with pytest.raises(ValueError, match="pickled by quantize-py 0.2") as raised:
+        pickle.loads(PICKLED_BY_0_2)
+    assert "quantize the original weights again" in str(raised.value)
+    assert "Quantized.from_parts" in str(raised.value)
+    with pytest.raises(ValueError, match="malformed"):
+        Quantized._from_pickle((2, "symmetric"))
 
 
 def test_quantized_compares_by_value():
@@ -359,7 +471,7 @@ def saved_and_loaded_with_numpy(arrays):
         return dict(loaded)
 
 
-def test_from_parts_rebuilds_arrays_saved_with_numpy():
+def test_from_parts_rebuilds_parts_saved_with_numpy_as_the_readme_says():
     weights = weight_matrix(3, 30)
     for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
         for quantized in [
@@ -368,21 +480,20 @@ def test_from_parts_rebuilds_arrays_saved_with_numpy():
             adaptive.quantize(weights.ravel(), block=32, scale=scale),
             quantize([], scale=scale),
         ]:
-            arrays = {
+            parts = {
+                "kind": quantized.kind,
+                "shape": quantized.shape,
+                "block": quantized.block,
                 "codes": quantized.codes,
                 "scales": quantized.scales,
                 "zero_points": quantized.zero_points,
+                "scale": quantized.scale.name,
             }
-            if quantized.block_bits is not None:
-                arrays["block_bits"] = quantized.block_bits
-            rebuilt = Quantized.from_parts(
-                kind=quantized.kind,
-                shape=quantized.shape,
-                block=quantized.block,
-                bits=quantized.bits,
-                scale=quantized.scale,
-                **saved_and_loaded_with_numpy(arrays),
-            )
+            if quantized.kind == "adaptive":
+                parts["block_bits"] = quantized.block_bits
+            else:
+                parts["bits"] = quantized.bits
+            rebuilt = Quantized.from_parts(**saved_and_loaded_with_numpy(parts))
             assert rebuilt == quantized
 
 
@@ -396,8 +507,11 @@ def test_from_parts_rejects_parts_that_do_not_fit_together():
         "scales": quantized.scales,
         "zero_points": quantized.zero_points,
         "bits": 4,
+        "scale": "f32",
     }
     assert Quantized.from_parts(**parts) == quantized
+    with pytest.raises(TypeError, match="scale"):
+        Quantized.from_parts(**{name: part for name, part in parts.items() if name != "scale"})
     for changed, error, message in [
         ({"bits": 17}, InvalidBitsError, "bits must be from 2 to 16, got 17"),
         ({"block": 0}, InvalidBlockError, "block must be at least 1, got 0"),

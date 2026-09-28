@@ -10,7 +10,7 @@ use crate::scale::Scale;
 /// The `len` values are a flat vector until
 /// [`set_shape`](Self::set_shape) records `columns`, the length of each
 /// row of a row-major matrix.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Quantized<S: Scale> {
     /// One scale per block.
     Symmetric {
@@ -191,32 +191,46 @@ impl<S: Scale> Quantized<S> {
             ));
         }
 
-        let code_bytes = match self {
+        match self {
             Self::Symmetric { codes, .. } | Self::Asymmetric { codes, .. } => {
                 if codes.len() != len {
                     return Err(malformed("the packed codes must hold len values"));
                 }
-                packed_size(len, codes.bits())?
             }
             Self::Adaptive { bits, .. } => {
                 if bits.len() != blocks {
                     return Err(malformed("every block needs one bit width"));
                 }
-                let mut total = 0_usize;
-                for (block_index, &bit_width) in bits.iter().enumerate() {
-                    let count = block.min(len - block_index * block);
-                    let block_bytes = packed_size(count, bit_width)?;
-                    total = total.checked_add(block_bytes).ok_or(too_large())?;
-                }
-                total
             }
-        };
-        if self.codes().len() != code_bytes {
+        }
+        if self.codes().len() != self.code_bytes()? {
             return Err(malformed(
                 "the codes must fill exactly the bytes that len and the bit widths need",
             ));
         }
         Ok(())
+    }
+
+    /// Bytes that the codes should fill: `len` codes at one bit width, or each
+    /// adaptive block's codes at that block's width. An adaptive tensor must
+    /// have one bit width per block.
+    pub(crate) fn code_bytes(&self) -> Result<usize> {
+        match self {
+            Self::Symmetric { codes, .. } | Self::Asymmetric { codes, .. } => {
+                packed_size(self.len(), codes.bits())
+            }
+            Self::Adaptive {
+                bits, block, len, ..
+            } => {
+                let mut total = 0_usize;
+                for (block_index, &bit_width) in bits.iter().enumerate() {
+                    let count = (*block).min(len - block_index * block);
+                    let block_bytes = packed_size(count, bit_width)?;
+                    total = total.checked_add(block_bytes).ok_or(too_large())?;
+                }
+                Ok(total)
+            }
+        }
     }
 
     pub fn dequantize(&self) -> Vec<f32> {
@@ -369,6 +383,30 @@ impl<S: Scale> Quantized<S> {
     }
 }
 
+/// A one-line summary, like
+/// `Symmetric { bits: 4, block: 32, len: 64, shape: None, scale: "f32", nbytes: 40, .. }`.
+/// The scales and codes are left out, since one layer holds millions of them.
+impl<S: Scale> core::fmt::Debug for Quantized<S> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let (kind, bits) = match self {
+            Self::Symmetric { codes, .. } => ("Symmetric", Some(codes.bits())),
+            Self::Asymmetric { codes, .. } => ("Asymmetric", Some(codes.bits())),
+            Self::Adaptive { .. } => ("Adaptive", None),
+        };
+        let mut summary = f.debug_struct(kind);
+        if let Some(bits) = bits {
+            summary.field("bits", &bits);
+        }
+        summary
+            .field("block", &self.block())
+            .field("len", &self.len())
+            .field("shape", &self.shape())
+            .field("scale", &S::NAME)
+            .field("nbytes", &self.nbytes())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Bytes that `count` codes of `bits` each fill.
 fn packed_size(count: usize, bits: u32) -> Result<usize> {
     check_bits(bits)?;
@@ -378,4 +416,24 @@ fn packed_size(count: usize, bits: u32) -> Result<usize> {
 
 fn too_large() -> Error {
     malformed("len is too large to pack")
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{adaptive, symmetric};
+
+    #[test]
+    fn debug_prints_a_summary_instead_of_every_code() {
+        let values = [0.1_f32; 64];
+        let symmetric = symmetric::quantize_with::<f32>(&values, 4, 32).unwrap();
+        assert_eq!(
+            format!("{symmetric:?}"),
+            r#"Symmetric { bits: 4, block: 32, len: 64, shape: None, scale: "f32", nbytes: 40, .. }"#
+        );
+        let adaptive = adaptive::quantize_with::<half::f16>(&values, 32, 0.01).unwrap();
+        assert_eq!(
+            format!("{adaptive:?}"),
+            r#"Adaptive { block: 32, len: 64, shape: None, scale: "f16", nbytes: 32, .. }"#
+        );
+    }
 }

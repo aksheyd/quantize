@@ -7,8 +7,9 @@ use crate::scale::Scale;
 
 /// Packed codes and the scheme that produced them.
 ///
-/// The `len` values are a flat vector until [`set_shape`](Self::set_shape)
-/// records `columns`, the length of each row of a row-major matrix.
+/// The `len` values are a flat vector until
+/// [`set_shape`](Self::set_shape) records `columns`, the length of each
+/// row of a row-major matrix.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Quantized<S: Scale> {
     /// One scale per block.

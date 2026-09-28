@@ -1,5 +1,6 @@
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
 use pyo3::buffer::PyBuffer;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple};
 
@@ -10,6 +11,10 @@ use super::parts::Parts;
 use crate::error::{from_quantize, length_mismatch};
 use crate::input::{as_f32_matmul_values, as_f32_values, as_packed_codes, as_writable_f32_out};
 use crate::scale::PyScale;
+
+const PICKLED_BY_0_2: &str = "this tensor was pickled by quantize-py 0.2, which 0.3 can't load. \
+    quantize the original weights again, or rebuild the tensor with Quantized.from_parts \
+    from what its getters return under 0.2";
 
 fn f32_array<'py>(py: Python<'py>, values: Vec<f32>) -> Bound<'py, PyAny> {
     values.into_pyarray(py).into_any()
@@ -306,6 +311,19 @@ impl PyQuantized {
     ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
         let from_bytes = slf.getattr("from_bytes")?;
         Ok((from_bytes, (slf.borrow().to_bytes(slf.py()),)))
+    }
+
+    /// Pickles saved by quantize-py 0.2 call this with one tuple, which starts
+    /// with their format number, 1. That format doesn't load anymore, so say
+    /// how to move the tensor over instead.
+    #[staticmethod]
+    fn _from_pickle(state: Bound<'_, PyAny>) -> PyResult<Self> {
+        let format: Option<i64> = state.get_item(0).and_then(|item| item.extract()).ok();
+        let reason = match format {
+            Some(1) => PICKLED_BY_0_2,
+            _ => "malformed pickle state",
+        };
+        Err(PyValueError::new_err(reason))
     }
 }
 

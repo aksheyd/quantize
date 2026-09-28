@@ -335,6 +335,26 @@ def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
             Quantized.from_bytes(b"not a tensor")
 
 
+# quantize([0.42, -0.10, 0.70, -0.50], bits=8, block=4), pickled by quantize-py 0.2.2.
+PICKLED_BY_0_2 = (
+    b"\x80\x04\x95\xa5\x00\x00\x00\x00\x00\x00\x00\x8c\x08builtins\x94\x8c\x07geta"
+    b"ttr\x94\x93\x94\x8c\x08quantize\x94\x8c\tQuantized\x94\x93\x94\x8c\x0c_from_"
+    b"pickle\x94\x86\x94R\x94(K\x01\x8c\tsymmetric\x94h\x02\x8c\x08quantize\x94"
+    b"\x8c\x05Scale\x94\x93\x94\x8c\x0c_from_pickle\x94\x86\x94R\x94\x8c\x03f32"
+    b"\x94\x85\x94R\x94K\x04K\x04C\x04L\xee\x7f\xa5\x94K\x08)C\x04l\x9c\xb4;\x94C"
+    b"\x00\x94t\x94\x85\x94R\x94."
+)
+
+
+def test_a_pickle_from_0_2_says_how_to_move_the_tensor_over():
+    with pytest.raises(ValueError, match="pickled by quantize-py 0.2") as raised:
+        pickle.loads(PICKLED_BY_0_2)
+    assert "quantize the original weights again" in str(raised.value)
+    assert "Quantized.from_parts" in str(raised.value)
+    with pytest.raises(ValueError, match="malformed"):
+        Quantized._from_pickle((2, "symmetric"))
+
+
 def test_quantized_compares_by_value():
     weights = weight_matrix(4, 32)
     quantized = quantize(weights, bits=4)

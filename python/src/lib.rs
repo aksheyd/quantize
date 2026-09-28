@@ -116,10 +116,20 @@ fn asymmetric_quantize_tensor(
 
 /// Quantize `values` asymmetrically, giving each block of `block` values the
 /// fewest bits, from 2 to 8, whose rounding error, half a step, is at most
-/// `tolerance`, in the same units as the values. If even 8 bits can't round a
-/// block within it, this raises `ToleranceTooTightError`, which gives the
-/// smallest tolerance that every block meets. The other arguments work as in
-/// `quantize`.
+/// `tolerance`. The other arguments work as in `quantize`.
+///
+/// `tolerance` is in the same units as the values, so the default, 0.001,
+/// suits values of only one size: weights with a standard deviation of 0.01
+/// get about 5 bits a block, weights 10 times smaller only 2, and weights 10
+/// times larger need more than 8. Pick it from your values instead, like
+/// `tolerance=0.1 * np.std(values)`, which gives normal weights about 5 bits
+/// a block, whatever their size.
+///
+/// If even 8 bits can't round a block within `tolerance`, this raises
+/// `ToleranceTooTightError`, which gives the smallest tolerance that every
+/// block meets. With `Scale.F16` or `Scale.Bf16`, a value can land slightly
+/// past the tolerance, and several times past on blocks far from zero, so use
+/// `Scale.F32` there.
 #[pyfunction]
 #[pyo3(
     signature = (values, block = 32, tolerance = 0.001, *, scale = PyScale::F32),

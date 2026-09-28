@@ -27,7 +27,8 @@ pub enum Scheme {
     Adaptive {
         /// Elements per scale / bit-width decision.
         block: usize,
-        /// Maximum half-step of the integer grid.
+        /// Largest rounding error to allow for any value, in the values' own
+        /// units, as in [`adaptive::quantize`].
         tolerance: f32,
     },
 }

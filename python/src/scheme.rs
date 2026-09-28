@@ -134,7 +134,8 @@ impl PyScheme {
         }
     }
 
-    /// The rounding error an adaptive scheme aims for, or `None`.
+    /// The largest rounding error an adaptive scheme allows for any value, in
+    /// the values' own units, or `None`.
     #[getter]
     fn tolerance(&self) -> Option<f32> {
         match self.inner {

@@ -34,7 +34,8 @@
 //! - [`asymmetric::quantize`] adds a zero-point per block, for values that
 //!   aren't centered on zero
 //! - [`adaptive::quantize`] picks each block's bit width from an error
-//!   tolerance
+//!   tolerance in the values' own units, like a tenth of their standard
+//!   deviation
 //! - [`learned::refine`] refits each block's scale, and its zero-point if it
 //!   has one, to lower the error
 //! - [`learned::alternate`] refits too, then rounds each value to the nearest

@@ -30,6 +30,21 @@ def test_refine_takes_the_matrix_it_refines():
     assert quantized.shape == (2, 32)
 
 
+def test_refine_and_alternate_need_values_in_the_tensor_shape():
+    weights = np.linspace(-0.5, 0.5, 64, dtype=np.float32).reshape(2, 32)
+    quantized = quantize(weights, bits=4)
+    before = quantized.copy()
+    for refit in [learned.refine, learned.alternate]:
+        for values in [weights.T, weights.ravel()]:
+            with pytest.raises(ValueError, match=r"values must have shape \(2, 32\), got"):
+                refit(quantized, values)
+        with pytest.raises(LengthMismatchError, match="values must have length 64, got 32"):
+            refit(quantized, weights[:1])
+    assert quantized == before
+    with pytest.raises(ValueError, match=r"values must have shape \(64,\), got \(2, 32\)"):
+        learned.refine(quantize(weights.ravel()), weights)
+
+
 def test_refine_length_mismatch_including_empty():
     quantized = quantize([0.1] * 4, bits=8, block=4)
     with pytest.raises(LengthMismatchError):

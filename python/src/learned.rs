@@ -3,12 +3,12 @@
 use pyo3::prelude::*;
 
 use crate::error::{from_quantize, length_mismatch};
-use crate::input::{as_f32_array, as_f32_values, as_i32_codes};
+use crate::input::{as_f32_array, as_f32_values, as_i32_codes, check_shape};
 use crate::quantized::PyQuantized;
 
 /// Refit each block's scale, and its zero-point if it has one, to lower the
-/// error against `values`, the numbers `quantized` was quantized from. The
-/// codes don't move, so the tensor keeps its size.
+/// error against `values`, the numbers `quantized` was quantized from, in
+/// the same shape. The codes don't move, so the tensor keeps its size.
 ///
 /// This changes `quantized` in place and returns it. Call
 /// `quantized.copy()` first to keep the original.
@@ -17,7 +17,9 @@ pub fn refine<'py>(
     quantized: Bound<'py, PyQuantized>,
     values: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyQuantized>> {
-    let (owned, _) = as_f32_array(&values)?;
+    let (owned, values_shape) = as_f32_array(&values)?;
+    let tensor_shape = quantized.borrow().inner.shape();
+    check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
         .refine(&owned)
@@ -37,7 +39,9 @@ pub fn alternate<'py>(
     quantized: Bound<'py, PyQuantized>,
     values: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyQuantized>> {
-    let (owned, _) = as_f32_array(&values)?;
+    let (owned, values_shape) = as_f32_array(&values)?;
+    let tensor_shape = quantized.borrow().inner.shape();
+    check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
         .alternate(&owned)

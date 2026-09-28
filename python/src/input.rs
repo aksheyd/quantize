@@ -165,20 +165,29 @@ pub fn as_writable_f32_out<'py>(
     if !c_contiguous || !writeable {
         return Err(PyValueError::new_err(OUT_CONTIG));
     }
-    if arr.shape() != shape {
-        let len = shape.iter().product();
-        if arr.len() != len {
-            return Err(length_mismatch("out", len, arr.len()));
-        }
-        let expected = PyTuple::new(obj.py(), shape)?;
-        return Err(PyValueError::new_err(format!(
-            "out must have shape {}, got {}",
-            expected.repr()?,
-            arr.getattr("shape")?.repr()?
-        )));
-    }
+    check_shape(obj.py(), "out", shape, arr.shape())?;
     arr.try_readwrite()
         .map_err(|_| PyValueError::new_err(OUT_CONTIG))
+}
+
+/// Check that `argument`, which came in with shape `got`, has exactly the
+/// tensor's `shape`. The wrong number of values raises `LengthMismatchError`,
+/// and the right number in another shape, like a transposed matrix, raises
+/// `ValueError`.
+pub fn check_shape(py: Python<'_>, argument: &str, shape: &[usize], got: &[usize]) -> PyResult<()> {
+    if got == shape {
+        return Ok(());
+    }
+    let len: usize = shape.iter().product();
+    let got_len: usize = got.iter().product();
+    if got_len != len {
+        return Err(length_mismatch(argument, len, got_len));
+    }
+    Err(PyValueError::new_err(format!(
+        "{argument} must have shape {}, got {}",
+        PyTuple::new(py, shape)?.repr()?,
+        PyTuple::new(py, got)?.repr()?
+    )))
 }
 
 /// Read a `bits` argument. A negative width is as far out of range as 1 or

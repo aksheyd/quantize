@@ -5,7 +5,7 @@ use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyTuple};
 
-use crate::error::length_mismatch;
+use crate::error::{length_mismatch, InvalidBitsError, InvalidBlockError};
 
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
 const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
@@ -87,7 +87,11 @@ pub fn as_f32_matmul_values(
     let (values, shape) = as_f32_array(obj)?;
     let input_columns = shape[shape.len() - 1];
     if input_columns != columns {
-        return Err(length_mismatch(columns, input_columns));
+        return Err(length_mismatch(
+            "each vector in values",
+            columns,
+            input_columns,
+        ));
     }
     let batch = (shape.len() == 2).then_some(shape[0]);
     Ok((values, batch))
@@ -164,7 +168,7 @@ pub fn as_writable_f32_out<'py>(
     if arr.shape() != shape {
         let len = shape.iter().product();
         if arr.len() != len {
-            return Err(length_mismatch(len, arr.len()));
+            return Err(length_mismatch("out", len, arr.len()));
         }
         let expected = PyTuple::new(obj.py(), shape)?;
         return Err(PyValueError::new_err(format!(
@@ -175,4 +179,18 @@ pub fn as_writable_f32_out<'py>(
     }
     arr.try_readwrite()
         .map_err(|_| PyValueError::new_err(OUT_CONTIG))
+}
+
+/// Read a `bits` argument. A negative width is as far out of range as 1 or
+/// 17, so it raises `InvalidBitsError` too, instead of `OverflowError`.
+pub fn bits_argument(obj: &Bound<'_, PyAny>) -> PyResult<u32> {
+    let bits: i64 = obj.extract()?;
+    u32::try_from(bits).map_err(|_| PyErr::new::<InvalidBitsError, _>(bits))
+}
+
+/// Read a `block` argument. A negative size raises `InvalidBlockError`, as 0
+/// does, instead of `OverflowError`.
+pub fn block_argument(obj: &Bound<'_, PyAny>) -> PyResult<usize> {
+    let block: i64 = obj.extract()?;
+    usize::try_from(block).map_err(|_| PyErr::new::<InvalidBlockError, _>(block))
 }

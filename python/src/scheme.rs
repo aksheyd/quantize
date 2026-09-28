@@ -4,6 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 
+use crate::input::{bits_argument, block_argument};
 use crate::quantize_values;
 use crate::quantized::PyQuantized;
 use crate::scale::PyScale;
@@ -53,7 +54,11 @@ impl PyScheme {
     /// The method of `quantize`.
     #[classmethod]
     #[pyo3(signature = (bits = 8, block = 32))]
-    fn symmetric(_cls: &Bound<'_, PyType>, bits: u32, block: usize) -> Self {
+    fn symmetric(
+        _cls: &Bound<'_, PyType>,
+        #[pyo3(from_py_with = bits_argument)] bits: u32,
+        #[pyo3(from_py_with = block_argument)] block: usize,
+    ) -> Self {
         Self {
             inner: quantize::Scheme::Symmetric { bits, block },
         }
@@ -62,7 +67,11 @@ impl PyScheme {
     /// The method of `asymmetric.quantize`.
     #[classmethod]
     #[pyo3(signature = (bits = 8, block = 32))]
-    fn asymmetric(_cls: &Bound<'_, PyType>, bits: u32, block: usize) -> Self {
+    fn asymmetric(
+        _cls: &Bound<'_, PyType>,
+        #[pyo3(from_py_with = bits_argument)] bits: u32,
+        #[pyo3(from_py_with = block_argument)] block: usize,
+    ) -> Self {
         Self {
             inner: quantize::Scheme::Asymmetric { bits, block },
         }
@@ -71,7 +80,11 @@ impl PyScheme {
     /// The method of `adaptive.quantize`.
     #[classmethod]
     #[pyo3(signature = (block = 32, tolerance = 0.001))]
-    fn adaptive(_cls: &Bound<'_, PyType>, block: usize, tolerance: f32) -> Self {
+    fn adaptive(
+        _cls: &Bound<'_, PyType>,
+        #[pyo3(from_py_with = block_argument)] block: usize,
+        tolerance: f32,
+    ) -> Self {
         Self {
             inner: quantize::Scheme::Adaptive { block, tolerance },
         }

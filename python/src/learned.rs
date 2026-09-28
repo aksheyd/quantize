@@ -56,7 +56,11 @@ pub fn fit_scale_and_zero_point(
     let owned_values = as_f32_values(&values)?;
     let owned_codes = as_i32_codes(&codes)?;
     if owned_values.len() != owned_codes.len() {
-        return Err(length_mismatch(owned_values.len(), owned_codes.len()));
+        return Err(length_mismatch(
+            "codes",
+            owned_values.len(),
+            owned_codes.len(),
+        ));
     }
     Ok(quantize::learned::fit_scale_and_zero_point(
         &owned_values,

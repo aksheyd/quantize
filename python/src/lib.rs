@@ -49,8 +49,8 @@ fn quantize_values(
 fn symmetric_quantize(
     py: Python<'_>,
     values: Bound<'_, PyAny>,
-    bits: u32,
-    block: usize,
+    #[pyo3(from_py_with = input::bits_argument)] bits: u32,
+    #[pyo3(from_py_with = input::block_argument)] block: usize,
     scale: PyScale,
 ) -> PyResult<PyQuantized> {
     quantize_values(py, values, scale, |_| Scheme::Symmetric { bits, block })
@@ -65,7 +65,7 @@ fn symmetric_quantize(
 fn quantize_tensor(
     py: Python<'_>,
     values: Bound<'_, PyAny>,
-    bits: u32,
+    #[pyo3(from_py_with = input::bits_argument)] bits: u32,
     scale: PyScale,
 ) -> PyResult<PyQuantized> {
     quantize_values(py, values, scale, |len| Scheme::Symmetric {
@@ -86,8 +86,8 @@ fn quantize_tensor(
 fn asymmetric_quantize(
     py: Python<'_>,
     values: Bound<'_, PyAny>,
-    bits: u32,
-    block: usize,
+    #[pyo3(from_py_with = input::bits_argument)] bits: u32,
+    #[pyo3(from_py_with = input::block_argument)] block: usize,
     scale: PyScale,
 ) -> PyResult<PyQuantized> {
     quantize_values(py, values, scale, |_| Scheme::Asymmetric { bits, block })
@@ -103,7 +103,7 @@ fn asymmetric_quantize(
 fn asymmetric_quantize_tensor(
     py: Python<'_>,
     values: Bound<'_, PyAny>,
-    bits: u32,
+    #[pyo3(from_py_with = input::bits_argument)] bits: u32,
     scale: PyScale,
 ) -> PyResult<PyQuantized> {
     quantize_values(py, values, scale, |len| Scheme::Asymmetric {
@@ -124,7 +124,7 @@ fn asymmetric_quantize_tensor(
 fn adaptive_quantize(
     py: Python<'_>,
     values: Bound<'_, PyAny>,
-    block: usize,
+    #[pyo3(from_py_with = input::block_argument)] block: usize,
     tolerance: f32,
     scale: PyScale,
 ) -> PyResult<PyQuantized> {

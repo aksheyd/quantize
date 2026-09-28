@@ -102,7 +102,7 @@ impl PyQuantized {
     fn dot(&self, py: Python<'_>, values: Bound<'_, PyAny>) -> PyResult<f32> {
         let values = as_f32_values(&values)?;
         if values.len() != self.len() {
-            return Err(length_mismatch(self.len(), values.len()));
+            return Err(length_mismatch("values", self.len(), values.len()));
         }
         let inner = self.inner.clone();
         py.detach(|| {

@@ -7,8 +7,12 @@ use crate::input::{as_f32_array, as_f32_values, as_i32_codes, check_shape};
 use crate::quantized::PyQuantized;
 
 /// Refit each block's scale, and its zero-point if it has one, to lower the
-/// error against `values`, the numbers `quantized` was quantized from, in
-/// the same shape. The codes don't move, so the tensor keeps its size.
+/// mean squared error against `values`, the numbers `quantized` was
+/// quantized from, in the same shape. The codes don't move, so the tensor
+/// keeps its size.
+///
+/// A block's worst error can still rise, so a value in an adaptive tensor can
+/// land past the tolerance it was quantized with.
 ///
 /// This changes `quantized` in place and returns it. Call
 /// `quantized.copy()` first to keep the original.
@@ -29,8 +33,11 @@ pub fn refine<'py>(
 
 /// Refit like `refine`, then round each of `values` to its nearest code on
 /// its block's new line, and repeat until no code moves, for at most 100
-/// passes. The error ends no higher than `refine` alone leaves it, and the
-/// tensor keeps its kind, bit widths, and size.
+/// passes. The mean squared error ends no higher than `refine` alone leaves
+/// it, and the tensor keeps its kind, bit widths, and size.
+///
+/// A block's worst error can still rise, so a value in an adaptive tensor can
+/// land past the tolerance it was quantized with.
 ///
 /// Like `refine`, this changes `quantized` in place and returns it. Call
 /// `quantized.copy()` first to keep the original.

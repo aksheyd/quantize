@@ -19,7 +19,6 @@ include = [
 
 [package.metadata.docs.rs]
 features = ["std"]
-rustdoc-args = ["--cfg", "docsrs"]
 
 [workspace]
 members = ["python", "chapters", "benchmarks"]
@@ -40,6 +39,8 @@ all = { level = "deny", priority = -1 }
 
 [features]
 default = ["std"]
+# Reserved for future no_std support. For now it only implements
+# std::error::Error for Error.
 std = []
 
 [dependencies]

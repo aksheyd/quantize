@@ -8,6 +8,9 @@ use half::{bf16, f16};
 use crate::error::{Error, Result};
 
 /// A type that can serve as a per-block scale (or zero-point) factor.
+#[diagnostic::on_unimplemented(
+    note = "scales can be `f32`, `quantize::f16`, or `quantize::bf16`; for `f16`, add `use quantize::f16`, since without it `f16` names Rust's unstable primitive"
+)]
 pub trait Scale: Copy {
     /// Short name that [`Quantized::to_bytes`](crate::Quantized::to_bytes)
     /// records, so a tensor loads back with the same scale type.

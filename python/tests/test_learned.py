@@ -117,7 +117,7 @@ def test_refine_and_alternate_work_while_another_thread_uses_the_tensor():
     def multiply_until_stopped():
         while not stop.is_set():
             quantized.matmul(weights)
-            quantized.dot(weights.ravel())
+            quantized.dot(weights)
 
     with ThreadPoolExecutor() as pool:
         multiplying = pool.submit(multiply_until_stopped)

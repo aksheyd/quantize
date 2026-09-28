@@ -117,6 +117,16 @@ def test_dot_length_mismatch():
         quantized.dot([0.1] * 3)
 
 
+def test_dot_needs_values_in_the_tensor_shape():
+    weights = weight_matrix(2, 32)
+    quantized = quantize(weights, bits=8)
+    naive = float(np.sum(quantized.dequantize() * weights))
+    assert abs(quantized.dot(weights) - naive) < 1e-4
+    for values in [weights.T, weights.ravel()]:
+        with pytest.raises(ValueError, match=r"values must have shape \(2, 32\), got"):
+            quantized.dot(values)
+
+
 def test_matrix_keeps_its_shape():
     weights = weight_matrix(8, 32)
     for quantized in [

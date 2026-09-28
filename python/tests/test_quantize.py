@@ -1,5 +1,7 @@
+import array
 import io
 import pickle
+import re
 from collections.abc import Hashable
 
 import numpy as np
@@ -140,6 +142,39 @@ def test_quantize_reads_any_real_dtype_and_layout_row_by_row():
     assert quantize(np.arange(-4, 4).reshape(2, 4)).shape == (2, 4)
 
 
+class Tensor:
+    """Stands in for a PyTorch tensor, which NumPy reads through __array__."""
+
+    def __init__(self, values):
+        self.values = values
+
+    def __array__(self, dtype=None, copy=None):
+        return self.values
+
+
+def test_quantize_reads_anything_numpy_asarray_reads():
+    weights = weight_matrix(4, 32)
+    expected = quantize(weights)
+    for values in [
+        Tensor(weights),
+        weights.tolist(),
+        weights.astype(">f4"),
+        memoryview(weights),
+    ]:
+        assert quantize(values) == expected
+    row = array.array("f", weights[0])
+    assert quantize(row) == quantize(weights[0])
+    assert quantize(Tensor(weights)).matmul(Tensor(weights[:2])).shape == (2, 4)
+
+
+def test_values_that_are_not_real_numbers_are_rejected_with_what_arrived():
+    for values, dtype in [(np.array([1 + 2j]), "complex128"), (b"ab", "|S2"), ("0.5", "<U3")]:
+        with pytest.raises(TypeError, match=f"real numbers, got .* dtype {re.escape(dtype)}"):
+            quantize(values)
+    with pytest.raises(ValueError, match=r"Tensor with shape \(2, 2, 2\) and dtype float32"):
+        quantize(Tensor(np.zeros((2, 2, 2), np.float32)))
+
+
 def test_quantize_rejects_a_matrix_with_no_columns():
     with pytest.raises(ShapeMismatchError, match="rows of 0 columns") as raised:
         quantize(np.zeros((4, 0), np.float32))
@@ -225,7 +260,7 @@ def test_matmul_reads_any_real_dtype_and_layout():
 
 def test_matmul_rejects_three_dimensional_values():
     quantized = quantize(weight_matrix(2, 32), bits=8, block=32)
-    with pytest.raises(TypeError, match="1-D or 2-D"):
+    with pytest.raises(ValueError, match="1-D or 2-D"):
         quantized.matmul(np.zeros((2, 2, 32), np.float32))
 
 
@@ -276,9 +311,9 @@ def test_scheme_factory_does_not_validate():
 
 
 def test_quantize_rejects_other_dimensions():
-    with pytest.raises(TypeError, match="1-D or 2-D"):
+    with pytest.raises(ValueError, match=r"1-D or 2-D array, got .* shape \(2, 2, 2\)"):
         quantize(np.zeros((2, 2, 2), dtype=np.float32))
-    with pytest.raises(TypeError, match="1-D or 2-D"):
+    with pytest.raises(ValueError, match=r"1-D or 2-D array, got .* shape \(\)"):
         quantize(np.array(0.1, dtype=np.float32))
 
 

@@ -1,6 +1,8 @@
 //! Python input conversion.
 
-use numpy::{PyArray1, PyArrayDyn, PyArrayMethods, PyUntypedArray, PyUntypedArrayMethods};
+use numpy::{
+    PyArray1, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn, PyUntypedArray, PyUntypedArrayMethods,
+};
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyTuple};
@@ -27,23 +29,26 @@ fn type_name(obj: &Bound<'_, PyAny>) -> PyResult<String> {
 
 /// Read a 1-D or 2-D array of real numbers as `f32` values row after row.
 /// Returns the values and the shape they came in.
-pub fn as_f32_array(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<f32>, Vec<usize>)> {
+pub fn as_f32_array<'py>(
+    obj: &Bound<'py, PyAny>,
+) -> PyResult<(PyReadonlyArrayDyn<'py, f32>, Vec<usize>)> {
     read_f32(obj, &[1, 2], "a 1-D or 2-D array")
 }
 
 /// Read a 1-D array of real numbers as `f32` values.
-pub fn as_f32_values(obj: &Bound<'_, PyAny>) -> PyResult<Vec<f32>> {
+pub fn as_f32_values<'py>(obj: &Bound<'py, PyAny>) -> PyResult<PyReadonlyArrayDyn<'py, f32>> {
     read_f32(obj, &[1], "a 1-D array").map(|(values, _)| values)
 }
 
 /// Anything that `numpy.asarray` turns into an array works, like a list or a
 /// PyTorch tensor, as long as it holds real numbers and has one of
-/// `dimensions`, which `wanted` describes.
-fn read_f32(
-    obj: &Bound<'_, PyAny>,
+/// `dimensions`, which `wanted` describes. An array that already holds
+/// C-contiguous float32 values is read where it is, without a copy.
+fn read_f32<'py>(
+    obj: &Bound<'py, PyAny>,
     dimensions: &[usize],
     wanted: &str,
-) -> PyResult<(Vec<f32>, Vec<usize>)> {
+) -> PyResult<(PyReadonlyArrayDyn<'py, f32>, Vec<usize>)> {
     let numpy = obj.py().import("numpy")?;
     if obj.is_instance(&numpy.getattr("ma")?.getattr("MaskedArray")?)? {
         return Err(PyTypeError::new_err(MASKED_VALUES));
@@ -65,8 +70,7 @@ fn read_f32(
     let float32 = numpy.getattr("float32")?;
     let contiguous = numpy.call_method1("ascontiguousarray", (array, float32))?;
     let typed = contiguous.cast::<PyArrayDyn<f32>>()?;
-    let readonly = typed.try_readonly()?;
-    Ok((readonly.as_slice()?.to_vec(), array.shape().to_vec()))
+    Ok((typed.try_readonly()?, array.shape().to_vec()))
 }
 
 /// `obj`'s type, and the shape and dtype that `numpy.asarray` gave it, such
@@ -84,10 +88,10 @@ fn describe(obj: &Bound<'_, PyAny>, array: &Bound<'_, PyUntypedArray>) -> PyResu
 /// Read matmul input: one vector of shape `(columns,)`, or a batch of shape
 /// `(batch, columns)` flattened row after row. Returns the values and, for a
 /// batch, its size.
-pub fn as_f32_matmul_values(
-    obj: &Bound<'_, PyAny>,
+pub fn as_f32_matmul_values<'py>(
+    obj: &Bound<'py, PyAny>,
     columns: usize,
-) -> PyResult<(Vec<f32>, Option<usize>)> {
+) -> PyResult<(PyReadonlyArrayDyn<'py, f32>, Option<usize>)> {
     let (values, shape) = as_f32_array(obj)?;
     let input_columns = shape[shape.len() - 1];
     if input_columns != columns {

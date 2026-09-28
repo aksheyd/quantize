@@ -1,5 +1,4 @@
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple};
 
@@ -284,9 +283,8 @@ impl PyQuantized {
         })
     }
 
-    fn __hash__(&self) -> PyResult<isize> {
-        Err(PyTypeError::new_err("unhashable type: 'Quantized'"))
-    }
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
 
     fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<(Bound<'py, PyAny>, Pickled<'py>)> {
         let callable = slf.getattr("_from_pickle")?;

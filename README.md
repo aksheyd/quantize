@@ -74,6 +74,8 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 <!-- comparison:end -->
 
+on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93.
+
 ### speed
 
 ```

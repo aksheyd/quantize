@@ -231,6 +231,7 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::ShapeMismatch { len, columns } => {
             PyErr::new::<ShapeMismatchError, _>((len, columns))
         }
+        quantize::Error::MatrixMismatch { .. } => PyValueError::new_err(err.to_string()),
         quantize::Error::NotAMatrix { len } => PyErr::new::<NotAMatrixError, _>(len),
         quantize::Error::RowOutOfRange { .. } => PyIndexError::new_err(err.to_string()),
         quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),

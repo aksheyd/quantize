@@ -322,10 +322,8 @@ mod tests {
     #[test]
     fn refine_keeps_the_matrix_shape() {
         let values: Vec<f32> = (0..64).map(|i| i as f32 * 0.01 - 0.3).collect();
-        let mut q = crate::quantize::<f32, 8, 32>(&values)
-            .unwrap()
-            .into_matrix(2, 32)
-            .unwrap();
+        let mut q = crate::quantize::<f32, 8, 32>(&values).unwrap();
+        q.set_shape(2, 32).unwrap();
         refine(&mut q, &values).unwrap();
         assert_eq!(q.shape(), Some((2, 32)));
     }
@@ -374,8 +372,8 @@ mod tests {
             crate::asymmetric::quantize_with(&values, 4, 32).unwrap(),
             crate::adaptive::quantize_with(&values, 32, 0.1).unwrap(),
         ];
-        for original in tensors {
-            let original = original.into_matrix(8, 32).unwrap();
+        for mut original in tensors {
+            original.set_shape(8, 32).unwrap();
             let (mut refined, mut alternated) = (original.clone(), original.clone());
             refine(&mut refined, &values).unwrap();
             alternate(&mut alternated, &values).unwrap();

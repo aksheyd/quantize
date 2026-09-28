@@ -25,8 +25,7 @@ pub enum Error {
         /// The scale type's [`NAME`](crate::Scale::NAME), like `f16`.
         scale_type: &'static str,
     },
-    /// A buffer or matrix shape holds a different number of values than the
-    /// quantized tensor.
+    /// A buffer holds a different number of values than the quantized tensor.
     LengthMismatch {
         /// Length required by the quantized tensor.
         expected: usize,
@@ -39,6 +38,16 @@ pub enum Error {
         len: usize,
         /// Requested row length.
         columns: usize,
+    },
+    /// [`set_shape`](crate::Quantized::set_shape) got a `rows × columns`
+    /// shape that doesn't hold the tensor's `len` values.
+    MatrixMismatch {
+        /// Requested number of rows.
+        rows: usize,
+        /// Requested number of columns.
+        columns: usize,
+        /// Number of values in the tensor.
+        len: usize,
     },
     /// [`matmul`](crate::Quantized::matmul) and
     /// [`dequantize_row`](crate::Quantized::dequantize_row) need a matrix, but
@@ -107,10 +116,20 @@ impl fmt::Display for Error {
                     "{len} values can't be split into rows of {columns} columns"
                 )
             }
+            Self::MatrixMismatch { rows, columns, len } => match rows.checked_mul(*columns) {
+                Some(size) => write!(
+                    f,
+                    "a {rows} x {columns} matrix holds {size} values, but the tensor has {len}"
+                ),
+                None => write!(
+                    f,
+                    "a {rows} x {columns} matrix holds too many values, but the tensor has {len}"
+                ),
+            },
             Self::NotAMatrix { len } => {
                 write!(
                     f,
-                    "this tensor is a flat vector of {len} values, not a matrix; call into_matrix(rows, columns) first"
+                    "this tensor is a flat vector of {len} values, not a matrix; call set_shape(rows, columns) first"
                 )
             }
             Self::RowOutOfRange { row, rows } => {
@@ -175,6 +194,31 @@ mod tests {
             check_bits(17),
             Err(Error::InvalidBits { bits: 17 })
         ));
+    }
+
+    #[test]
+    fn display_says_how_many_values_the_matrix_holds() {
+        let err = Error::MatrixMismatch {
+            rows: 3,
+            columns: 32,
+            len: 64,
+        };
+        assert_eq!(
+            err.to_string(),
+            "a 3 x 32 matrix holds 96 values, but the tensor has 64"
+        );
+        let err = Error::MatrixMismatch {
+            rows: usize::MAX,
+            columns: 2,
+            len: 64,
+        };
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "a {} x 2 matrix holds too many values, but the tensor has 64",
+                usize::MAX
+            )
+        );
     }
 
     #[test]

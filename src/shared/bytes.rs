@@ -223,14 +223,14 @@ mod tests {
 
     fn assert_round_trips<S: Scale + PartialEq + core::fmt::Debug>() {
         let values = values();
+        let mut five_by_sixteen = symmetric::quantize_with(&values, 5, 16).unwrap();
+        five_by_sixteen.set_shape(5, 16).unwrap();
+        let mut two_by_forty = asymmetric::quantize_with(&values, 8, 32).unwrap();
+        two_by_forty.set_shape(2, 40).unwrap();
         let tensors: [Quantized<S>; 5] = [
             symmetric::quantize_with(&values, 4, 32).unwrap(),
-            symmetric::quantize_with(&values, 5, 16)
-                .and_then(|quantized| quantized.into_matrix(5, 16))
-                .unwrap(),
-            asymmetric::quantize_with(&values, 8, 32)
-                .and_then(|quantized| quantized.into_matrix(2, 40))
-                .unwrap(),
+            five_by_sixteen,
+            two_by_forty,
             adaptive::quantize_with(&values, 32, 0.01).unwrap(),
             symmetric::quantize_with(&[], 8, 32).unwrap(),
         ];

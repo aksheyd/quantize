@@ -213,10 +213,8 @@ mod tests {
     #[test]
     fn fused_matmul_matches_dequant_then_multiply() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
-        let q = quantize::<f32, 8, 32>(&w)
-            .unwrap()
-            .into_matrix(2, 32)
-            .unwrap();
+        let mut q = quantize::<f32, 8, 32>(&w).unwrap();
+        q.set_shape(2, 32).unwrap();
         let recon = q.dequantize();
         let input: Vec<f32> = (0..32).map(|i| (i as f32) * 0.02 - 0.1).collect();
         let fused = q.matmul(&input).unwrap();
@@ -237,10 +235,8 @@ mod tests {
     #[test]
     fn fused_matmul_four_bit_matches_dequant_then_multiply() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.02 - 0.4).collect();
-        let q = quantize::<f32, 4, 32>(&w)
-            .unwrap()
-            .into_matrix(2, 32)
-            .unwrap();
+        let mut q = quantize::<f32, 4, 32>(&w).unwrap();
+        q.set_shape(2, 32).unwrap();
         let recon = q.dequantize();
         let input: Vec<f32> = (0..32).map(|i| (i as f32) * 0.03 - 0.2).collect();
         let fused = q.matmul(&input).unwrap();
@@ -261,10 +257,8 @@ mod tests {
     #[test]
     fn matmul_batch_is_row_major() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
-        let q = quantize::<f32, 8, 32>(&w)
-            .unwrap()
-            .into_matrix(2, 32)
-            .unwrap();
+        let mut q = quantize::<f32, 8, 32>(&w).unwrap();
+        q.set_shape(2, 32).unwrap();
         let recon = q.dequantize();
         let inputs: Vec<f32> = (0..64).map(|i| (i as f32) * 0.02 - 0.15).collect();
         let fused = q.matmul(&inputs).unwrap();
@@ -283,32 +277,38 @@ mod tests {
     }
 
     #[test]
-    fn into_matrix_rejects_zero_columns() {
-        let q = quantize::<f32, 8, 8>(&[0.1; 8]).unwrap();
-        assert!(matches!(
-            q.into_matrix(8, 0),
+    fn set_shape_rejects_zero_columns() {
+        let mut q = quantize::<f32, 8, 8>(&[0.1; 8]).unwrap();
+        assert_eq!(
+            q.set_shape(8, 0),
             Err(crate::Error::ShapeMismatch { len: 8, columns: 0 })
-        ));
+        );
     }
 
     #[test]
-    fn into_matrix_rejects_a_shape_that_does_not_hold_every_value() {
+    fn set_shape_rejects_a_shape_that_does_not_hold_every_value() {
         let w: Vec<f32> = (0..40).map(|i| (i as f32) * 0.01).collect();
-        let q = quantize::<f32, 8, 32>(&w).unwrap();
-        assert!(matches!(
-            q.into_matrix(1, 32),
-            Err(crate::Error::LengthMismatch {
-                expected: 40,
-                got: 32
-            })
-        ));
+        let mut q = quantize::<f32, 8, 32>(&w).unwrap();
+        let unchanged = q.clone();
+        for (rows, columns) in [(1, 32), (usize::MAX, 2)] {
+            assert_eq!(
+                q.set_shape(rows, columns),
+                Err(crate::Error::MatrixMismatch {
+                    rows,
+                    columns,
+                    len: 40
+                })
+            );
+        }
+        assert_eq!(q, unchanged);
     }
 
     #[test]
-    fn into_matrix_records_rows_and_columns() {
-        let q = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
+    fn set_shape_records_rows_and_columns() {
+        let mut q = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
         assert_eq!(q.shape(), None);
-        assert_eq!(q.into_matrix(2, 32).unwrap().shape(), Some((2, 32)));
+        q.set_shape(2, 32).unwrap();
+        assert_eq!(q.shape(), Some((2, 32)));
     }
 
     #[test]
@@ -322,19 +322,19 @@ mod tests {
 
     #[test]
     fn dequantize_row_rejects_a_flat_vector_a_row_past_the_end_and_a_wrong_output() {
-        let flat = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
+        let mut q = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
         let mut out = [0.0; 32];
         assert_eq!(
-            flat.dequantize_row(0, &mut out),
+            q.dequantize_row(0, &mut out),
             Err(crate::Error::NotAMatrix { len: 64 })
         );
-        let matrix = flat.into_matrix(2, 32).unwrap();
+        q.set_shape(2, 32).unwrap();
         assert_eq!(
-            matrix.dequantize_row(2, &mut out),
+            q.dequantize_row(2, &mut out),
             Err(crate::Error::RowOutOfRange { row: 2, rows: 2 })
         );
         assert_eq!(
-            matrix.dequantize_row(1, &mut [0.0; 16]),
+            q.dequantize_row(1, &mut [0.0; 16]),
             Err(crate::Error::LengthMismatch {
                 expected: 32,
                 got: 16
@@ -345,10 +345,8 @@ mod tests {
     #[test]
     fn matmul_rejects_inputs_that_do_not_split_into_vectors() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01).collect();
-        let q = quantize::<f32, 8, 32>(&w)
-            .unwrap()
-            .into_matrix(2, 32)
-            .unwrap();
+        let mut q = quantize::<f32, 8, 32>(&w).unwrap();
+        q.set_shape(2, 32).unwrap();
         let inputs = [0.0_f32; 48];
         assert!(matches!(
             q.matmul(&inputs),

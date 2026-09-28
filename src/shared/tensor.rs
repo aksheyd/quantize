@@ -8,7 +8,7 @@ use crate::scale::Scale;
 /// Packed codes and the scheme that produced them.
 ///
 /// The `len` values are a flat vector until
-/// [`into_matrix`](Self::into_matrix) records `columns`, the length of each
+/// [`set_shape`](Self::set_shape) records `columns`, the length of each
 /// row of a row-major matrix.
 #[derive(Clone, PartialEq)]
 pub enum Quantized<S: Scale> {
@@ -54,8 +54,8 @@ impl<S: Scale> Quantized<S> {
         self.len() == 0
     }
 
-    /// `(rows, columns)` once [`into_matrix`](Self::into_matrix) has recorded
-    /// a shape, or `None` for a flat vector.
+    /// `(rows, columns)` once [`set_shape`](Self::set_shape) has recorded a
+    /// shape, or `None` for a flat vector.
     pub fn shape(&self) -> Option<(usize, usize)> {
         let columns = match self {
             Self::Symmetric { columns, .. }
@@ -67,21 +67,24 @@ impl<S: Scale> Quantized<S> {
 
     /// Read the values as a row-major `rows × columns` matrix: the first
     /// `columns` values are row 0, the next `columns` are row 1, and so on.
-    /// [`matmul`](Self::matmul) multiplies by that matrix.
+    /// [`matmul`](Self::matmul) multiplies by that matrix. For a linear
+    /// layer's weights, `rows` is the number of outputs and `columns` the
+    /// number of inputs, as in PyTorch's `Linear.weight`.
     ///
     /// # Errors
     ///
     /// [`Error::ShapeMismatch`] if `columns` is 0, and
-    /// [`Error::LengthMismatch`] if `rows × columns` isn't [`len`](Self::len).
-    pub fn into_matrix(mut self, rows: usize, columns: usize) -> Result<Self> {
+    /// [`Error::MatrixMismatch`] if `rows × columns` isn't
+    /// [`len`](Self::len). Either way the tensor is left as it was.
+    pub fn set_shape(&mut self, rows: usize, columns: usize) -> Result<()> {
+        let len = self.len();
         if columns == 0 {
-            return Err(Error::ShapeMismatch {
-                len: self.len(),
-                columns,
-            });
+            return Err(Error::ShapeMismatch { len, columns });
         }
-        check_len(self.len(), rows.saturating_mul(columns))?;
-        match &mut self {
+        if rows.checked_mul(columns) != Some(len) {
+            return Err(Error::MatrixMismatch { rows, columns, len });
+        }
+        match self {
             Self::Symmetric {
                 columns: recorded, ..
             }
@@ -92,7 +95,7 @@ impl<S: Scale> Quantized<S> {
                 columns: recorded, ..
             } => *recorded = Some(columns),
         }
-        Ok(self)
+        Ok(())
     }
 
     pub fn block(&self) -> usize {
@@ -276,12 +279,10 @@ impl<S: Scale> Quantized<S> {
     /// use quantize::quantize;
     ///
     /// // 3 tokens, 4 values each.
-    /// let table = quantize::<f32, 8, 4>(&[0.1, 0.2, 0.3, 0.4,
-    ///                                     0.5, 0.6, 0.7, 0.8,
-    ///                                     0.9, 1.0, 1.1, 1.2])
-    ///     .unwrap()
-    ///     .into_matrix(3, 4)
-    ///     .unwrap();
+    /// let mut table = quantize::<f32, 8, 4>(&[0.1, 0.2, 0.3, 0.4,
+    ///                                         0.5, 0.6, 0.7, 0.8,
+    ///                                         0.9, 1.0, 1.1, 1.2]).unwrap();
+    /// table.set_shape(3, 4).unwrap();
     ///
     /// let mut embedding = [0.0; 4];
     /// table.dequantize_row(1, &mut embedding).unwrap();
@@ -290,7 +291,7 @@ impl<S: Scale> Quantized<S> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotAMatrix`] if [`into_matrix`](Self::into_matrix) hasn't
+    /// [`Error::NotAMatrix`] if [`set_shape`](Self::set_shape) hasn't
     /// recorded a shape, [`Error::RowOutOfRange`] if `row` isn't below `rows`,
     /// and [`Error::LengthMismatch`] if `out` isn't `columns` long.
     pub fn dequantize_row(&self, row: usize, out: &mut [f32]) -> Result<()> {
@@ -317,7 +318,7 @@ impl<S: Scale> Quantized<S> {
     /// Multiply a batch of input vectors by this tensor's matrix.
     ///
     /// - The tensor is the row-major `rows × columns` matrix `W` that
-    ///   [`into_matrix`](Self::into_matrix) recorded.
+    ///   [`set_shape`](Self::set_shape) recorded.
     /// - `inputs` holds `batch` vectors of `columns` values each, back to back.
     /// - The result holds `batch × rows` values, row-major: value
     ///   `b * rows + r` is input `b` dotted with row `r` of `W`. That is
@@ -327,11 +328,9 @@ impl<S: Scale> Quantized<S> {
     /// use quantize::quantize;
     ///
     /// // W has 2 rows × 3 columns.
-    /// let w = quantize::<f32, 8, 3>(&[1.0, 0.0, 0.0,
-    ///                                 0.0, 1.0, 1.0])
-    ///     .unwrap()
-    ///     .into_matrix(2, 3)
-    ///     .unwrap();
+    /// let mut w = quantize::<f32, 8, 3>(&[1.0, 0.0, 0.0,
+    ///                                     0.0, 1.0, 1.0]).unwrap();
+    /// w.set_shape(2, 3).unwrap();
     ///
     /// // A batch of 2 inputs, 3 values each.
     /// let inputs = [1.0, 2.0, 3.0,

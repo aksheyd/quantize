@@ -71,8 +71,11 @@ impl PyQuantized {
     }
 
     /// The dot product of the decoded values with `values`, an array of the
-    /// tensor's `shape`, without storing the decoded values. For a matrix
-    /// times a vector, use `matmul`.
+    /// tensor's `shape`. For a matrix times a vector, use `matmul`.
+    ///
+    /// Symmetric tensors with 4-bit or 8-bit codes are decoded straight from
+    /// the packed codes, without storing the decoded values. Other tensors are
+    /// first unpacked into a buffer as large as the decoded values.
     fn dot(slf: &Bound<'_, Self>, values: Bound<'_, PyAny>) -> PyResult<f32> {
         let (array, values_shape) = as_f32_array(&values)?;
         let values = array.as_slice()?;

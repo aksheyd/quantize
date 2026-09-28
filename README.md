@@ -46,7 +46,7 @@ let dot = q.dot(&weights).unwrap(); // 0.926
 - `learned::alternate` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves
 - `Scheme` picks one at run time, like `Scheme::Q4_32.quantize::<f16>(&weights)`
 
-for a weight matrix, `q.into_matrix(rows, columns)` records its shape, so `q.matmul(&inputs)` can multiply a batch of inputs by it, like a linear layer. `q.to_bytes()` saves a tensor, shape included, and `Quantized::from_bytes` loads it back.
+for a weight matrix, `q.into_matrix(rows, columns)` records its shape, so `q.matmul(&inputs)` can multiply a batch of inputs by it, like a linear layer, and `q.dequantize_row(row, &mut out)` can decode one row, like an embedding lookup. `q.to_bytes()` saves a tensor, shape included, and `Quantized::from_bytes` loads it back.
 
 codes can be 2 to 16 bits, and scales `f32`, `f16`, or `bf16`. the rest is in the [api docs](https://docs.rs/quantize). for python, see [python/](https://github.com/aksheyd/quantize/tree/main/python).
 

@@ -1,6 +1,6 @@
 //! One enum, one variant per scheme.
 
-use crate::decode::{dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
+use crate::decode::{decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into};
 use crate::error::{check_bits, check_block, check_len, malformed, Error, Result};
 use crate::packed::Packed;
 use crate::scale::Scale;
@@ -265,6 +265,43 @@ impl<S: Scale> Quantized<S> {
                 ..
             } => dequant_adaptive(scales, zero_points, bytes, bits, *block, *len, out),
         }
+        Ok(())
+    }
+
+    /// Decode row `row` of the matrix into `out`, without decoding the other
+    /// rows. An embedding table keeps one row per token, so looking up a
+    /// token decodes just its row:
+    ///
+    /// ```
+    /// use quantize::quantize;
+    ///
+    /// // 3 tokens, 4 values each.
+    /// let table = quantize::<f32, 8, 4>(&[0.1, 0.2, 0.3, 0.4,
+    ///                                     0.5, 0.6, 0.7, 0.8,
+    ///                                     0.9, 1.0, 1.1, 1.2])
+    ///     .unwrap()
+    ///     .into_matrix(3, 4)
+    ///     .unwrap();
+    ///
+    /// let mut embedding = [0.0; 4];
+    /// table.dequantize_row(1, &mut embedding).unwrap();
+    /// assert_eq!(embedding, [0.5, 0.6, 0.7, 0.8]);
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAMatrix`] if [`into_matrix`](Self::into_matrix) hasn't
+    /// recorded a shape, [`Error::RowOutOfRange`] if `row` isn't below `rows`,
+    /// and [`Error::LengthMismatch`] if `out` isn't `columns` long.
+    pub fn dequantize_row(&self, row: usize, out: &mut [f32]) -> Result<()> {
+        let Some((rows, columns)) = self.shape() else {
+            return Err(Error::NotAMatrix { len: self.len() });
+        };
+        if row >= rows {
+            return Err(Error::RowOutOfRange { row, rows });
+        }
+        check_len(columns, out.len())?;
+        decode_row(self, row, out);
         Ok(())
     }
 

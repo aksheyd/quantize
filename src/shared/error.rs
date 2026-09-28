@@ -40,11 +40,20 @@ pub enum Error {
         /// Requested row length.
         columns: usize,
     },
-    /// [`matmul`](crate::Quantized::matmul) needs a matrix, but the tensor is
-    /// a flat vector.
+    /// [`matmul`](crate::Quantized::matmul) and
+    /// [`dequantize_row`](crate::Quantized::dequantize_row) need a matrix, but
+    /// the tensor is a flat vector.
     NotAMatrix {
         /// Number of values in the vector.
         len: usize,
+    },
+    /// [`dequantize_row`](crate::Quantized::dequantize_row) asked for a row
+    /// past the end of the matrix.
+    RowOutOfRange {
+        /// Requested row.
+        row: usize,
+        /// Number of rows in the matrix.
+        rows: usize,
     },
     /// A `batch × rows` matmul result has more values than can be allocated.
     OutputTooLarge {
@@ -101,8 +110,11 @@ impl fmt::Display for Error {
             Self::NotAMatrix { len } => {
                 write!(
                     f,
-                    "matmul needs a matrix, but this tensor is a flat vector of {len} values"
+                    "this tensor is a flat vector of {len} values, not a matrix; call into_matrix(rows, columns) first"
                 )
+            }
+            Self::RowOutOfRange { row, rows } => {
+                write!(f, "row {row} is past the end of a matrix with {rows} rows")
             }
             Self::OutputTooLarge { batch, rows } => {
                 write!(f, "a {batch} x {rows} output is too large to allocate")

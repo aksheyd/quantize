@@ -1,6 +1,6 @@
 //! Python exceptions.
 
-use pyo3::exceptions::{PyMemoryError, PyValueError};
+use pyo3::exceptions::{PyIndexError, PyMemoryError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
@@ -232,6 +232,7 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
             PyErr::new::<ShapeMismatchError, _>((len, columns))
         }
         quantize::Error::NotAMatrix { len } => PyErr::new::<NotAMatrixError, _>(len),
+        quantize::Error::RowOutOfRange { .. } => PyIndexError::new_err(err.to_string()),
         quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),
         quantize::Error::Malformed { .. } => PyValueError::new_err(err.to_string()),
         quantize::Error::ScaleMismatch { .. } => PyValueError::new_err(err.to_string()),

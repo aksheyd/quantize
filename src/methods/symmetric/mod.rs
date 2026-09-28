@@ -321,6 +321,28 @@ mod tests {
     }
 
     #[test]
+    fn dequantize_row_rejects_a_flat_vector_a_row_past_the_end_and_a_wrong_output() {
+        let flat = quantize::<f32, 8, 32>(&[0.1; 64]).unwrap();
+        let mut out = [0.0; 32];
+        assert_eq!(
+            flat.dequantize_row(0, &mut out),
+            Err(crate::Error::NotAMatrix { len: 64 })
+        );
+        let matrix = flat.into_matrix(2, 32).unwrap();
+        assert_eq!(
+            matrix.dequantize_row(2, &mut out),
+            Err(crate::Error::RowOutOfRange { row: 2, rows: 2 })
+        );
+        assert_eq!(
+            matrix.dequantize_row(1, &mut [0.0; 16]),
+            Err(crate::Error::LengthMismatch {
+                expected: 32,
+                got: 16
+            })
+        );
+    }
+
+    #[test]
     fn matmul_rejects_inputs_that_do_not_split_into_vectors() {
         let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01).collect();
         let q = quantize::<f32, 8, 32>(&w)

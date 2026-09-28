@@ -1,3 +1,6 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pytest
 
@@ -28,6 +31,21 @@ def test_refine_takes_the_matrix_it_refines():
     quantized = quantize(weights, bits=4, block=32)
     learned.refine(quantized, weights)
     assert quantized.shape == (2, 32)
+
+
+def test_refine_and_alternate_need_values_in_the_tensor_shape():
+    weights = np.linspace(-0.5, 0.5, 64, dtype=np.float32).reshape(2, 32)
+    quantized = quantize(weights, bits=4)
+    before = quantized.copy()
+    for refit in [learned.refine, learned.alternate]:
+        for values in [weights.T, weights.ravel()]:
+            with pytest.raises(ValueError, match=r"values must have shape \(2, 32\), got"):
+                refit(quantized, values)
+        with pytest.raises(LengthMismatchError, match="values must have length 64, got 32"):
+            refit(quantized, weights[:1])
+    assert quantized == before
+    with pytest.raises(ValueError, match=r"values must have shape \(64,\), got \(2, 32\)"):
+        learned.refine(quantize(weights.ravel()), weights)
 
 
 def test_refine_length_mismatch_including_empty():
@@ -89,3 +107,24 @@ def test_except_quantize_error_catches_length():
     with pytest.raises(QuantizeError, match="codes must have length 1, got 2") as raised:
         learned.fit_scale_and_zero_point([0.1], [0, 1])
     assert isinstance(raised.value, ValueError)
+
+
+def test_refine_and_alternate_work_while_another_thread_uses_the_tensor():
+    weights = np.random.default_rng(0).standard_normal((256, 256)).astype(np.float32)
+    quantized = quantize(weights, bits=4)
+    stop = threading.Event()
+
+    def multiply_until_stopped():
+        while not stop.is_set():
+            quantized.matmul(weights)
+            quantized.dot(weights.ravel())
+
+    with ThreadPoolExecutor() as pool:
+        multiplying = pool.submit(multiply_until_stopped)
+        try:
+            for _ in range(10):
+                learned.refine(quantized, weights)
+                learned.alternate(quantized, weights)
+        finally:
+            stop.set()
+        multiplying.result()

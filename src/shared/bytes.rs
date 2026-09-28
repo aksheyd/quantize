@@ -66,7 +66,7 @@ impl<S: Scale> Quantized<S> {
             bytes.extend_from_slice(&(size as u64).to_le_bytes());
         }
         if let Some(block_bits) = self.block_bits() {
-            bytes.extend(block_bits.iter().map(|&bits| bits as u8));
+            bytes.extend_from_slice(block_bits);
         }
         for &value in self.scales().iter().chain(self.zero_points()) {
             value.write_le_bytes(&mut bytes);
@@ -136,11 +136,7 @@ impl<S: Scale> Quantized<S> {
                 }
             }
             ADAPTIVE => {
-                let bits = reader
-                    .take(blocks)?
-                    .iter()
-                    .map(|&bits| bits.into())
-                    .collect();
+                let bits = reader.take(blocks)?.to_vec();
                 let scales = reader.scales(blocks)?;
                 let zero_points = reader.scales(blocks)?;
                 let bytes = reader.rest();
@@ -245,6 +241,21 @@ mod tests {
         assert_round_trips::<f32>();
         assert_round_trips::<f16>();
         assert_round_trips::<bf16>();
+    }
+
+    #[test]
+    fn nbytes_is_the_saved_size_without_the_header() {
+        // With f32 scales the header fills 35 bytes, as the table in
+        // `to_bytes` adds up.
+        let values = values();
+        let tensors: [Quantized<f32>; 3] = [
+            symmetric::quantize_with(&values, 5, 16).unwrap(),
+            asymmetric::quantize_with(&values, 4, 32).unwrap(),
+            adaptive::quantize_with(&values, 32, 0.01).unwrap(),
+        ];
+        for quantized in tensors {
+            assert_eq!(quantized.to_bytes().len(), 35 + quantized.nbytes());
+        }
     }
 
     #[test]

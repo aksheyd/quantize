@@ -75,7 +75,7 @@ pub fn quantize_with<S: Scale>(
             quantize_asym_block::<S>(chunk, block_index, bit_width, &mut codes)?;
         scales.push(scale);
         zero_points.push(zero_point);
-        bits.push(bit_width);
+        bits.push(bit_width as u8);
         bytes.extend_from_slice(Packed::from_i32s(&codes, bit_width).as_bytes());
     }
 

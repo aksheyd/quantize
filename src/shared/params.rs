@@ -1,14 +1,27 @@
 //! Integer grids, scale selection, and mixed-precision bit choice.
 
+/// Panic unless `bits` is in `2..=16`, the widths codes can have. Without
+/// this, a release build would wrap an overlong shift around, so 40 bits
+/// would get the 8-bit answer.
+pub(crate) const fn assert_bits_in_range(bits: u32) {
+    assert!(2 <= bits && bits <= 16, "bits must be in 2..=16");
+}
+
 /// Largest integer code for this bit width. 8-bit → 127, 4-bit → 7.
+///
+/// Panics if `bits` is outside `2..=16`.
 #[inline]
 pub const fn largest_code(bits: u32) -> i32 {
+    assert_bits_in_range(bits);
     (1_i32 << (bits - 1)) - 1
 }
 
 /// Smallest integer code for this bit width. 8-bit → -128, 4-bit → -8.
+///
+/// Panics if `bits` is outside `2..=16`.
 #[inline]
 pub const fn smallest_code(bits: u32) -> i32 {
+    assert_bits_in_range(bits);
     -(1_i32 << (bits - 1))
 }
 
@@ -19,8 +32,11 @@ pub const fn smallest_code(bits: u32) -> i32 {
 /// codes, so each tick is 1/8 of it instead of 1/7. A positive extreme gets a
 /// negative scale, so that -8 still decodes to it, and a value on the other
 /// side that would need code 8 gets 7. GGML's Q4_0 picks its scale this way.
+///
+/// Panics if `bits` is outside `2..=16`.
 #[inline]
 pub fn symmetric_scale(extreme: f32, bits: u32) -> f32 {
+    assert_bits_in_range(bits);
     if extreme != 0.0 {
         extreme / smallest_code(bits) as f32
     } else {
@@ -34,8 +50,11 @@ pub fn symmetric_scale(extreme: f32, bits: u32) -> f32 {
 /// to [`symmetric_scale`] with a zero-point of 0. An all-NaN block measures no
 /// range at all (`lowest > highest`) and keeps scale 1, so its codes of 0
 /// decode to 0.
+///
+/// Panics if `bits` is outside `2..=16`.
 #[inline]
 pub fn asymmetric_params(lowest: f32, highest: f32, bits: u32) -> (f32, f32) {
+    assert_bits_in_range(bits);
     if lowest > highest {
         return (1.0, 0.0);
     }
@@ -75,6 +94,18 @@ mod tests {
     fn four_bit_codes_run_from_minus_eight_to_seven() {
         assert_eq!(largest_code(4), 7);
         assert_eq!(smallest_code(4), -8);
+    }
+
+    #[test]
+    #[should_panic(expected = "bits must be in 2..=16")]
+    fn zero_bits_panic_instead_of_wrapping_around() {
+        largest_code(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "bits must be in 2..=16")]
+    fn forty_bits_panic_instead_of_giving_the_eight_bit_scale() {
+        symmetric_scale(1.0, 40);
     }
 
     #[test]

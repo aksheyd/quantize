@@ -94,6 +94,40 @@ impl InvalidToleranceError {
 #[pyclass(
     frozen,
     extends = QuantizeError,
+    name = "ScaleOutOfRangeError",
+    module = "quantize"
+)]
+pub struct ScaleOutOfRangeError {
+    #[pyo3(get)]
+    block_index: usize,
+    #[pyo3(get)]
+    scale_type: String,
+}
+
+#[pymethods]
+impl ScaleOutOfRangeError {
+    #[new]
+    fn new(block_index: usize, scale_type: String) -> PyClassInitializer<Self> {
+        let message = format!(
+            "block {block_index}'s scale or zero-point doesn't fit in {scale_type}; use f32 scales"
+        );
+        PyClassInitializer::from(QuantizeError::new(message)).add_subclass(Self {
+            block_index,
+            scale_type,
+        })
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "block {}'s scale or zero-point doesn't fit in {}; use f32 scales",
+            self.block_index, self.scale_type
+        )
+    }
+}
+
+#[pyclass(
+    frozen,
+    extends = QuantizeError,
     name = "LengthMismatchError",
     module = "quantize"
 )]
@@ -181,6 +215,10 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::InvalidBits { bits } => PyErr::new::<InvalidBitsError, _>(bits),
         quantize::Error::InvalidBlock { block } => PyErr::new::<InvalidBlockError, _>(block),
         quantize::Error::InvalidTolerance => PyErr::new::<InvalidToleranceError, _>(()),
+        quantize::Error::ScaleOutOfRange {
+            block_index,
+            scale_type,
+        } => PyErr::new::<ScaleOutOfRangeError, _>((block_index, scale_type)),
         quantize::Error::LengthMismatch { expected, got } => {
             PyErr::new::<LengthMismatchError, _>((expected, got))
         }

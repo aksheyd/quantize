@@ -15,6 +15,7 @@ use crate::tensor::Quantized;
 ///
 /// [`Error::InvalidTolerance`] if `tolerance` is not finite and `> 0`.
 /// [`Error::InvalidBlock`] if `BLOCK == 0`.
+/// [`Error::ScaleOutOfRange`] if `S` can't hold a block's scale or zero-point.
 pub fn quantize<S: Scale, const BLOCK: usize>(
     values: &[f32],
     tolerance: f32,
@@ -51,11 +52,12 @@ pub fn quantize_with<S: Scale>(
     let mut bytes = Vec::new();
     let mut codes = Vec::new();
 
-    for chunk in values.chunks(block) {
+    for (block_index, chunk) in values.chunks(block).enumerate() {
         let (lowest, highest) = min_max(chunk);
         let bit_width = choose_bits(highest - lowest, tolerance);
         codes.clear();
-        let (scale, zero_point) = quantize_asym_block::<S>(chunk, bit_width, &mut codes);
+        let (scale, zero_point) =
+            quantize_asym_block::<S>(chunk, block_index, bit_width, &mut codes)?;
         scales.push(scale);
         zero_points.push(zero_point);
         bits.push(bit_width);
@@ -108,6 +110,20 @@ mod tests {
                 assert!((back - value).abs() < 1e-3, "{value} vs {back}");
             }
         }
+    }
+
+    #[test]
+    fn a_zero_point_that_f16_cannot_hold_is_an_error() {
+        // A tolerance this tight takes 8 bits, and 100.0 to 100.3 then needs a
+        // zero-point of about -85,000, past f16's 65504.
+        let values = [100.0_f32, 100.1, 100.2, 100.3];
+        assert_eq!(
+            quantize::<half::f16, 4>(&values, 1e-4),
+            Err(Error::ScaleOutOfRange {
+                block_index: 0,
+                scale_type: "f16"
+            })
+        );
     }
 
     #[test]

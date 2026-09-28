@@ -19,6 +19,7 @@ from quantize import (
     ScaleOutOfRangeError,
     Scheme,
     ShapeMismatchError,
+    ToleranceTooTightError,
     adaptive,
     asymmetric,
     quantize,
@@ -283,6 +284,16 @@ def test_invalid_tolerance():
         adaptive.quantize([0.1], block=1, tolerance=0.0)
 
 
+def test_a_tolerance_8_bits_cannot_meet_raises_with_one_they_can():
+    values = [0.0, 1.0, 0.0, 2.0]
+    with pytest.raises(ToleranceTooTightError, match="block 0 .* at least 0.0039") as raised:
+        adaptive.quantize(values, block=2, tolerance=0.001)
+    assert isinstance(raised.value, QuantizeError)
+    assert raised.value.block_index == 0
+    assert raised.value.smallest_tolerance == pytest.approx(2 / 255 / 2)
+    adaptive.quantize(values, block=2, tolerance=raised.value.smallest_tolerance)
+
+
 def test_a_zero_point_that_f16_cannot_hold_raises():
     values = [0.02, 0.03, 0.04, 0.05]
     with pytest.raises(ScaleOutOfRangeError, match="use f32 scales") as raised:
@@ -358,7 +369,7 @@ def test_bad_values_raise_value_errors_that_name_the_argument():
 def test_asymmetric_and_adaptive_paths():
     weights = [0.42, -0.10, 0.70, -0.50]
     asymmetric.quantize(weights, bits=8, block=4)
-    mixed = adaptive.quantize(weights, block=2, tolerance=0.001)
+    mixed = adaptive.quantize(weights, block=2, tolerance=0.01)
     assert mixed.kind == "adaptive"
     assert mixed.block_bits is not None
     assert mixed.bits is None

@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn unpacked_adaptive_codes_repack_to_the_original_bytes() {
         let values: Vec<f32> = (0..40).map(|index| index as f32 * 0.02 - 0.4).collect();
-        let quantized = adaptive::quantize::<f32, 32>(&values, 0.001).unwrap();
+        let quantized = adaptive::quantize::<f32, 32>(&values, 0.002).unwrap();
         let unpacked = unpacked_codes(&quantized);
 
         let Quantized::Adaptive {

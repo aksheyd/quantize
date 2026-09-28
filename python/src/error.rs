@@ -93,6 +93,42 @@ impl InvalidToleranceError {
     }
 }
 
+/// Even 8 bits can't round block `block_index` within the tolerance.
+/// `smallest_tolerance` is the smallest that 8 bits meet in every block.
+#[pyclass(
+    frozen,
+    extends = QuantizeError,
+    name = "ToleranceTooTightError",
+    module = "quantize"
+)]
+pub struct ToleranceTooTightError {
+    #[pyo3(get)]
+    block_index: usize,
+    #[pyo3(get)]
+    smallest_tolerance: f32,
+}
+
+#[pymethods]
+impl ToleranceTooTightError {
+    #[new]
+    fn new(block_index: usize, smallest_tolerance: f32) -> PyClassInitializer<Self> {
+        let message = format!(
+            "8 bits can't round block {block_index} within the tolerance; use a tolerance of at least {smallest_tolerance}"
+        );
+        PyClassInitializer::from(QuantizeError::new(message)).add_subclass(Self {
+            block_index,
+            smallest_tolerance,
+        })
+    }
+
+    fn __str__(&self) -> String {
+        format!(
+            "8 bits can't round block {} within the tolerance; use a tolerance of at least {}",
+            self.block_index, self.smallest_tolerance
+        )
+    }
+}
+
 /// A block's scale or zero-point doesn't fit in its scale type, such as a
 /// zero-point beyond f16's 65,504. `block_index` and `scale_type` say which.
 #[pyclass(
@@ -221,6 +257,10 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::InvalidBits { bits } => PyErr::new::<InvalidBitsError, _>(i64::from(bits)),
         quantize::Error::InvalidBlock { block } => PyErr::new::<InvalidBlockError, _>(block as i64),
         quantize::Error::InvalidTolerance => PyErr::new::<InvalidToleranceError, _>(()),
+        quantize::Error::ToleranceTooTight {
+            block_index,
+            smallest_tolerance,
+        } => PyErr::new::<ToleranceTooTightError, _>((block_index, smallest_tolerance)),
         quantize::Error::ScaleOutOfRange {
             block_index,
             scale_type,

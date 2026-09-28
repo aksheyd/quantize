@@ -117,6 +117,16 @@ def test_dot_length_mismatch():
         quantized.dot([0.1] * 3)
 
 
+def test_dot_needs_values_in_the_tensor_shape():
+    weights = weight_matrix(2, 32)
+    quantized = quantize(weights, bits=8)
+    naive = float(np.sum(quantized.dequantize() * weights))
+    assert abs(quantized.dot(weights) - naive) < 1e-4
+    for values in [weights.T, weights.ravel()]:
+        with pytest.raises(ValueError, match=r"values must have shape \(2, 32\), got"):
+            quantized.dot(values)
+
+
 def test_matrix_keeps_its_shape():
     weights = weight_matrix(8, 32)
     for quantized in [
@@ -180,7 +190,7 @@ def test_masked_arrays_are_rejected_instead_of_losing_their_mask():
     masked = np.ma.masked_array([0.1, 0.2, 99.0], mask=[False, False, True])
     with pytest.raises(TypeError, match=r"masked array.*values\.filled\(0\)"):
         quantize(masked, bits=8, block=3)
-    with pytest.raises(TypeError, match="masked array"):
+    with pytest.raises(TypeError, match=r"inputs can't be a masked array.*inputs\.filled\(0\)"):
         quantize(weight_matrix(2, 3)).matmul(masked)
     back = quantize(masked.filled(0), bits=8, block=3).dequantize()
     np.testing.assert_allclose(back, [0.1, 0.2, 0.0], atol=1e-3)
@@ -205,16 +215,16 @@ def test_dequantize_out_must_have_the_tensor_shape():
 
 def test_fused_matmul_matches_dequant_then_multiply():
     quantized = quantize(weight_matrix(4, 32), bits=8, block=32)
-    values = np.array([i * 0.02 - 0.1 for i in range(32)], dtype=np.float32)
-    naive = quantized.dequantize() @ values
-    fused = quantized.matmul(values)
+    inputs = np.array([i * 0.02 - 0.1 for i in range(32)], dtype=np.float32)
+    naive = quantized.dequantize() @ inputs
+    fused = quantized.matmul(inputs=inputs)
     assert fused.shape == (4,)
     np.testing.assert_allclose(naive, fused, atol=1e-4)
 
 
 def test_matmul_length_mismatch():
     quantized = quantize(weight_matrix(2, 32), bits=8, block=32)
-    with pytest.raises(LengthMismatchError, match="each vector in values must have length 32") as raised:
+    with pytest.raises(LengthMismatchError, match="each vector in inputs must have length 32") as raised:
         quantized.matmul([0.1] * 3)
     assert raised.value.expected == 32
     assert raised.value.got == 3
@@ -271,7 +281,7 @@ def test_matmul_reads_any_real_dtype_and_layout():
 
 def test_matmul_rejects_three_dimensional_values():
     quantized = quantize(weight_matrix(2, 32), bits=8, block=32)
-    with pytest.raises(ValueError, match="1-D or 2-D"):
+    with pytest.raises(ValueError, match="inputs must be a 1-D or 2-D array"):
         quantized.matmul(np.zeros((2, 2, 32), np.float32))
 
 

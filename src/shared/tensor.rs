@@ -181,10 +181,10 @@ impl<S: Scale> Quantized<S> {
             | Self::Asymmetric { columns, .. }
             | Self::Adaptive { columns, .. } => *columns,
         };
-        if let Some(columns) = columns {
-            if columns == 0 || !len.is_multiple_of(columns) {
-                return Err(Error::ShapeMismatch { len, columns });
-            }
+        if let Some(columns) = columns
+            && (columns == 0 || !len.is_multiple_of(columns))
+        {
+            return Err(Error::ShapeMismatch { len, columns });
         }
 
         let blocks = len.div_ceil(block);

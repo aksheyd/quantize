@@ -1,5 +1,5 @@
-use crate::wikitext::net::cache::KvCache;
 use crate::wikitext::net::LlamaNet;
+use crate::wikitext::net::cache::KvCache;
 use crate::wikitext::{DECODE_NEW, DECODE_PROMPT};
 use candle_core::{DType, Result, Tensor};
 use std::time::Instant;

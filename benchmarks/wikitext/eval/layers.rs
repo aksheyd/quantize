@@ -1,6 +1,6 @@
 use crate::wikitext::data::weights::Extracted;
-use crate::wikitext::net::cache::KvCache;
 use crate::wikitext::net::LlamaNet;
+use crate::wikitext::net::cache::KvCache;
 use candle_core::{DType, Result};
 use serde::Serialize;
 use std::fs::File;

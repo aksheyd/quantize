@@ -7,7 +7,7 @@
 //! keeps 11, but 8-bit codes push the same block's zero-point to -25500.5,
 //! which f16 rounds to -25504. Use f32 scales for data far from zero.
 
-use crate::error::{check_bits, check_block, Result};
+use crate::error::{Result, check_bits, check_block};
 use crate::kernels::quantize_asym_block;
 use crate::packed::Packed;
 use crate::scale::Scale;

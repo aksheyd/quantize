@@ -1,8 +1,8 @@
 //! Python exceptions.
 
+use pyo3::PyClassInitializer;
 use pyo3::exceptions::{PyIndexError, PyMemoryError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::PyClassInitializer;
 
 /// The base class of the errors for bad arguments and data. It's a
 /// `ValueError`, so `except ValueError` catches these errors too.

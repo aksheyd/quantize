@@ -4,7 +4,7 @@ use crate::kernels::{
     dequant_asym_into, dequant_i4_blocks, dequant_i8_blocks, dequant_sym_into, dot_asym,
     dot_i4_blocks, dot_i8_blocks, dot_sym,
 };
-use crate::packed::{nbytes, Packed};
+use crate::packed::{Packed, nbytes};
 use crate::scale::Scale;
 use crate::tensor::Quantized;
 
@@ -317,7 +317,7 @@ fn dot(left: &[f32], right: &[f32]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::{adaptive, asymmetric, symmetric, Quantized};
+    use crate::{Quantized, adaptive, asymmetric, symmetric};
 
     #[test]
     fn dot_stays_precise_when_every_product_is_positive() {

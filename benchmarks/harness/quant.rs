@@ -4,8 +4,8 @@
 
 use super::Sample;
 use candle_core::{
-    quantized::{GgmlDType, QTensor},
     Device, Result, Tensor,
+    quantized::{GgmlDType, QTensor},
 };
 use half::f16;
 use quantize::quantize;

@@ -1,7 +1,7 @@
 //! Outer loop: for each of `runs` fresh samples, evaluate every method,
 //! then collapse each method's MSE samples to a mean.
 
-use super::{methods::methods, metrics::mse, Comparison, Harness, MethodReport};
+use super::{Comparison, Harness, MethodReport, methods::methods, metrics::mse};
 use candle_core::Result;
 
 impl Harness {

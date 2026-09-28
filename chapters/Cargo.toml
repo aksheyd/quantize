@@ -1,6 +1,6 @@
 [package]
 name = "chapters"
-edition = "2021"
+edition = "2024"
 rust-version = "1.88"
 publish = false
 license = "MIT"

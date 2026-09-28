@@ -1,4 +1,4 @@
-use crate::wikitext::{candle_msg, MODEL_ID};
+use crate::wikitext::{MODEL_ID, candle_msg};
 use candle_core::{DType, Device, Result};
 use candle_nn::VarBuilder;
 use candle_transformers::models::llama::{Config, LlamaConfig};

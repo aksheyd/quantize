@@ -106,16 +106,27 @@ pub(crate) fn dequant_asym_into(
     }
 }
 
+/// Add up `code × x` within each block, then multiply the block's sum by its
+/// scale once, as the 4-bit and 8-bit kernels do. One running total over
+/// millions of products grows until f32 rounds away much of each new product;
+/// a block's sum stays small.
 pub(crate) fn dot_sym(scales: &[f32], packed: &Packed, block: usize, rhs: &[f32]) -> f32 {
     let mut codes = vec![0i32; packed.len()];
     packed.unpack_into(&mut codes);
+    let blocks = codes.chunks(block).zip(rhs.chunks(block));
     let mut total = 0.0_f32;
-    for (index, &code) in codes.iter().enumerate() {
-        total += code as f32 * scales[index / block] * rhs[index];
+    for ((block_codes, block_rhs), &scale) in blocks.zip(scales) {
+        let mut block_total = 0.0_f32;
+        for (&code, &x) in block_codes.iter().zip(block_rhs) {
+            block_total += code as f32 * x;
+        }
+        total += scale * block_total;
     }
     total
 }
 
+/// Like [`dot_sym`], with each block's zero-point taken out once:
+/// `Σ (code - zero_point) × x = Σ code × x - zero_point × Σ x`.
 pub(crate) fn dot_asym(
     scales: &[f32],
     zero_points: &[f32],
@@ -125,11 +136,17 @@ pub(crate) fn dot_asym(
 ) -> f32 {
     let mut codes = vec![0i32; packed.len()];
     packed.unpack_into(&mut codes);
+    let blocks = codes.chunks(block).zip(rhs.chunks(block));
+    let parameters = scales.iter().zip(zero_points);
     let mut total = 0.0_f32;
-    for (index, &code) in codes.iter().enumerate() {
-        let scale = scales[index / block];
-        let zero_point = zero_points[index / block];
-        total += (code as f32 - zero_point) * scale * rhs[index];
+    for ((block_codes, block_rhs), (&scale, &zero_point)) in blocks.zip(parameters) {
+        let mut code_total = 0.0_f32;
+        let mut rhs_total = 0.0_f32;
+        for (&code, &x) in block_codes.iter().zip(block_rhs) {
+            code_total += code as f32 * x;
+            rhs_total += x;
+        }
+        total += scale * (code_total - zero_point * rhs_total);
     }
     total
 }

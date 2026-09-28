@@ -1,12 +1,14 @@
 //! Python exceptions.
 
-use pyo3::exceptions::{PyException, PyIndexError, PyMemoryError, PyValueError};
+use pyo3::exceptions::{PyIndexError, PyMemoryError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::PyClassInitializer;
 
+/// The base class of the errors for bad arguments and data. It's a
+/// `ValueError`, so `except ValueError` catches these errors too.
 #[pyclass(
     frozen,
-    extends = PyException,
+    extends = PyValueError,
     subclass,
     name = "QuantizeError",
     module = "quantize"
@@ -27,47 +29,47 @@ impl QuantizeError {
     }
 }
 
+/// `bits` is outside 2 to 16. `bits` holds the width that was asked for.
 #[pyclass(frozen, extends = QuantizeError, name = "InvalidBitsError", module = "quantize")]
 pub struct InvalidBitsError {
     #[pyo3(get)]
-    bits: u32,
+    bits: i64,
 }
 
 #[pymethods]
 impl InvalidBitsError {
     #[new]
-    fn new(bits: u32) -> PyClassInitializer<Self> {
-        let message = format!("bit width {bits} is outside the supported range 2..=16");
+    fn new(bits: i64) -> PyClassInitializer<Self> {
+        let message = format!("bits must be from 2 to 16, got {bits}");
         PyClassInitializer::from(QuantizeError::new(message)).add_subclass(Self { bits })
     }
 
     fn __str__(&self) -> String {
-        format!(
-            "bit width {} is outside the supported range 2..=16",
-            self.bits
-        )
+        format!("bits must be from 2 to 16, got {}", self.bits)
     }
 }
 
+/// `block` is less than 1. `block` holds the size that was asked for.
 #[pyclass(frozen, extends = QuantizeError, name = "InvalidBlockError", module = "quantize")]
 pub struct InvalidBlockError {
     #[pyo3(get)]
-    block: usize,
+    block: i64,
 }
 
 #[pymethods]
 impl InvalidBlockError {
     #[new]
-    fn new(block: usize) -> PyClassInitializer<Self> {
-        let message = format!("block size {block} must be at least 1");
+    fn new(block: i64) -> PyClassInitializer<Self> {
+        let message = format!("block must be at least 1, got {block}");
         PyClassInitializer::from(QuantizeError::new(message)).add_subclass(Self { block })
     }
 
     fn __str__(&self) -> String {
-        format!("block size {} must be at least 1", self.block)
+        format!("block must be at least 1, got {}", self.block)
     }
 }
 
+/// `tolerance` isn't a finite number greater than 0.
 #[pyclass(
     frozen,
     extends = QuantizeError,
@@ -91,6 +93,8 @@ impl InvalidToleranceError {
     }
 }
 
+/// A block's scale or zero-point doesn't fit in its scale type, such as a
+/// zero-point beyond f16's 65,504. `block_index` and `scale_type` say which.
 #[pyclass(
     frozen,
     extends = QuantizeError,
@@ -125,6 +129,7 @@ impl ScaleOutOfRangeError {
     }
 }
 
+/// An array holds `got` numbers where the tensor needs `expected`.
 #[pyclass(
     frozen,
     extends = QuantizeError,
@@ -141,19 +146,15 @@ pub struct LengthMismatchError {
 #[pymethods]
 impl LengthMismatchError {
     #[new]
-    fn new(expected: usize, got: usize) -> PyClassInitializer<Self> {
-        let message = format!("length mismatch: expected {expected}, got {got}");
+    #[pyo3(signature = (expected, got, message = None))]
+    fn new(expected: usize, got: usize, message: Option<String>) -> PyClassInitializer<Self> {
+        let message =
+            message.unwrap_or_else(|| format!("length mismatch: expected {expected}, got {got}"));
         PyClassInitializer::from(QuantizeError::new(message)).add_subclass(Self { expected, got })
-    }
-
-    fn __str__(&self) -> String {
-        format!(
-            "length mismatch: expected {}, got {}",
-            self.expected, self.got
-        )
     }
 }
 
+/// `len` values can't be split into rows of `columns` columns.
 #[pyclass(
     frozen,
     extends = QuantizeError,
@@ -183,6 +184,8 @@ impl ShapeMismatchError {
     }
 }
 
+/// `matmul` needs a tensor quantized from a 2-D array, but this one holds a
+/// flat vector of `len` values.
 #[pyclass(frozen, extends = QuantizeError, name = "NotAMatrixError", module = "quantize")]
 pub struct NotAMatrixError {
     #[pyo3(get)]
@@ -206,14 +209,17 @@ impl NotAMatrixError {
     }
 }
 
-pub fn length_mismatch(expected: usize, got: usize) -> PyErr {
-    PyErr::new::<LengthMismatchError, _>((expected, got))
+/// A `LengthMismatchError` that names the argument, like "out must have
+/// length 8, got 3".
+pub fn length_mismatch(argument: &str, expected: usize, got: usize) -> PyErr {
+    let message = format!("{argument} must have length {expected}, got {got}");
+    PyErr::new::<LengthMismatchError, _>((expected, got, message))
 }
 
 pub fn from_quantize(err: quantize::Error) -> PyErr {
     match err {
-        quantize::Error::InvalidBits { bits } => PyErr::new::<InvalidBitsError, _>(bits),
-        quantize::Error::InvalidBlock { block } => PyErr::new::<InvalidBlockError, _>(block),
+        quantize::Error::InvalidBits { bits } => PyErr::new::<InvalidBitsError, _>(i64::from(bits)),
+        quantize::Error::InvalidBlock { block } => PyErr::new::<InvalidBlockError, _>(block as i64),
         quantize::Error::InvalidTolerance => PyErr::new::<InvalidToleranceError, _>(()),
         quantize::Error::ScaleOutOfRange {
             block_index,
@@ -230,5 +236,6 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::RowOutOfRange { .. } => PyIndexError::new_err(err.to_string()),
         quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),
         quantize::Error::Malformed { .. } => PyValueError::new_err(err.to_string()),
+        quantize::Error::ScaleMismatch { .. } => PyValueError::new_err(err.to_string()),
     }
 }

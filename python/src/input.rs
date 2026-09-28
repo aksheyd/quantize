@@ -5,11 +5,8 @@ use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyTuple};
 
-use crate::error::length_mismatch;
+use crate::error::{length_mismatch, InvalidBitsError, InvalidBlockError};
 
-const ARRAY_TYPE: &str = "values must be a 1-D or 2-D array of numbers, or a sequence of numbers";
-const VECTOR_TYPE: &str = "values must be a 1-D array of numbers or a sequence of numbers";
-const VALUES_ENDIAN: &str = "values must be native-endian";
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
 const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
 const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
@@ -27,45 +24,57 @@ fn type_name(obj: &Bound<'_, PyAny>) -> PyResult<String> {
     obj.get_type().name().map(|n| n.to_string())
 }
 
-/// Read a 1-D or 2-D array, or a sequence of numbers, as `f32` values row
-/// after row. Returns the values and the shape they came in.
+/// Read a 1-D or 2-D array of real numbers as `f32` values row after row.
+/// Returns the values and the shape they came in.
 pub fn as_f32_array(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<f32>, Vec<usize>)> {
-    read_f32(obj, ARRAY_TYPE)
+    read_f32(obj, &[1, 2], "a 1-D or 2-D array")
 }
 
-/// Read a 1-D array or a sequence of numbers as `f32` values.
+/// Read a 1-D array of real numbers as `f32` values.
 pub fn as_f32_values(obj: &Bound<'_, PyAny>) -> PyResult<Vec<f32>> {
-    let (values, shape) = read_f32(obj, VECTOR_TYPE)?;
-    if shape.len() != 1 {
-        return Err(PyTypeError::new_err(VECTOR_TYPE));
-    }
-    Ok(values)
+    read_f32(obj, &[1], "a 1-D array").map(|(values, _)| values)
 }
 
-fn read_f32(obj: &Bound<'_, PyAny>, type_error: &'static str) -> PyResult<(Vec<f32>, Vec<usize>)> {
-    let name = type_name(obj)?;
-    if name == "memoryview" || name == "array" {
-        return Err(PyTypeError::new_err(type_error));
+/// Anything that `numpy.asarray` turns into an array works, like a list or a
+/// PyTorch tensor, as long as it holds real numbers and has one of
+/// `dimensions`, which `wanted` describes.
+fn read_f32(
+    obj: &Bound<'_, PyAny>,
+    dimensions: &[usize],
+    wanted: &str,
+) -> PyResult<(Vec<f32>, Vec<usize>)> {
+    let numpy = obj.py().import("numpy")?;
+    let converted = numpy.call_method1("asarray", (obj,))?;
+    let array = converted.cast::<PyUntypedArray>()?;
+    if !matches!(dtype_kind(array)?.as_str(), "b" | "i" | "u" | "f") {
+        return Err(PyTypeError::new_err(format!(
+            "values must be {wanted} of real numbers, got {}",
+            describe(obj, array)?
+        )));
     }
-    if let Ok(arr) = obj.cast::<PyUntypedArray>() {
-        if !matches!(arr.ndim(), 1 | 2) || dtype_kind(arr)? == "O" {
-            return Err(PyTypeError::new_err(type_error));
-        }
-        if !is_native_dtype(arr)? {
-            return Err(PyTypeError::new_err(VALUES_ENDIAN));
-        }
-        let numpy = obj.py().import("numpy")?;
-        let float32 = numpy.getattr("float32")?;
-        let converted = numpy.call_method1("ascontiguousarray", (arr, float32))?;
-        let typed = converted.cast::<PyArrayDyn<f32>>()?;
-        let readonly = typed.try_readonly()?;
-        return Ok((readonly.as_slice()?.to_vec(), arr.shape().to_vec()));
+    if !dimensions.contains(&array.ndim()) {
+        return Err(PyValueError::new_err(format!(
+            "values must be {wanted}, got {}",
+            describe(obj, array)?
+        )));
     }
-    let values: Vec<f32> = obj
-        .extract()
-        .map_err(|_| PyTypeError::new_err(type_error))?;
-    let len = values.len();
-    Ok((values, vec![len]))
+    let float32 = numpy.getattr("float32")?;
+    let contiguous = numpy.call_method1("ascontiguousarray", (array, float32))?;
+    let typed = contiguous.cast::<PyArrayDyn<f32>>()?;
+    let readonly = typed.try_readonly()?;
+    Ok((readonly.as_slice()?.to_vec(), array.shape().to_vec()))
+}
+
+/// `obj`'s type, and the shape and dtype that `numpy.asarray` gave it, such
+/// as `torch.Tensor with shape (2, 3, 4) and dtype float32`.
+fn describe(obj: &Bound<'_, PyAny>, array: &Bound<'_, PyUntypedArray>) -> PyResult<String> {
+    let shape = PyTuple::new(obj.py(), array.shape())?;
+    Ok(format!(
+        "{} with shape {} and dtype {}",
+        obj.get_type().fully_qualified_name()?,
+        shape.repr()?,
+        array.dtype().str()?
+    ))
 }
 
 /// Read matmul input: one vector of shape `(columns,)`, or a batch of shape
@@ -78,7 +87,11 @@ pub fn as_f32_matmul_values(
     let (values, shape) = as_f32_array(obj)?;
     let input_columns = shape[shape.len() - 1];
     if input_columns != columns {
-        return Err(length_mismatch(columns, input_columns));
+        return Err(length_mismatch(
+            "each vector in values",
+            columns,
+            input_columns,
+        ));
     }
     let batch = (shape.len() == 2).then_some(shape[0]);
     Ok((values, batch))
@@ -155,7 +168,7 @@ pub fn as_writable_f32_out<'py>(
     if arr.shape() != shape {
         let len = shape.iter().product();
         if arr.len() != len {
-            return Err(length_mismatch(len, arr.len()));
+            return Err(length_mismatch("out", len, arr.len()));
         }
         let expected = PyTuple::new(obj.py(), shape)?;
         return Err(PyValueError::new_err(format!(
@@ -166,4 +179,18 @@ pub fn as_writable_f32_out<'py>(
     }
     arr.try_readwrite()
         .map_err(|_| PyValueError::new_err(OUT_CONTIG))
+}
+
+/// Read a `bits` argument. A negative width is as far out of range as 1 or
+/// 17, so it raises `InvalidBitsError` too, instead of `OverflowError`.
+pub fn bits_argument(obj: &Bound<'_, PyAny>) -> PyResult<u32> {
+    let bits: i64 = obj.extract()?;
+    u32::try_from(bits).map_err(|_| PyErr::new::<InvalidBitsError, _>(bits))
+}
+
+/// Read a `block` argument. A negative size raises `InvalidBlockError`, as 0
+/// does, instead of `OverflowError`.
+pub fn block_argument(obj: &Bound<'_, PyAny>) -> PyResult<usize> {
+    let block: i64 = obj.extract()?;
+    usize::try_from(block).map_err(|_| PyErr::new::<InvalidBlockError, _>(block))
 }

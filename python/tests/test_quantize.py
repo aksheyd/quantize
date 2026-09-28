@@ -1,5 +1,6 @@
 import io
 import pickle
+from collections.abc import Hashable
 
 import numpy as np
 import pytest
@@ -214,6 +215,7 @@ def test_invalid_tolerance():
 def test_scheme_constants_and_eq():
     assert Scheme.Q8_32 == Scheme.symmetric(8, 32)
     assert Scheme.Q4_32 == Scheme.symmetric(4, 32)
+    assert not isinstance(Scheme.Q8_32, Hashable)
     assert Scheme.Q8_32.kind == "symmetric"
     assert repr(Scheme.Q8_32) == "Scheme(kind='symmetric', bits=8, block=32)"
     assert "adaptive" in repr(Scheme.adaptive(block=32, tolerance=0.001))
@@ -320,6 +322,7 @@ def test_quantized_compares_by_value():
     assert quantized != quantize(weights, bits=8)
     assert quantized != quantize(weights.ravel(), bits=4)
     assert quantized != quantize(weights, bits=4, scale=Scale.F16)
+    assert not isinstance(quantized, Hashable)
     with pytest.raises(TypeError, match="unhashable"):
         hash(quantized)
 

@@ -1,6 +1,6 @@
 //! Runtime quantization schemes.
 
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 
@@ -129,9 +129,8 @@ impl PyScheme {
         }
     }
 
-    fn __hash__(&self) -> PyResult<isize> {
-        Err(PyTypeError::new_err("unhashable type: 'Scheme'"))
-    }
+    #[classattr]
+    const __hash__: Option<Py<PyAny>> = None;
 
     fn __getstate__(&self) -> SchemePickle {
         self.pickle_parts()

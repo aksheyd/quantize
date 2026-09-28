@@ -24,8 +24,8 @@ classifiers = [
 
 [project.urls]
 Repository = "https://github.com/aksheyd/quantize"
-Documentation = "https://docs.rs/quantize"
-Homepage = "https://pypi.org/project/quantize-py/"
+Documentation = "https://github.com/aksheyd/quantize/tree/main/python"
+Homepage = "https://github.com/aksheyd/quantize"
 
 [tool.maturin]
 manifest-path = "python/Cargo.toml"

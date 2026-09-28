@@ -43,7 +43,7 @@ impl Parts {
         let quantized = match (self.kind.as_str(), self.bits, self.block_bits) {
             ("symmetric", Some(bits), None) if zero_points.is_empty() => Quantized::Symmetric {
                 scales,
-                codes: Packed::from_raw(self.codes, bits, len),
+                codes: packed_codes(self.codes, bits, len)?,
                 block,
                 len,
                 columns,
@@ -51,7 +51,7 @@ impl Parts {
             ("asymmetric", Some(bits), None) => Quantized::Asymmetric {
                 scales,
                 zero_points,
-                codes: Packed::from_raw(self.codes, bits, len),
+                codes: packed_codes(self.codes, bits, len)?,
                 block,
                 len,
                 columns,
@@ -79,4 +79,13 @@ fn block_widths(block_bits: Vec<u32>) -> PyResult<Vec<u8>> {
         .into_iter()
         .map(|bits| u8::try_from(bits).map_err(|_| from_quantize(Error::InvalidBits { bits })))
         .collect()
+}
+
+/// The codes, packed at `bits` each. A width outside 2 to 16 raises
+/// `InvalidBitsError`, since `Packed::from_raw` panics on it.
+fn packed_codes(codes: Vec<u8>, bits: u32, len: usize) -> PyResult<Packed> {
+    if !(2..=16).contains(&bits) {
+        return Err(from_quantize(Error::InvalidBits { bits }));
+    }
+    Ok(Packed::from_raw(codes, bits, len))
 }

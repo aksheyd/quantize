@@ -69,7 +69,10 @@ impl Packed {
     }
 
     /// Wrap already-packed bytes. `bytes` must hold `len` codes of `bits`.
+    ///
+    /// Panics if `bits` is outside `2..=16`.
     pub fn from_raw(bytes: Vec<u8>, bits: u32, len: usize) -> Self {
+        assert_bits_in_range(bits);
         Self { bytes, bits, len }
     }
 
@@ -226,6 +229,12 @@ mod tests {
     #[should_panic(expected = "bits must be in 2..=16")]
     fn unpacking_at_one_bit_panics() {
         Packed::unpack_slice(&[0], 1, &mut [0], 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "bits must be in 2..=16")]
+    fn wrapping_bytes_at_seventeen_bits_panics() {
+        Packed::from_raw(vec![0; 3], 17, 1);
     }
 
     // Without the check, 9, -9, and 100 would come back as -7, 7, and 4.

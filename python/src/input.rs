@@ -3,14 +3,16 @@
 use numpy::{
     PyArray1, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn, PyUntypedArray, PyUntypedArrayMethods,
 };
+use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::{PyOverflowError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyTuple};
+use pyo3::types::{PyBool, PyDict, PyTuple};
 
 use crate::error::{InvalidBitsError, InvalidBlockError, length_mismatch};
 
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
 const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
+const BYTES_TYPE: &str = "data must be bytes, like to_bytes returns, or a 1-D uint8 array";
 const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
 const OUT_CONTIG: &str = "out must be writable and C-contiguous";
 
@@ -39,9 +41,9 @@ pub fn as_f32_values<'py>(obj: &Bound<'py, PyAny>) -> PyResult<PyReadonlyArrayDy
     read_f32(obj, "values", &[1], "a 1-D array").map(|(values, _)| values)
 }
 
-/// Anything that `numpy.asarray` turns into an array works, like a list or a
-/// PyTorch tensor, as long as it holds real numbers and has one of
-/// `dimensions`, which `wanted` describes. Errors call it `argument`. An
+/// Anything that `numpy.asarray` turns into an array works, like a list, and
+/// so does any PyTorch tensor, as long as it holds real numbers and has one
+/// of `dimensions`, which `wanted` describes. Errors call it `argument`. An
 /// array that already holds C-contiguous float32 values is read where it is,
 /// without a copy.
 fn read_f32<'py>(
@@ -56,7 +58,7 @@ fn read_f32<'py>(
             "{argument} can't be a masked array, since its mask would be ignored; fill in the masked values first, like {argument}.filled(0)"
         )));
     }
-    let converted = numpy.call_method1("asarray", (obj,))?;
+    let converted = numpy.call_method1("asarray", (readable_by_numpy(obj)?,))?;
     let array = converted.cast::<PyUntypedArray>()?;
     if !matches!(dtype_kind(array)?.as_str(), "b" | "i" | "u" | "f") {
         return Err(PyTypeError::new_err(format!(
@@ -74,6 +76,34 @@ fn read_f32<'py>(
     let contiguous = numpy.call_method1("ascontiguousarray", (array, float32))?;
     let typed = contiguous.cast::<PyArrayDyn<f32>>()?;
     Ok((typed.try_readonly()?, array.shape().to_vec()))
+}
+
+/// `obj`, or if it's a PyTorch tensor, a tensor that `numpy.asarray` reads:
+/// detached, since NumPy refuses one that requires grad, and in float32 if
+/// it holds floating-point numbers, since NumPy has no bfloat16.
+fn readable_by_numpy<'py>(obj: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    if !is_torch_tensor(obj)? {
+        return Ok(obj.clone());
+    }
+    let tensor = obj.call_method0("detach")?;
+    if tensor.call_method0("is_floating_point")?.is_truthy()? {
+        return tensor.call_method0("float");
+    }
+    Ok(tensor)
+}
+
+/// Whether `obj` is a PyTorch tensor. A program that passes one has imported
+/// torch, so torch is looked up in `sys.modules` instead of imported, and
+/// NumPy arrays, the usual input, skip even that.
+fn is_torch_tensor(obj: &Bound<'_, PyAny>) -> PyResult<bool> {
+    if obj.is_instance_of::<PyUntypedArray>() {
+        return Ok(false);
+    }
+    let modules = obj.py().import("sys")?.getattr("modules")?;
+    match modules.cast::<PyDict>()?.get_item("torch")? {
+        Some(torch) if !torch.is_none() => obj.is_instance(&torch.getattr("Tensor")?),
+        _ => Ok(false),
+    }
 }
 
 /// `obj`'s type, and the shape and dtype that `numpy.asarray` gave it, such
@@ -153,10 +183,26 @@ pub fn as_i32_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<i32>> {
 
 /// Read packed codes: a 1-D uint8 array, like `Quantized.codes` returns.
 pub fn as_packed_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
-    let codes = obj
+    read_uint8(obj, PACKED_CODES_TYPE)
+}
+
+/// Read the bytes that `to_bytes` saved: `bytes` or another bytes-like
+/// object, or a 1-D uint8 array.
+pub fn as_bytes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
+    match PyBuffer::<u8>::get(obj) {
+        Ok(buffer) => buffer.to_vec(obj.py()),
+        Err(_) => read_uint8(obj, BYTES_TYPE),
+    }
+}
+
+/// Read a 1-D uint8 array, or anything that `numpy.asarray` turns into one,
+/// like a PyTorch tensor. Anything else raises `TypeError(message)`.
+fn read_uint8(obj: &Bound<'_, PyAny>, message: &'static str) -> PyResult<Vec<u8>> {
+    let array = obj.py().import("numpy")?.call_method1("asarray", (obj,))?;
+    let bytes = array
         .cast::<PyArray1<u8>>()
-        .map_err(|_| PyTypeError::new_err(PACKED_CODES_TYPE))?;
-    Ok(codes.try_readonly()?.as_array().to_vec())
+        .map_err(|_| PyTypeError::new_err(message))?;
+    Ok(bytes.try_readonly()?.as_array().to_vec())
 }
 
 /// Borrow `out` for writing, after checking it has exactly `shape`.

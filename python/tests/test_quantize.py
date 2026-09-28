@@ -3,6 +3,8 @@ import codecs
 import io
 import pickle
 import re
+import sys
+import types
 from collections.abc import Hashable
 
 import numpy as np
@@ -177,6 +179,63 @@ def test_quantize_reads_anything_numpy_asarray_reads():
     row = array.array("f", weights[0])
     assert quantize(row) == quantize(weights[0])
     assert quantize(Tensor(weights)).matmul(Tensor(weights[:2])).shape == (2, 4)
+
+
+class TorchTensor(Tensor):
+    """Stands in for a PyTorch tensor, which NumPy can't read while it
+    requires grad or holds bfloat16."""
+
+    def __init__(self, values, requires_grad=False, dtype="float32"):
+        super().__init__(values)
+        self.requires_grad = requires_grad
+        self.dtype = dtype
+
+    def __array__(self, dtype=None, copy=None):
+        if self.requires_grad:
+            raise RuntimeError("Can't call numpy() on Tensor that requires grad.")
+        if self.dtype == "bfloat16":
+            raise TypeError("Got unsupported ScalarType BFloat16")
+        return self.values
+
+    def detach(self):
+        return TorchTensor(self.values, dtype=self.dtype)
+
+    def is_floating_point(self):
+        return self.values.dtype.kind == "f"
+
+    def float(self):
+        return TorchTensor(self.values, self.requires_grad)
+
+
+def test_torch_tensors_are_read_even_if_they_require_grad_or_hold_bfloat16(monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(Tensor=TorchTensor))
+    weights = weight_matrix(4, 32)
+    expected = quantize(weights)
+    for tensor in [TorchTensor(weights, requires_grad=True), TorchTensor(weights, dtype="bfloat16")]:
+        assert quantize(tensor) == expected
+        assert expected.dot(tensor) == expected.dot(weights)
+    # Some programs keep torch from being imported this way.
+    monkeypatch.setitem(sys.modules, "torch", None)
+    assert quantize(weights.tolist()) == expected
+
+
+def test_bytes_and_codes_can_be_any_uint8_array_that_numpy_asarray_reads():
+    quantized = quantize(weight_matrix(4, 32), bits=4)
+    data = Tensor(np.frombuffer(quantized.to_bytes(), np.uint8))
+    assert Quantized.from_bytes(data) == Quantized(data) == quantized
+    rebuilt = Quantized.from_parts(
+        kind="symmetric",
+        shape=(4, 32),
+        block=32,
+        bits=4,
+        codes=Tensor(quantized.codes),
+        scales=quantized.scales,
+        scale="f32",
+    )
+    assert rebuilt == quantized
+    for wrong in [Tensor(quantized.unpacked_codes), "QNTZ", [81, 78, 84, 90]]:
+        with pytest.raises(TypeError, match="data must be bytes, like to_bytes returns, or a 1-D uint8"):
+            Quantized.from_bytes(wrong)
 
 
 def test_values_that_are_not_real_numbers_are_rejected_with_what_arrived():

@@ -1,5 +1,4 @@
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
-use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple, PyType};
@@ -10,8 +9,8 @@ use super::inner::{PyQuantized, QuantizedInner, with_inner};
 use super::parts::Parts;
 use crate::error::from_quantize;
 use crate::input::{
-    as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes, as_writable_f32_out,
-    check_shape,
+    as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
+    as_writable_f32_out, check_shape,
 };
 use crate::scale::PyScale;
 
@@ -272,17 +271,18 @@ impl PyQuantized {
     }
 
     /// Load a tensor that `to_bytes` saved, in Python or in Rust. `data` is
-    /// `bytes` or another bytes-like object, such as a uint8 NumPy array.
-    /// Bytes that don't hold a valid tensor raise `QuantizeError`.
+    /// `bytes` or another bytes-like object, or a 1-D uint8 array, such as a
+    /// NumPy array or the PyTorch tensor that safetensors loads. Bytes that
+    /// don't hold a valid tensor raise `QuantizeError`.
     #[staticmethod]
-    fn from_bytes(py: Python<'_>, data: PyBuffer<u8>) -> PyResult<Self> {
-        let inner = QuantizedInner::from_bytes(&data.to_vec(py)?).map_err(from_quantize)?;
+    fn from_bytes(data: Bound<'_, PyAny>) -> PyResult<Self> {
+        let inner = QuantizedInner::from_bytes(&as_bytes(&data)?).map_err(from_quantize)?;
         Ok(Self { inner })
     }
 
     #[new]
-    fn new(py: Python<'_>, data: PyBuffer<u8>) -> PyResult<Self> {
-        Self::from_bytes(py, data)
+    fn new(data: Bound<'_, PyAny>) -> PyResult<Self> {
+        Self::from_bytes(data)
     }
 
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {

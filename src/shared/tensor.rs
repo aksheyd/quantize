@@ -292,7 +292,7 @@ impl<S: Scale> Quantized<S> {
     /// table.set_shape(3, 4).unwrap();
     ///
     /// let mut embedding = [0.0; 4];
-    /// table.dequantize_row(1, &mut embedding).unwrap();
+    /// table.dequantize_row_into(1, &mut embedding).unwrap();
     /// assert_eq!(embedding, [0.5, 0.6, 0.7, 0.8]);
     /// ```
     ///
@@ -301,7 +301,7 @@ impl<S: Scale> Quantized<S> {
     /// [`Error::NotAMatrix`] if [`set_shape`](Self::set_shape) hasn't
     /// recorded a shape, [`Error::RowOutOfRange`] if `row` isn't below `rows`,
     /// and [`Error::LengthMismatch`] if `out` isn't `columns` long.
-    pub fn dequantize_row(&self, row: usize, out: &mut [f32]) -> Result<()> {
+    pub fn dequantize_row_into(&self, row: usize, out: &mut [f32]) -> Result<()> {
         let Some((rows, columns)) = self.shape() else {
             return Err(Error::NotAMatrix { len: self.len() });
         };

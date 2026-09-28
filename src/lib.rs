@@ -45,10 +45,10 @@
 //!
 //! For a weight matrix, [`set_shape`](Quantized::set_shape) records its shape,
 //! so [`matmul`](Quantized::matmul) can multiply a batch of inputs by it, like
-//! a linear layer, and [`dequantize_row`](Quantized::dequantize_row) can
-//! decode one row, like an embedding lookup. [`to_bytes`](Quantized::to_bytes)
-//! saves a tensor, shape included, and [`from_bytes`](Quantized::from_bytes)
-//! loads it back.
+//! a linear layer, and [`dequantize_row_into`](Quantized::dequantize_row_into)
+//! can decode one row, like an embedding lookup.
+//! [`to_bytes`](Quantized::to_bytes) saves a tensor, shape included, and
+//! [`from_bytes`](Quantized::from_bytes) loads it back.
 //!
 //! To learn how the library got here, see the
 //! [chapters](https://github.com/aksheyd/quantize/tree/main/chapters).

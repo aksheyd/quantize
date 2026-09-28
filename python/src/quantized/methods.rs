@@ -1,4 +1,6 @@
 use numpy::{IntoPyArray, PyArray1, PyArrayMethods};
+use pyo3::buffer::PyBuffer;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple};
 
@@ -10,8 +12,9 @@ use crate::error::{from_quantize, length_mismatch};
 use crate::input::{as_f32_matmul_values, as_f32_values, as_packed_codes, as_writable_f32_out};
 use crate::scale::PyScale;
 
-/// A pickled tensor: its scale type and [`quantize::Quantized::to_bytes`].
-type Pickled<'py> = (PyScale, Bound<'py, PyBytes>);
+const PICKLED_BY_0_2: &str = "this tensor was pickled by quantize-py 0.2, which 0.3 can't load. \
+    quantize the original weights again, or rebuild the tensor with Quantized.from_parts \
+    from what its getters return under 0.2";
 
 fn f32_array<'py>(py: Python<'py>, values: Vec<f32>) -> Bound<'py, PyAny> {
     values.into_pyarray(py).into_any()
@@ -268,6 +271,23 @@ impl PyQuantized {
         Ok(Self { inner })
     }
 
+    /// Save the tensor as bytes that `from_bytes` loads back. They hold every
+    /// part, shape and scale type included, in the format of the Rust crate's
+    /// `Quantized::to_bytes`, so either language can load them.
+    fn to_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.inner.to_bytes())
+    }
+
+    /// Load a tensor that `to_bytes` saved, in Python or in Rust. `data` is
+    /// `bytes` or another bytes-like object, such as a uint8 NumPy array.
+    /// Bytes that don't hold a valid tensor raise `ValueError`, or a
+    /// `QuantizeError` for a field out of range.
+    #[staticmethod]
+    fn from_bytes(py: Python<'_>, data: PyBuffer<u8>) -> PyResult<Self> {
+        let inner = QuantizedInner::from_bytes(&data.to_vec(py)?).map_err(from_quantize)?;
+        Ok(Self { inner })
+    }
+
     fn __repr__(&self, py: Python<'_>) -> PyResult<String> {
         let shape = self.shape(py)?.repr()?;
         Ok(match self.bits() {
@@ -288,17 +308,24 @@ impl PyQuantized {
     #[classattr]
     const __hash__: Option<Py<PyAny>> = None;
 
-    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<(Bound<'py, PyAny>, Pickled<'py>)> {
-        let callable = slf.getattr("_from_pickle")?;
-        let quantized = slf.borrow();
-        let bytes = PyBytes::new(slf.py(), &quantized.inner.to_bytes());
-        Ok((callable, (quantized.inner.scale(), bytes)))
+    fn __reduce__<'py>(
+        slf: &Bound<'py, Self>,
+    ) -> PyResult<(Bound<'py, PyAny>, (Bound<'py, PyBytes>,))> {
+        let from_bytes = slf.getattr("from_bytes")?;
+        Ok((from_bytes, (slf.borrow().to_bytes(slf.py()),)))
     }
 
+    /// Pickles saved by quantize-py 0.2 call this with one tuple, which starts
+    /// with their format number, 1. That format doesn't load anymore, so say
+    /// how to move the tensor over instead.
     #[staticmethod]
-    fn _from_pickle(scale: PyScale, bytes: &[u8]) -> PyResult<Self> {
-        let inner = QuantizedInner::from_bytes(scale, bytes).map_err(from_quantize)?;
-        Ok(Self { inner })
+    fn _from_pickle(state: Bound<'_, PyAny>) -> PyResult<Self> {
+        let format: Option<i64> = state.get_item(0).and_then(|item| item.extract()).ok();
+        let reason = match format {
+            Some(1) => PICKLED_BY_0_2,
+            _ => "malformed pickle state",
+        };
+        Err(PyValueError::new_err(reason))
     }
 }
 

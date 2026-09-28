@@ -25,6 +25,24 @@ macro_rules! with_inner {
 
 pub(crate) use with_inner;
 
+/// The scale type that [`Quantized::to_bytes`] saved `bytes` with. `QNTZ`,
+/// the format version, and the kind fill the first 6 bytes, then one byte
+/// gives the length of the scale type's [`Scale::NAME`], which follows it.
+/// Bytes that name no scale type read as f32, so that
+/// [`Quantized::from_bytes`] says what's wrong with them.
+fn saved_scale(bytes: &[u8]) -> PyScale {
+    let name = bytes
+        .get(6)
+        .and_then(|&length| bytes.get(7..7 + usize::from(length)));
+    if name == Some(f16::NAME.as_bytes()) {
+        PyScale::F16
+    } else if name == Some(bf16::NAME.as_bytes()) {
+        PyScale::Bf16
+    } else {
+        PyScale::F32
+    }
+}
+
 /// Quantize `values`, then record `shape` if it is a matrix's.
 fn quantize_shaped<S: Scale>(
     scheme: Scheme,
@@ -81,8 +99,10 @@ impl QuantizedInner {
         with_inner!(self, |quantized| quantized.to_bytes())
     }
 
-    pub(crate) fn from_bytes(scale: PyScale, bytes: &[u8]) -> quantize::Result<Self> {
-        match scale {
+    /// Load bytes that [`Quantized::to_bytes`] saved, with the scale type
+    /// their header names.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> quantize::Result<Self> {
+        match saved_scale(bytes) {
             PyScale::F32 => Quantized::from_bytes(bytes).map(Self::F32),
             PyScale::F16 => Quantized::from_bytes(bytes).map(Self::F16),
             PyScale::Bf16 => Quantized::from_bytes(bytes).map(Self::Bf16),

@@ -12,7 +12,7 @@ use pyo3::prelude::*;
 
 use crate::error::{
     InvalidBitsError, InvalidBlockError, InvalidToleranceError, LengthMismatchError,
-    NotAMatrixError, QuantizeError, ShapeMismatchError,
+    NotAMatrixError, QuantizeError, ScaleOutOfRangeError, ShapeMismatchError,
 };
 use crate::input::as_f32_array;
 use crate::learned::{fit_scale_and_zero_point, refine};
@@ -103,6 +103,7 @@ fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<InvalidBitsError>()?;
     m.add_class::<InvalidBlockError>()?;
     m.add_class::<InvalidToleranceError>()?;
+    m.add_class::<ScaleOutOfRangeError>()?;
     m.add_class::<LengthMismatchError>()?;
     m.add_class::<ShapeMismatchError>()?;
     m.add_class::<NotAMatrixError>()?;

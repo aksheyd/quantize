@@ -1,22 +1,23 @@
 //! Symmetric 8-bit: one i8 per value. NEON convert on aarch64.
 
+use crate::error::Result;
 use crate::packed::Packed;
 use crate::params::symmetric_scale;
-use crate::scale::Scale;
+use crate::scale::{store_scale, Scale};
 
 use super::reduce::signed_extreme;
 
-pub(crate) fn pack_sym_i8<S: Scale>(values: &[f32], block: usize) -> (Vec<S>, Packed) {
+pub(crate) fn pack_sym_i8<S: Scale>(values: &[f32], block: usize) -> Result<(Vec<S>, Packed)> {
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut bytes = vec![0u8; values.len()];
     let mut off = 0;
-    for chunk in values.chunks(block) {
-        let scale = S::from_f32(symmetric_scale(signed_extreme(chunk), 8));
+    for (block_index, chunk) in values.chunks(block).enumerate() {
+        let scale: S = store_scale(symmetric_scale(signed_extreme(chunk), 8), block_index)?;
         scales.push(scale);
         quant_chunk(chunk, scale.to_f32(), &mut bytes[off..off + chunk.len()]);
         off += chunk.len();
     }
-    (scales, Packed::from_raw(bytes, 8, values.len()))
+    Ok((scales, Packed::from_raw(bytes, 8, values.len())))
 }
 
 fn quant_chunk(values: &[f32], scale: f32, out: &mut [u8]) {

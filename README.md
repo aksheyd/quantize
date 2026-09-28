@@ -68,8 +68,8 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 | bits/value | quantize mse | candle mse |
 | ---: | ---: | ---: |
-| 4.5 | 0.060257 | 0.060258 |
-| 5.5 | 0.013858 | 0.013858 |
+| 4.5 | 0.060212 | 0.060252 |
+| 5.5 | 0.013844 | 0.013854 |
 | 8.5 | 0.000200 | 0.000201 |
 
 <!-- comparison:end -->
@@ -80,13 +80,17 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 cargo run --release --example throughput
 ```
 
-quantize and dequantize with f16 scales, on an apple M4. the hand-written simd only targets 64-bit arm, so x86 runs plain loops and is slower.
+quantize and dequantize with f16 scales. both libraries allocate their output on every call. aarch64 is an apple M5 Max and x86_64 an intel xeon. the hand-written simd only targets aarch64, so x86_64 runs plain loops and is slower.
 
-| kernel | quantize ns/value | candle ns/value |
-| --- | ---: | ---: |
-| 4-bit quant | 0.29 | 0.46 |
-| 8-bit quant | 0.24 | 0.30 |
-| 4-bit dequant | 0.09 | 0.29 |
-| 8-bit dequant | 0.07 | 0.26 |
+<!-- speed:start -->
+
+| ns/value | 4-bit quant | 8-bit quant | 4-bit dequant | 8-bit dequant |
+| --- | ---: | ---: | ---: | ---: |
+| quantize, aarch64 | 0.30 | 0.30 | 0.08 | 0.07 |
+| candle, aarch64 | 0.41 | 0.43 | 0.20 | 0.25 |
+| quantize, x86_64 | 3.90 | 3.74 | 1.06 | 0.36 |
+| candle, x86_64 | 2.22 | 4.29 | 0.45 | 0.45 |
+
+<!-- speed:end -->
 
 _ns = nanosecond, a billionth of a second. smaller is faster._

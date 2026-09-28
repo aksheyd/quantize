@@ -77,7 +77,10 @@ fn fit_scale(values: &[f32], codes: &[i32]) -> f32 {
 ///
 /// A symmetric tensor stays symmetric: only its scales are fitted, so it keeps
 /// its size and its faster decoding. A block keeps its old parameters unless
-/// the new ones decode it better. Empty input is left as-is.
+/// the new ones lower its mean squared error. Empty input is left as-is.
+///
+/// A block's worst error can still rise, so a value in an adaptive tensor can
+/// land past the tolerance it was quantized with.
 ///
 /// # Errors
 ///
@@ -146,9 +149,12 @@ fn squared_error<S: Scale>(values: &[f32], codes: &[i32], (scale, zero_point): (
 /// code on its block's new line, and repeat until no code moves.
 ///
 /// Rounding picks the best codes for each line, and [`refine`] keeps a line
-/// only if it decodes its block better, so the error never rises: it ends no
-/// higher than [`refine`] alone leaves it. The tensor keeps its scheme and each
-/// block its bit width, so its size doesn't change.
+/// only if it lowers its block's mean squared error, so neither step raises
+/// that error: it ends no higher than [`refine`] alone leaves it. The tensor
+/// keeps its scheme and each block its bit width, so its size doesn't change.
+///
+/// A block's worst error can still rise, so a value in an adaptive tensor can
+/// land past the tolerance it was quantized with.
 ///
 /// Blocks of 32 settle within about 15 passes, but a block as large as a whole
 /// tensor can keep moving codes for thousands, so this stops after 100. Call

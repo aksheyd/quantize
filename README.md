@@ -41,7 +41,7 @@ let dot = q.dot(&weights).unwrap(); // 0.926
 `quantize` is symmetric: each block gets one scale. everything below uses the same `Quantized` type:
 
 - `asymmetric::quantize` adds a zero-point per block, for values that aren't centered on zero
-- `adaptive::quantize` picks each block's bit width from an error tolerance
+- `adaptive::quantize` picks each block's bit width from an error tolerance in the values' own units, like a tenth of their standard deviation
 - `learned::refine` refits each block's scale, and its zero-point if it has one, to lower the error
 - `learned::alternate` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves
 - `Scheme` picks one at run time, like `Scheme::Q4_32.quantize::<f16>(&weights)`

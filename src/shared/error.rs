@@ -3,7 +3,7 @@
 use core::fmt;
 
 /// An error produced by a fallible quantization API.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Error {
     /// `bits` is outside the supported `2..=16` range.
     InvalidBits {
@@ -17,6 +17,14 @@ pub enum Error {
     },
     /// Reconstruction tolerance must be finite and strictly positive.
     InvalidTolerance,
+    /// Even 8 bits, the most [`adaptive`](crate::adaptive) gives a block,
+    /// can't round block `block_index` within the tolerance.
+    ToleranceTooTight {
+        /// Index of the first block that misses the tolerance.
+        block_index: usize,
+        /// The smallest tolerance that 8 bits meet in every block.
+        smallest_tolerance: f32,
+    },
     /// A block's scale or zero-point is too large for the scale type. f16, for
     /// example, holds magnitudes up to 65504.
     ScaleOutOfRange {
@@ -97,6 +105,15 @@ impl fmt::Display for Error {
             }
             Self::InvalidTolerance => {
                 write!(f, "tolerance must be a finite number greater than 0")
+            }
+            Self::ToleranceTooTight {
+                block_index,
+                smallest_tolerance,
+            } => {
+                write!(
+                    f,
+                    "8 bits can't round block {block_index} within the tolerance; use a tolerance of at least {smallest_tolerance}"
+                )
             }
             Self::ScaleOutOfRange {
                 block_index,
@@ -239,6 +256,18 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "block 3's scale or zero-point doesn't fit in f16; use f32 scales"
+        );
+    }
+
+    #[test]
+    fn display_suggests_a_tolerance_every_block_meets() {
+        let err = Error::ToleranceTooTight {
+            block_index: 3,
+            smallest_tolerance: 0.25,
+        };
+        assert_eq!(
+            err.to_string(),
+            "8 bits can't round block 3 within the tolerance; use a tolerance of at least 0.25"
         );
     }
 

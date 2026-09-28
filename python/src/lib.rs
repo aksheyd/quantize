@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 use crate::error::{
     InvalidBitsError, InvalidBlockError, InvalidToleranceError, LengthMismatchError,
     NotAMatrixError, QuantizeError, ScaleOutOfRangeError, ShapeMismatchError,
+    ToleranceTooTightError,
 };
 use crate::input::as_f32_array;
 use crate::learned::{alternate, fit_scale_and_zero_point, refine};
@@ -26,9 +27,10 @@ fn quantize_values(
     scale: PyScale,
     scheme: impl FnOnce(usize) -> Scheme,
 ) -> PyResult<PyQuantized> {
-    let (values, shape) = as_f32_array(&values)?;
+    let (array, shape) = as_f32_array(&values)?;
+    let values = array.as_slice()?;
     let scheme = scheme(values.len());
-    py.detach(|| PyQuantized::from_scheme(scheme, &values, &shape, scale))
+    py.detach(|| PyQuantized::from_scheme(scheme, values, &shape, scale))
 }
 
 // Each `text_signature` repeats its `signature` so that `help()` shows the
@@ -114,8 +116,20 @@ fn asymmetric_quantize_tensor(
 
 /// Quantize `values` asymmetrically, giving each block of `block` values the
 /// fewest bits, from 2 to 8, whose rounding error, half a step, is at most
-/// `tolerance`, in the same units as the values. A block that would need more
-/// than 8 bits gets 8. The other arguments work as in `quantize`.
+/// `tolerance`. The other arguments work as in `quantize`.
+///
+/// `tolerance` is in the same units as the values, so the default, 0.001,
+/// suits values of only one size: weights with a standard deviation of 0.01
+/// get about 5 bits a block, weights 10 times smaller only 2, and weights 10
+/// times larger need more than 8. Pick it from your values instead, like
+/// `tolerance=0.1 * np.std(values)`, which gives normal weights about 5 bits
+/// a block, whatever their size.
+///
+/// If even 8 bits can't round a block within `tolerance`, this raises
+/// `ToleranceTooTightError`, which gives the smallest tolerance that every
+/// block meets. With `Scale.F16` or `Scale.Bf16`, a value can land slightly
+/// past the tolerance, and several times past on blocks far from zero, so use
+/// `Scale.F32` there.
 #[pyfunction]
 #[pyo3(
     signature = (values, block = 32, tolerance = 0.001, *, scale = PyScale::F32),
@@ -139,6 +153,7 @@ fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<InvalidBitsError>()?;
     m.add_class::<InvalidBlockError>()?;
     m.add_class::<InvalidToleranceError>()?;
+    m.add_class::<ToleranceTooTightError>()?;
     m.add_class::<ScaleOutOfRangeError>()?;
     m.add_class::<LengthMismatchError>()?;
     m.add_class::<ShapeMismatchError>()?;

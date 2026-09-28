@@ -57,7 +57,7 @@ fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
                 let byte_count = (count * bit_width as usize).div_ceil(8);
                 Packed::unpack_slice(
                     &bytes[byte_offset..byte_offset + byte_count],
-                    bit_width,
+                    bit_width.into(),
                     &mut unpacked[value_offset..value_offset + count],
                     count,
                 );
@@ -69,6 +69,9 @@ fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
     unpacked
 }
 
+// Methods that release the GIL take `slf` instead of `&self`, and clone the
+// tensor out of a short borrow first. A borrow held while the GIL is released
+// would keep `learned.refine` on another thread from borrowing it mutably.
 #[pymethods]
 impl PyQuantized {
     /// Decode the values into an array of the tensor's `shape`. `out`, if
@@ -99,15 +102,16 @@ impl PyQuantized {
     /// The dot product of the decoded values with `values`, a 1-D array of
     /// `len(q)` numbers, without storing the decoded values. For a matrix
     /// times a vector, use `matmul`.
-    fn dot(&self, py: Python<'_>, values: Bound<'_, PyAny>) -> PyResult<f32> {
-        let values = as_f32_values(&values)?;
-        if values.len() != self.len() {
-            return Err(length_mismatch("values", self.len(), values.len()));
+    fn dot(slf: &Bound<'_, Self>, values: Bound<'_, PyAny>) -> PyResult<f32> {
+        let array = as_f32_values(&values)?;
+        let values = array.as_slice()?;
+        let inner = slf.borrow().inner.clone();
+        if values.len() != inner.len() {
+            return Err(length_mismatch("values", inner.len(), values.len()));
         }
-        let inner = self.inner.clone();
-        py.detach(|| {
+        slf.py().detach(|| {
             with_inner!(&inner, |quantized| quantized
-                .dot(&values)
+                .dot(values)
                 .map_err(from_quantize))
         })
     }
@@ -119,18 +123,19 @@ impl PyQuantized {
     /// `(batch, columns)`. The result is `values @ W.T`, of shape `(rows,)`
     /// or `(batch, rows)`.
     fn matmul<'py>(
-        &self,
-        py: Python<'py>,
+        slf: &Bound<'py, Self>,
         values: Bound<'_, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
+        let py = slf.py();
+        let inner = slf.borrow().inner.clone();
         let Some((rows, columns)) = with_inner!(&inner, |quantized| quantized.shape()) else {
-            return Err(from_quantize(Error::NotAMatrix { len: self.len() }));
+            return Err(from_quantize(Error::NotAMatrix { len: inner.len() }));
         };
-        let (values, batch) = as_f32_matmul_values(&values, columns)?;
+        let (array, batch) = as_f32_matmul_values(&values, columns)?;
+        let values = array.as_slice()?;
         let output = py.detach(|| {
             with_inner!(&inner, |quantized| quantized
-                .matmul(&values)
+                .matmul(values)
                 .map_err(from_quantize))
         })?;
         let output = output.into_pyarray(py);
@@ -227,9 +232,9 @@ impl PyQuantized {
         codes.into_pyarray(py)
     }
 
-    /// Each block's code width for an adaptive tensor, as uint32, or `None`.
+    /// Each block's code width for an adaptive tensor, as uint8, or `None`.
     #[getter]
-    fn block_bits<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArray1<u32>>> {
+    fn block_bits<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArray1<u8>>> {
         with_inner!(&self.inner, |quantized| quantized
             .block_bits()
             .map(|bits| bits.to_vec().into_pyarray(py)))
@@ -274,7 +279,7 @@ impl PyQuantized {
         block_bits: Option<Vec<u32>>,
     ) -> PyResult<Self> {
         let zero_points = match zero_points {
-            Some(zero_points) => as_f32_values(&zero_points)?,
+            Some(zero_points) => as_f32_values(&zero_points)?.to_vec()?,
             None => Vec::new(),
         };
         let parts = Parts {
@@ -282,7 +287,7 @@ impl PyQuantized {
             shape,
             block,
             codes: as_packed_codes(&codes)?,
-            scales: as_f32_values(&scales)?,
+            scales: as_f32_values(&scales)?.to_vec()?,
             zero_points,
             bits,
             block_bits,
@@ -357,7 +362,7 @@ mod tests {
     #[test]
     fn unpacked_adaptive_codes_repack_to_the_original_bytes() {
         let values: Vec<f32> = (0..40).map(|index| index as f32 * 0.02 - 0.4).collect();
-        let quantized = adaptive::quantize::<f32, 32>(&values, 0.001).unwrap();
+        let quantized = adaptive::quantize::<f32, 32>(&values, 0.002).unwrap();
         let unpacked = unpacked_codes(&quantized);
 
         let Quantized::Adaptive {
@@ -370,8 +375,9 @@ mod tests {
         for (block_index, &bit_width) in bits.iter().enumerate() {
             let start = block_index * block;
             let end = (start + block).min(unpacked.len());
-            repacked
-                .extend_from_slice(Packed::from_i32s(&unpacked[start..end], bit_width).as_bytes());
+            repacked.extend_from_slice(
+                Packed::from_i32s(&unpacked[start..end], bit_width.into()).as_bytes(),
+            );
         }
         assert_eq!(repacked, bytes);
     }

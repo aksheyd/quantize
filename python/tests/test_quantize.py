@@ -19,6 +19,7 @@ from quantize import (
     ScaleOutOfRangeError,
     Scheme,
     ShapeMismatchError,
+    ToleranceTooTightError,
     adaptive,
     asymmetric,
     quantize,
@@ -175,6 +176,16 @@ def test_values_that_are_not_real_numbers_are_rejected_with_what_arrived():
         quantize(Tensor(np.zeros((2, 2, 2), np.float32)))
 
 
+def test_masked_arrays_are_rejected_instead_of_losing_their_mask():
+    masked = np.ma.masked_array([0.1, 0.2, 99.0], mask=[False, False, True])
+    with pytest.raises(TypeError, match=r"masked array.*values\.filled\(0\)"):
+        quantize(masked, bits=8, block=3)
+    with pytest.raises(TypeError, match="masked array"):
+        quantize(weight_matrix(2, 3)).matmul(masked)
+    back = quantize(masked.filled(0), bits=8, block=3).dequantize()
+    np.testing.assert_allclose(back, [0.1, 0.2, 0.0], atol=1e-3)
+
+
 def test_quantize_rejects_a_matrix_with_no_columns():
     with pytest.raises(ShapeMismatchError, match="rows of 0 columns") as raised:
         quantize(np.zeros((4, 0), np.float32))
@@ -283,6 +294,16 @@ def test_invalid_tolerance():
         adaptive.quantize([0.1], block=1, tolerance=0.0)
 
 
+def test_a_tolerance_8_bits_cannot_meet_raises_with_one_they_can():
+    values = [0.0, 1.0, 0.0, 2.0]
+    with pytest.raises(ToleranceTooTightError, match="block 0 .* at least 0.0039") as raised:
+        adaptive.quantize(values, block=2, tolerance=0.001)
+    assert isinstance(raised.value, QuantizeError)
+    assert raised.value.block_index == 0
+    assert raised.value.smallest_tolerance == pytest.approx(2 / 255 / 2)
+    adaptive.quantize(values, block=2, tolerance=raised.value.smallest_tolerance)
+
+
 def test_a_zero_point_that_f16_cannot_hold_raises():
     values = [0.02, 0.03, 0.04, 0.05]
     with pytest.raises(ScaleOutOfRangeError, match="use f32 scales") as raised:
@@ -358,7 +379,7 @@ def test_bad_values_raise_value_errors_that_name_the_argument():
 def test_asymmetric_and_adaptive_paths():
     weights = [0.42, -0.10, 0.70, -0.50]
     asymmetric.quantize(weights, bits=8, block=4)
-    mixed = adaptive.quantize(weights, block=2, tolerance=0.001)
+    mixed = adaptive.quantize(weights, block=2, tolerance=0.01)
     assert mixed.kind == "adaptive"
     assert mixed.block_bits is not None
     assert mixed.bits is None
@@ -528,3 +549,21 @@ def test_from_parts_rejects_parts_that_do_not_fit_together():
     ]:
         with pytest.raises(error, match=message):
             Quantized.from_parts(**{**parts, **changed})
+
+
+def test_adaptive_block_widths_take_one_byte_each():
+    quantized = adaptive.quantize(weight_matrix(3, 30), block=32)
+    assert quantized.block_bits.dtype == np.uint8
+    parts = [quantized.codes, quantized.scales, quantized.zero_points, quantized.block_bits]
+    assert quantized.nbytes == sum(part.nbytes for part in parts)
+    with pytest.raises(InvalidBitsError, match="got 300"):
+        Quantized.from_parts(
+            kind="adaptive",
+            shape=quantized.shape,
+            block=quantized.block,
+            codes=quantized.codes,
+            scales=quantized.scales,
+            zero_points=quantized.zero_points,
+            block_bits=[300, 8, 8],
+            scale="f32",
+        )

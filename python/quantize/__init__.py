@@ -12,6 +12,7 @@ from quantize._native import (
     ScaleOutOfRangeError,
     Scheme,
     ShapeMismatchError,
+    ToleranceTooTightError,
     __version__,
 )
 
@@ -26,6 +27,7 @@ __all__ = [
     "InvalidBitsError",
     "InvalidBlockError",
     "InvalidToleranceError",
+    "ToleranceTooTightError",
     "ScaleOutOfRangeError",
     "LengthMismatchError",
     "ShapeMismatchError",

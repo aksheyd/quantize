@@ -7,8 +7,9 @@ use crate::error::QuantizeError;
 
 /// How each block's scale and zero-point are stored. `Scale.F32` keeps them
 /// exactly, in 4 bytes each. `Scale.F16` and `Scale.BF16` round them to 2
-/// bytes: f16 keeps more digits, and bf16 more range. `scale=` also takes
-/// the name that `name` returns.
+/// bytes: f16 keeps more digits, and bf16 more range. Rounded zero-points cap
+/// the accuracy of asymmetric codes above about 10 bits, so use `Scale.F32`
+/// there. `scale=` also takes the name that `name` returns.
 #[pyclass(
     eq,
     frozen,

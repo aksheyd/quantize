@@ -50,6 +50,8 @@ np.savez("layer.npz", **{name: part for name, part in parts.items() if part is n
 q = Quantized.from_parts(**np.load("layer.npz"))
 ```
 
+to load quantized values from a `torch.save` checkpoint, call `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
+
 each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
 
 to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):

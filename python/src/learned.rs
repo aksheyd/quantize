@@ -39,21 +39,19 @@ pub fn refine<'py>(
 /// A block's worst error can still rise, so a value in an adaptive tensor can
 /// land past the tolerance it was quantized with.
 ///
-/// Like `refine`, this changes `quantized` in place and returns it. Call
-/// `quantized.copy()` first to keep the original.
+/// Like `refine`, this changes `quantized` in place, so call
+/// `quantized.copy()` first to keep the original. Unlike `refine`, it returns
+/// whether the codes settled: `True` once no code moves, or `False` if it
+/// stopped after 100 passes. Call it again while it returns `False`.
 #[pyfunction]
-pub fn alternate<'py>(
-    quantized: Bound<'py, PyQuantized>,
-    values: Bound<'py, PyAny>,
-) -> PyResult<Bound<'py, PyQuantized>> {
+pub fn alternate(quantized: Bound<'_, PyQuantized>, values: Bound<'_, PyAny>) -> PyResult<bool> {
     let (array, values_shape) = as_f32_array(&values)?;
     let tensor_shape = quantized.borrow().inner.shape();
     check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
         .alternate(array.as_slice()?)
-        .map_err(from_quantize)?;
-    Ok(quantized)
+        .map_err(from_quantize)
 }
 
 /// The `(scale, zero_point)` that best fit

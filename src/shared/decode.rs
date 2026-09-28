@@ -89,12 +89,16 @@ pub(crate) fn dot_of<S: Scale>(quantized: &Quantized<S>, rhs: &[f32]) -> f32 {
             block,
             ..
         } => dot_asym(&as_f32(scales), &as_f32(zero_points), codes, *block, rhs),
-        Quantized::Adaptive { .. } => quantized
-            .dequantize()
-            .iter()
-            .zip(rhs)
-            .map(|(left, right)| left * right)
-            .sum(),
+        Quantized::Adaptive { block, .. } => {
+            // Added up block by block, like the kernels above.
+            let weights = quantized.dequantize();
+            let mut total = 0.0;
+            for (block_weights, block_rhs) in weights.chunks(*block).zip(rhs.chunks(*block)) {
+                let products = block_weights.iter().zip(block_rhs);
+                total += products.map(|(weight, x)| weight * x).sum::<f32>();
+            }
+            total
+        }
     }
 }
 
@@ -314,6 +318,33 @@ fn dot(left: &[f32], right: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use crate::{adaptive, asymmetric, symmetric, Quantized};
+
+    #[test]
+    fn dot_stays_precise_when_every_product_is_positive() {
+        // Summing a non-negative tensor, by dotting it with ones, adds 262,144
+        // positive products. One running total over all of them would lose up
+        // to 0.1% of the sum.
+        let values: Vec<f32> = (0..262_144)
+            .map(|i| (i as f32 * 0.37).sin().abs())
+            .collect();
+        let ones = vec![1.0; values.len()];
+        let tensors: [Quantized<f32>; 4] = [
+            symmetric::quantize_with(&values, 3, 32).unwrap(),
+            symmetric::quantize_with(&values, 5, 32).unwrap(),
+            asymmetric::quantize_with(&values, 4, 32).unwrap(),
+            adaptive::quantize_with(&values, 32, 0.01).unwrap(),
+        ];
+        for quantized in tensors {
+            let exact: f64 = quantized
+                .dequantize()
+                .iter()
+                .map(|&value| value as f64)
+                .sum();
+            let got = quantized.dot(&ones).unwrap() as f64;
+            let relative_error = ((got - exact) / exact).abs();
+            assert!(relative_error < 2e-5, "{relative_error}");
+        }
+    }
 
     #[test]
     fn matmul_matches_dequant_then_multiply_for_every_scheme() {

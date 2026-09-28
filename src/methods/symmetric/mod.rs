@@ -10,7 +10,8 @@ use crate::tensor::Quantized;
 ///
 /// # Errors
 ///
-/// [`crate::Error::InvalidBits`] or [`crate::Error::InvalidBlock`].
+/// [`crate::Error::InvalidBits`] or [`crate::Error::InvalidBlock`], and
+/// [`crate::Error::ScaleOutOfRange`] if `S` can't hold a block's scale.
 pub fn quantize<S: Scale, const BITS: u32, const BLOCK: usize>(
     values: &[f32],
 ) -> Result<Quantized<S>> {
@@ -30,7 +31,7 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
             columns: None,
         });
     }
-    let (scales, codes) = quantize_sym_packed::<S>(values, bits, block);
+    let (scales, codes) = quantize_sym_packed::<S>(values, bits, block)?;
     Ok(Quantized::Symmetric {
         scales,
         codes,
@@ -132,6 +133,23 @@ mod tests {
                 back[32..].iter().all(|v| (v - 0.1).abs() < 0.01),
                 "{bits} bits"
             );
+        }
+    }
+
+    #[test]
+    fn a_scale_that_f16_cannot_hold_is_an_error() {
+        // 1e6 on code -8 and 1e7 on code -128 need scales past f16's 65504,
+        // and 1e-4 on code -32768 needs -3e-9, which f16 rounds to 0.
+        for (bits, extreme) in [(4, 1e6_f32), (8, 1e7), (16, 1e-4)] {
+            let values = [0.5, -0.5, extreme, 0.0];
+            assert_eq!(
+                quantize_with::<half::f16>(&values, bits, 2),
+                Err(crate::Error::ScaleOutOfRange {
+                    block_index: 1,
+                    scale_type: "f16"
+                })
+            );
+            assert!(quantize_with::<f32>(&values, bits, 2).is_ok());
         }
     }
 

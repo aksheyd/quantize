@@ -1,21 +1,22 @@
 //! Symmetric 4-bit: two codes per byte, low nibble first.
 
+use crate::error::Result;
 use crate::packed::{nbytes, Packed};
 use crate::params::symmetric_scale;
-use crate::scale::Scale;
+use crate::scale::{store_scale, Scale};
 
 use super::reduce::signed_extreme;
 
-pub(crate) fn pack_sym_i4<S: Scale>(values: &[f32], block: usize) -> (Vec<S>, Packed) {
+pub(crate) fn pack_sym_i4<S: Scale>(values: &[f32], block: usize) -> Result<(Vec<S>, Packed)> {
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut bytes = vec![0u8; nbytes(values.len(), 4)];
     let mut i = 0usize;
-    for chunk in values.chunks(block) {
-        let scale = S::from_f32(symmetric_scale(signed_extreme(chunk), 4));
+    for (block_index, chunk) in values.chunks(block).enumerate() {
+        let scale: S = store_scale(symmetric_scale(signed_extreme(chunk), 4), block_index)?;
         scales.push(scale);
         quant_chunk(chunk, scale.to_f32(), &mut bytes, &mut i);
     }
-    (scales, Packed::from_raw(bytes, 4, values.len()))
+    Ok((scales, Packed::from_raw(bytes, 4, values.len())))
 }
 
 fn quant_chunk(values: &[f32], scale: f32, bytes: &mut [u8], value_index: &mut usize) {

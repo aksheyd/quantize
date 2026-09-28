@@ -13,6 +13,7 @@ use pyo3::prelude::*;
 use crate::error::{
     InvalidBitsError, InvalidBlockError, InvalidToleranceError, LengthMismatchError,
     NotAMatrixError, QuantizeError, ScaleOutOfRangeError, ShapeMismatchError,
+    ToleranceTooTightError,
 };
 use crate::input::as_f32_array;
 use crate::learned::{alternate, fit_scale_and_zero_point, refine};
@@ -115,8 +116,10 @@ fn asymmetric_quantize_tensor(
 
 /// Quantize `values` asymmetrically, giving each block of `block` values the
 /// fewest bits, from 2 to 8, whose rounding error, half a step, is at most
-/// `tolerance`, in the same units as the values. A block that would need more
-/// than 8 bits gets 8. The other arguments work as in `quantize`.
+/// `tolerance`, in the same units as the values. If even 8 bits can't round a
+/// block within it, this raises `ToleranceTooTightError`, which gives the
+/// smallest tolerance that every block meets. The other arguments work as in
+/// `quantize`.
 #[pyfunction]
 #[pyo3(
     signature = (values, block = 32, tolerance = 0.001, *, scale = PyScale::F32),
@@ -140,6 +143,7 @@ fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<InvalidBitsError>()?;
     m.add_class::<InvalidBlockError>()?;
     m.add_class::<InvalidToleranceError>()?;
+    m.add_class::<ToleranceTooTightError>()?;
     m.add_class::<ScaleOutOfRangeError>()?;
     m.add_class::<LengthMismatchError>()?;
     m.add_class::<ShapeMismatchError>()?;

@@ -68,21 +68,22 @@ pub fn asymmetric_params(lowest: f32, highest: f32, bits: u32) -> (f32, f32) {
     (scale, zero_point)
 }
 
-/// Smallest bit width in `2..=8` whose half-step is `<= tolerance`.
+/// Half a step of `bits`-wide codes stretched over `range`: the farthest any
+/// value can be from its nearest code.
+pub(crate) fn half_step(range: f32, bits: u32) -> f32 {
+    let tick_count = ((1u32 << bits) - 1) as f32;
+    range / tick_count / 2.0
+}
+
+/// Smallest bit width in `2..=8` whose half-step is `<= tolerance`, or `None`
+/// if even 8 bits step wider than that.
 ///
 /// A flat block (range `0`) always returns 2.
-pub fn choose_bits(range: f32, tolerance: f32) -> u32 {
+pub fn choose_bits(range: f32, tolerance: f32) -> Option<u32> {
     if range <= 0.0 {
-        return 2;
+        return Some(2);
     }
-    for bits in 2..=8 {
-        let tick_count = ((1u32 << bits) - 1) as f32;
-        let half_step = range / tick_count / 2.0;
-        if half_step <= tolerance {
-            return bits;
-        }
-    }
-    8
+    (2..=8).find(|&bits| half_step(range, bits) <= tolerance)
 }
 
 #[cfg(test)]
@@ -116,11 +117,13 @@ mod tests {
 
     #[test]
     fn choose_bits_picks_two_for_tiny_range() {
-        assert_eq!(choose_bits(0.001, 0.001), 2);
+        assert_eq!(choose_bits(0.001, 0.001), Some(2));
     }
 
     #[test]
-    fn choose_bits_saturates_at_eight() {
-        assert_eq!(choose_bits(10.0, 0.0001), 8);
+    fn choose_bits_stops_at_eight() {
+        // 8 bits round a range of 10 to within 10 / 255 / 2, about 0.0196.
+        assert_eq!(choose_bits(10.0, 0.02), Some(8));
+        assert_eq!(choose_bits(10.0, 0.0001), None);
     }
 }

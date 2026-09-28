@@ -14,6 +14,12 @@ use crate::scale::Scale;
 use crate::tensor::Quantized;
 
 /// Quantize into blocks of `BLOCK` using one bit width for every block.
+///
+/// # Errors
+///
+/// [`crate::Error::InvalidBits`] or [`crate::Error::InvalidBlock`], and
+/// [`crate::Error::ScaleOutOfRange`] if `S` can't hold a block's scale or
+/// zero-point.
 pub fn quantize<S: Scale, const BITS: u32, const BLOCK: usize>(
     values: &[f32],
 ) -> Result<Quantized<S>> {
@@ -37,8 +43,8 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut zero_points = Vec::with_capacity(values.len().div_ceil(block));
     let mut codes = Vec::with_capacity(values.len());
-    for chunk in values.chunks(block) {
-        let (scale, zero_point) = quantize_asym_block::<S>(chunk, bits, &mut codes);
+    for (block_index, chunk) in values.chunks(block).enumerate() {
+        let (scale, zero_point) = quantize_asym_block::<S>(chunk, block_index, bits, &mut codes)?;
         scales.push(scale);
         zero_points.push(zero_point);
     }
@@ -84,6 +90,24 @@ mod tests {
         let exact = squared_error(quantize_with::<f32>(&w, 8, 32).unwrap().dequantize());
         let rounded = squared_error(quantize_with::<half::bf16>(&w, 8, 32).unwrap().dequantize());
         assert!(rounded < exact * 1.2, "{rounded} vs {exact}");
+    }
+
+    #[test]
+    fn a_zero_point_that_f16_cannot_hold_is_an_error() {
+        // At 16 bits, 0.02 to 0.05 needs a zero-point of about -76,000, past
+        // f16's 65504. Stored anyway, it would decode every value to infinity.
+        let values = [0.02_f32, 0.03, 0.04, 0.05];
+        assert_eq!(
+            quantize_with::<half::f16>(&values, 16, 4),
+            Err(crate::Error::ScaleOutOfRange {
+                block_index: 0,
+                scale_type: "f16"
+            })
+        );
+        let back = quantize_with::<f32>(&values, 16, 4).unwrap().dequantize();
+        for (a, b) in values.iter().zip(&back) {
+            assert!((a - b).abs() < 1e-6, "{a} vs {b}");
+        }
     }
 
     #[test]

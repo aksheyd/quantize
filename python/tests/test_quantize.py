@@ -14,6 +14,7 @@ from quantize import (
     QuantizeError,
     Quantized,
     Scale,
+    ScaleOutOfRangeError,
     Scheme,
     ShapeMismatchError,
     adaptive,
@@ -210,6 +211,17 @@ def test_invalid_block():
 def test_invalid_tolerance():
     with pytest.raises(InvalidToleranceError):
         adaptive.quantize([0.1], block=1, tolerance=0.0)
+
+
+def test_a_zero_point_that_f16_cannot_hold_raises():
+    values = [0.02, 0.03, 0.04, 0.05]
+    with pytest.raises(ScaleOutOfRangeError, match="use f32 scales") as raised:
+        asymmetric.quantize(values, bits=16, block=4, scale=Scale.F16)
+    assert isinstance(raised.value, QuantizeError)
+    assert raised.value.block_index == 0
+    assert raised.value.scale_type == "f16"
+    back = asymmetric.quantize(values, bits=16, block=4).dequantize()
+    np.testing.assert_allclose(back, values, atol=1e-6)
 
 
 def test_scheme_constants_and_eq():

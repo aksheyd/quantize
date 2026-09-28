@@ -17,6 +17,14 @@ pub enum Error {
     },
     /// Reconstruction tolerance must be finite and strictly positive.
     InvalidTolerance,
+    /// A block's scale or zero-point is too large for the scale type. f16, for
+    /// example, holds magnitudes up to 65504.
+    ScaleOutOfRange {
+        /// Index of the first block that doesn't fit.
+        block_index: usize,
+        /// The scale type's [`NAME`](crate::Scale::NAME), like `f16`.
+        scale_type: &'static str,
+    },
     /// A buffer or matrix shape holds a different number of values than the
     /// quantized tensor.
     LengthMismatch {
@@ -63,6 +71,15 @@ impl fmt::Display for Error {
             }
             Self::InvalidTolerance => {
                 write!(f, "tolerance must be a finite number greater than 0")
+            }
+            Self::ScaleOutOfRange {
+                block_index,
+                scale_type,
+            } => {
+                write!(
+                    f,
+                    "block {block_index}'s scale or zero-point doesn't fit in {scale_type}; use f32 scales"
+                )
             }
             Self::LengthMismatch { expected, got } => {
                 write!(f, "length mismatch: expected {expected}, got {got}")
@@ -141,6 +158,18 @@ mod tests {
             got: 1,
         };
         assert_eq!(err.to_string(), "length mismatch: expected 4, got 1");
+    }
+
+    #[test]
+    fn display_suggests_f32_scales() {
+        let err = Error::ScaleOutOfRange {
+            block_index: 3,
+            scale_type: "f16",
+        };
+        assert_eq!(
+            err.to_string(),
+            "block 3's scale or zero-point doesn't fit in f16; use f32 scales"
+        );
     }
 
     #[test]

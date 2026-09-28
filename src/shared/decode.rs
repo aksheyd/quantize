@@ -140,14 +140,13 @@ pub(crate) fn matmul_into<S: Scale>(
     }
 
     // Decode each weight row once, then reuse it for every vector in the batch.
-    // A block must sit inside one row so a row can be decoded on its own.
-    // 4-bit rows also have to start on a byte (even column count).
+    // Rows decode fastest when a block sits inside one row and each row starts
+    // on a byte (for 4-bit, an even column count). Otherwise decode the whole
+    // matrix once.
     if packed_rows_ok(quantized, columns) {
-        let scales = as_f32(quantized.scales());
-        let zero_points = as_f32(quantized.zero_points());
         let mut row_weights = vec![0.0; columns];
         for row in 0..rows {
-            decode_row(quantized, &scales, &zero_points, row, &mut row_weights);
+            decode_row(quantized, row, &mut row_weights);
             for (vector, input) in inputs.chunks_exact(columns).enumerate() {
                 out[vector * rows + row] = dot(&row_weights, input);
             }
@@ -176,23 +175,26 @@ fn packed_rows_ok<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
     }
 }
 
-fn decode_row<S: Scale>(
-    quantized: &Quantized<S>,
-    scales: &[f32],
-    zero_points: &[f32],
-    row: usize,
-    out: &mut [f32],
-) {
+/// Decode row `row` of a matrix with `out.len()` columns.
+///
+/// When a block sits inside one row and each row starts on a byte, the row's
+/// codes and scales are slices of the tensor's, and the packed kernels decode
+/// them directly. Any other row goes through `decode_values`.
+pub(crate) fn decode_row<S: Scale>(quantized: &Quantized<S>, row: usize, out: &mut [f32]) {
     let columns = out.len();
+    if !packed_rows_ok(quantized, columns) {
+        decode_values(quantized, row * columns, out);
+        return;
+    }
     let block = quantized.block();
     let scales_per_row = columns / block;
-    let scale_offset = row * scales_per_row;
-    let row_scales = &scales[scale_offset..scale_offset + scales_per_row];
+    let row_blocks = row * scales_per_row..(row + 1) * scales_per_row;
+    let row_scales = as_f32(&quantized.scales()[row_blocks.clone()]);
     match quantized {
         Quantized::Symmetric { codes, .. } if codes.bits() == 8 => {
             let start = row * columns;
             dequant_i8_blocks(
-                row_scales,
+                &row_scales,
                 &codes.as_bytes()[start..start + columns],
                 block,
                 out,
@@ -202,7 +204,7 @@ fn decode_row<S: Scale>(
             let bytes_per_row = columns / 2;
             let start = row * bytes_per_row;
             dequant_i4_blocks(
-                row_scales,
+                &row_scales,
                 &codes.as_bytes()[start..start + bytes_per_row],
                 block,
                 out,
@@ -216,9 +218,11 @@ fn decode_row<S: Scale>(
                 codes.bits(),
                 columns,
             );
-            dequant_sym_into(row_scales, &packed, block, out)
+            dequant_sym_into(&row_scales, &packed, block, out)
         }
-        Quantized::Asymmetric { codes, .. } => {
+        Quantized::Asymmetric {
+            codes, zero_points, ..
+        } => {
             let bytes_per_row = nbytes(columns, codes.bits());
             let start = row * bytes_per_row;
             let packed = Packed::from_raw(
@@ -226,12 +230,62 @@ fn decode_row<S: Scale>(
                 codes.bits(),
                 columns,
             );
-            let row_zero_points = &zero_points[scale_offset..scale_offset + scales_per_row];
-            dequant_asym_into(row_scales, row_zero_points, &packed, block, out)
+            let row_zero_points = as_f32(&zero_points[row_blocks]);
+            dequant_asym_into(&row_scales, &row_zero_points, &packed, block, out)
         }
-        Quantized::Adaptive { .. } => {
-            let weights = quantized.dequantize();
-            out.copy_from_slice(&weights[row * columns..(row + 1) * columns]);
+        Quantized::Adaptive { .. } => unreachable!("adaptive rows are never packed rows"),
+    }
+}
+
+/// Decode values `start..start + out.len()`, reading only the blocks they fall
+/// in. Unlike the packed kernels, this works for a range that starts anywhere,
+/// even partway through a block or a byte.
+fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f32]) {
+    let block = quantized.block();
+    match quantized {
+        Quantized::Symmetric { codes, .. } | Quantized::Asymmetric { codes, .. } => {
+            let mut range_codes = vec![0; out.len()];
+            codes.unpack_range(start, &mut range_codes);
+            // A symmetric tensor has no zero-points: it decodes as if each were 0.
+            let (scales, zero_points) = (quantized.scales(), quantized.zero_points());
+            for (offset, (slot, code)) in out.iter_mut().zip(range_codes).enumerate() {
+                let block_index = (start + offset) / block;
+                let zero_point = zero_points
+                    .get(block_index)
+                    .map_or(0.0, |zero_point| zero_point.to_f32());
+                *slot = (code as f32 - zero_point) * scales[block_index].to_f32();
+            }
+        }
+        Quantized::Adaptive {
+            scales,
+            zero_points,
+            bytes,
+            bits,
+            len,
+            ..
+        } => {
+            // Each block is packed at its own width, so the first block's bytes
+            // start after those of every block before it.
+            let first_block = start / block;
+            let end_block = (start + out.len()).div_ceil(block);
+            let byte_offset: usize = bits[..first_block]
+                .iter()
+                .map(|&bit_width| nbytes(block, bit_width))
+                .sum();
+            let first_value = first_block * block;
+            let mut decoded = vec![0.0; (end_block * block).min(*len) - first_value];
+            let blocks = first_block..end_block;
+            dequant_adaptive(
+                &scales[blocks.clone()],
+                &zero_points[blocks.clone()],
+                &bytes[byte_offset..],
+                &bits[blocks],
+                block,
+                decoded.len(),
+                &mut decoded,
+            );
+            let offset = start - first_value;
+            out.copy_from_slice(&decoded[offset..offset + out.len()]);
         }
     }
 }
@@ -283,6 +337,34 @@ mod tests {
                     let got = fused[vector * rows + row];
                     assert!((naive - got).abs() < 1e-4, "{naive} vs {got}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn dequantize_row_matches_dequantize_for_every_layout() {
+        let values: Vec<f32> = (0..120).map(|i| (i as f32 * 0.37).sin()).collect();
+        let (rows, columns) = (4, 30);
+        // The first four decode each row with the packed kernels. The rest
+        // don't: 5-bit rows of 30 values end partway through a byte, and
+        // blocks of 8, 7, and 9 cross from one row into the next.
+        let tensors: [Quantized<f32>; 8] = [
+            symmetric::quantize_with(&values, 8, 10).unwrap(),
+            symmetric::quantize_with(&values, 4, 6).unwrap(),
+            symmetric::quantize_with(&values, 12, 15).unwrap(),
+            asymmetric::quantize_with(&values, 4, 10).unwrap(),
+            symmetric::quantize_with(&values, 5, 10).unwrap(),
+            symmetric::quantize_with(&values, 4, 8).unwrap(),
+            asymmetric::quantize_with(&values, 3, 7).unwrap(),
+            adaptive::quantize_with(&values, 9, 0.01).unwrap(),
+        ];
+        for quantized in tensors {
+            let every_value = quantized.dequantize();
+            let matrix = quantized.into_matrix(rows, columns).unwrap();
+            let mut row_values = vec![0.0; columns];
+            for (row, expected) in every_value.chunks_exact(columns).enumerate() {
+                matrix.dequantize_row(row, &mut row_values).unwrap();
+                assert_eq!(row_values, expected, "row {row}");
             }
         }
     }

@@ -12,8 +12,8 @@
 //! fewest bits whose half-step is `<= tolerance`. Quiet blocks drop to 2–3
 //! bits; busy blocks get up to 8, which may not be enough.
 //!
-//! **Still wrong**: scale and zero-point are computed from min/max, not from
-//! the reconstruction error we actually care about. They can be *learned*.
+//! **Still wrong**: scale and zero-point are computed from min/max, which caps
+//! the worst error but ignores the average one. They can be *learned*.
 //!
 //! Run it: `cargo run --release --example ch06_adaptive`
 

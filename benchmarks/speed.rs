@@ -10,10 +10,14 @@ use candle_core::{
 use half::f16;
 use quantize::quantize;
 use std::hint::black_box;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 pub const SIDE: usize = 1024;
 pub const ITERATIONS: usize = 50;
+/// How long to call a kernel before timing it. A CPU coming out of idle takes
+/// about 100 ms to reach full speed, and calls timed sooner catch that ramp.
+const WARM_UP: Duration = Duration::from_millis(200);
+const PASSES: usize = 5;
 
 /// One kernel's time in each library, in nanoseconds per value.
 #[derive(Clone, Copy)]
@@ -34,9 +38,22 @@ pub fn values() -> Vec<f32> {
         .collect()
 }
 
+/// Times every kernel `PASSES` times and keeps each one's fastest pass:
+/// another process on the machine can slow a pass down, never speed it up.
+pub fn measure(values: &[f32]) -> Result<[KernelTime; 4]> {
+    let mut fastest = measure_once(values)?;
+    for _ in 1..PASSES {
+        for (best, pass) in fastest.iter_mut().zip(measure_once(values)?) {
+            best.this_crate = best.this_crate.min(pass.this_crate);
+            best.candle = best.candle.min(pass.candle);
+        }
+    }
+    Ok(fastest)
+}
+
 /// Candle's `QTensor` can only dequantize into a new tensor, so this crate's
 /// side calls `dequantize()`, which allocates too, not `dequantize_into`.
-pub fn measure(values: &[f32]) -> Result<[KernelTime; 4]> {
+fn measure_once(values: &[f32]) -> Result<[KernelTime; 4]> {
     let device = Device::Cpu;
     let tensor = Tensor::from_slice(values, values.len(), &device)?;
     let ours_4bit = quantize::<f16, 4, 32>(values).unwrap();
@@ -69,10 +86,11 @@ pub fn measure(values: &[f32]) -> Result<[KernelTime; 4]> {
 }
 
 /// Nanoseconds per value for one call of `f`: the median of `ITERATIONS`
-/// calls after 4 warm-up calls, so a call stalled by another process on the
-/// machine doesn't skew the result.
+/// calls after `WARM_UP` of untimed calls, so neither the CPU's ramp to full
+/// speed nor a call stalled by another process on the machine skews the result.
 pub fn time_per_value<T>(mut f: impl FnMut() -> T) -> f64 {
-    for _ in 0..4 {
+    let warm_up_start = Instant::now();
+    while warm_up_start.elapsed() < WARM_UP {
         black_box(f());
     }
     let mut seconds: Vec<f64> = (0..ITERATIONS)

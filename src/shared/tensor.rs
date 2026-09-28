@@ -374,9 +374,12 @@ impl<S: Scale> Quantized<S> {
         Ok(())
     }
 
-    /// The dot product of the decoded values with `rhs`, without storing the
-    /// decoded values. To multiply a matrix by a batch of vectors, use
-    /// [`matmul`](Self::matmul).
+    /// The dot product of the decoded values with `rhs`. To multiply a matrix
+    /// by a batch of vectors, use [`matmul`](Self::matmul).
+    ///
+    /// Symmetric tensors with 4-bit or 8-bit codes are decoded straight from
+    /// the packed codes, without storing the decoded values. Other tensors are
+    /// first unpacked into a buffer as large as the decoded values.
     ///
     /// # Errors
     ///

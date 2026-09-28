@@ -40,7 +40,7 @@ fn quantize_values(
 /// Quantize `values` symmetrically: each block of `block` values shares one
 /// scale, and each value is stored as a signed `bits`-wide code that decodes
 /// as `code * scale`. `bits` runs from 2 to 16. `scale` is how each scale is
-/// stored: `Scale.F32`, `Scale.F16`, `Scale.Bf16`, or its name. `values` is a
+/// stored: `Scale.F32`, `Scale.F16`, `Scale.BF16`, or its name. `values` is a
 /// 1-D or 2-D array or a list, and a 2-D array keeps its shape.
 #[pyfunction]
 #[pyo3(
@@ -118,22 +118,20 @@ fn asymmetric_quantize_tensor(
 /// fewest bits, from 2 to 8, whose rounding error, half a step, is at most
 /// `tolerance`. The other arguments work as in `quantize`.
 ///
-/// `tolerance` is in the same units as the values, so the default, 0.001,
-/// suits values of only one size: weights with a standard deviation of 0.01
-/// get about 5 bits a block, weights 10 times smaller only 2, and weights 10
-/// times larger need more than 8. Pick it from your values instead, like
+/// `tolerance` is in the same units as the values, so one number can be loose
+/// for one layer and tight for the next. Pick it from their spread, like
 /// `tolerance=0.1 * np.std(values)`, which gives normal weights about 5 bits
 /// a block, whatever their size.
 ///
 /// If even 8 bits can't round a block within `tolerance`, this raises
 /// `ToleranceTooTightError`, which gives the smallest tolerance that every
-/// block meets. With `Scale.F16` or `Scale.Bf16`, a value can land slightly
+/// block meets. With `Scale.F16` or `Scale.BF16`, a value can land slightly
 /// past the tolerance, and several times past on blocks far from zero, so use
 /// `Scale.F32` there.
 #[pyfunction]
 #[pyo3(
-    signature = (values, block = 32, tolerance = 0.001, *, scale = PyScale::F32),
-    text_signature = "(values, block=32, tolerance=0.001, *, scale='f32')"
+    signature = (values, block = 32, *, tolerance, scale = PyScale::F32),
+    text_signature = "(values, block=32, *, tolerance, scale='f32')"
 )]
 fn adaptive_quantize(
     py: Python<'_>,

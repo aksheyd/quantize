@@ -50,7 +50,7 @@ def test_values_decode_as_the_docs_say():
     for quantized in [
         quantize(weights, bits=4, block=32),
         asymmetric.quantize(weights, bits=5, block=16),
-        adaptive.quantize(weights, block=32),
+        adaptive.quantize(weights, block=32, tolerance=0.001),
     ]:
         block_of_each_value = np.arange(len(quantized)) // quantized.block
         codes = quantized.unpacked_codes
@@ -123,7 +123,7 @@ def test_matrix_keeps_its_shape():
         quantize(weights, bits=8, block=32),
         quantize_tensor(weights, bits=8),
         asymmetric.quantize(weights, bits=4, block=16),
-        adaptive.quantize(weights, block=32),
+        adaptive.quantize(weights, block=32, tolerance=0.001),
         Scheme.Q4_32.quantize(weights),
     ]:
         assert quantized.shape == (8, 32)
@@ -294,6 +294,17 @@ def test_invalid_tolerance():
         adaptive.quantize([0.1], block=1, tolerance=0.0)
 
 
+def test_adaptive_needs_a_tolerance_by_name():
+    with pytest.raises(TypeError, match="tolerance"):
+        adaptive.quantize([0.1])
+    with pytest.raises(TypeError, match="tolerance"):
+        Scheme.adaptive()
+    with pytest.raises(TypeError, match="positional"):
+        adaptive.quantize([0.1], 32, 0.001)
+    with pytest.raises(TypeError, match="positional"):
+        Scheme.adaptive(32, 0.001)
+
+
 def test_a_tolerance_8_bits_cannot_meet_raises_with_one_they_can():
     values = [0.0, 1.0, 0.0, 2.0]
     with pytest.raises(ToleranceTooTightError, match="block 0 .* at least 0.0039") as raised:
@@ -342,19 +353,21 @@ def test_scale_enum_selects_storage():
     weights = [0.42, -0.10, 0.70, -0.50]
     assert quantize(weights, bits=8, block=4).scale == Scale.F32
     assert quantize(weights, bits=8, block=4, scale=Scale.F16).scale == Scale.F16
-    assert quantize(weights, bits=8, block=4, scale=Scale.Bf16).scale == Scale.Bf16
+    assert quantize(weights, bits=8, block=4, scale=Scale.BF16).scale == Scale.BF16
     assert Scheme.Q8_32.quantize(weights, scale=Scale.F16).scale == Scale.F16
     assert Scale.F32 != Scale.F16
     assert (
         repr(quantize(weights, bits=8, block=4, scale=Scale.F16))
         == "Quantized(kind='symmetric', bits=8, block=4, shape=(4,), scale=Scale.F16)"
     )
+    assert repr(Scale.BF16) == "Scale.BF16"
+    assert repr(quantize(weights, scale=Scale.BF16)).endswith("scale=Scale.BF16)")
 
 
 def test_scale_can_be_given_by_name():
-    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+    for scale in [Scale.F32, Scale.F16, Scale.BF16]:
         assert quantize([0.1], scale=scale.name).scale == scale
-    assert Scale.Bf16.name == "bf16"
+    assert Scale.BF16.name == "bf16"
     with pytest.raises(QuantizeError, match="scale must be a Scale or its name"):
         quantize([0.1], scale="float32")
 
@@ -417,11 +430,11 @@ def test_pickle_keeps_the_matrix_shape():
 
 def test_bytes_round_trip_every_kind_and_scale_type_through_numpy():
     weights = weight_matrix(3, 30)
-    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+    for scale in [Scale.F32, Scale.F16, Scale.BF16]:
         for quantized in [
             quantize(weights, bits=4, block=32, scale=scale),
             asymmetric.quantize(weights, bits=5, block=16, scale=scale),
-            adaptive.quantize(weights.ravel(), block=32, scale=scale),
+            adaptive.quantize(weights.ravel(), block=32, tolerance=0.001, scale=scale),
             quantize([], scale=scale),
         ]:
             data = quantized.to_bytes()
@@ -440,7 +453,7 @@ def test_pickles_hold_the_bytes_that_from_bytes_loads():
 def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
     for quantized in [
         quantize([0.1] * 64, bits=4, block=32),
-        adaptive.quantize([i * 0.01 for i in range(40)], block=32),
+        adaptive.quantize([i * 0.01 for i in range(40)], block=32, tolerance=0.001),
     ]:
         data = quantized.to_bytes()
         with pytest.raises(ValueError, match="malformed"):
@@ -494,11 +507,11 @@ def saved_and_loaded_with_numpy(arrays):
 
 def test_from_parts_rebuilds_parts_saved_with_numpy_as_the_readme_says():
     weights = weight_matrix(3, 30)
-    for scale in [Scale.F32, Scale.F16, Scale.Bf16]:
+    for scale in [Scale.F32, Scale.F16, Scale.BF16]:
         for quantized in [
             quantize(weights, bits=4, block=32, scale=scale),
             asymmetric.quantize(weights, bits=5, block=16, scale=scale),
-            adaptive.quantize(weights.ravel(), block=32, scale=scale),
+            adaptive.quantize(weights.ravel(), block=32, tolerance=0.001, scale=scale),
             quantize([], scale=scale),
         ]:
             parts = {
@@ -552,7 +565,7 @@ def test_from_parts_rejects_parts_that_do_not_fit_together():
 
 
 def test_adaptive_block_widths_take_one_byte_each():
-    quantized = adaptive.quantize(weight_matrix(3, 30), block=32)
+    quantized = adaptive.quantize(weight_matrix(3, 30), block=32, tolerance=0.001)
     assert quantized.block_bits.dtype == np.uint8
     parts = [quantized.codes, quantized.scales, quantized.zero_points, quantized.block_bits]
     assert quantized.nbytes == sum(part.nbytes for part in parts)

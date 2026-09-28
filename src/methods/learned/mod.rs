@@ -157,20 +157,21 @@ fn squared_error<S: Scale>(values: &[f32], codes: &[i32], (scale, zero_point): (
 /// land past the tolerance it was quantized with.
 ///
 /// Blocks of 32 settle within about 15 passes, but a block as large as a whole
-/// tensor can keep moving codes for thousands, so this stops after 100. Call
-/// it again to keep going.
+/// tensor can keep moving codes for thousands, so this stops after 100. It
+/// returns `true` once no code moves, or `false` if it stopped first: call it
+/// again while it returns `false`.
 ///
 /// # Errors
 ///
 /// [`crate::Error::LengthMismatch`] if `values.len() != quantized.len()`.
-pub fn alternate<S: Scale>(quantized: &mut Quantized<S>, values: &[f32]) -> Result<()> {
+pub fn alternate<S: Scale>(quantized: &mut Quantized<S>, values: &[f32]) -> Result<bool> {
     for _ in 0..100 {
         refine(quantized, values)?;
         if !round_to_nearest_codes(quantized, values) {
-            break;
+            return Ok(true);
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Round every value to its nearest code on its block's line, and return
@@ -407,12 +408,24 @@ mod tests {
     fn alternate_stops_once_no_code_moves() {
         let values: Vec<f32> = (0..256).map(|i| (i as f32).sin()).collect();
         let mut q = crate::asymmetric::quantize::<f32, 4, 32>(&values).unwrap();
-        alternate(&mut q, &values).unwrap();
+        assert!(alternate(&mut q, &values).unwrap());
         let settled = q.clone();
-        alternate(&mut q, &values).unwrap();
+        assert!(alternate(&mut q, &values).unwrap());
         assert_eq!(q.codes(), settled.codes());
         assert_eq!(q.scales(), settled.scales());
         assert_eq!(q.zero_points(), settled.zero_points());
+    }
+
+    #[test]
+    fn alternate_returns_false_until_the_codes_settle() {
+        // One scale for 4096 values, most near zero and a few far out. Its
+        // codes keep moving for 150 passes, so the first call stops at 100.
+        let values: Vec<f32> = (0..4096)
+            .map(|i| -((i as f32 + 0.5) / 4096.0).ln())
+            .collect();
+        let mut q = crate::quantize_tensor::<f32, 6>(&values).unwrap();
+        assert!(!alternate(&mut q, &values).unwrap());
+        assert!(alternate(&mut q, &values).unwrap());
     }
 
     #[test]

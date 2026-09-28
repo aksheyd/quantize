@@ -9,7 +9,6 @@ use pyo3::types::{PyBool, PyTuple};
 
 use crate::error::{InvalidBitsError, InvalidBlockError, length_mismatch};
 
-const MASKED_VALUES: &str = "values can't be a masked array, since its mask would be ignored; fill in the masked values first, like values.filled(0)";
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
 const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
 const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
@@ -32,38 +31,42 @@ fn type_name(obj: &Bound<'_, PyAny>) -> PyResult<String> {
 pub fn as_f32_array<'py>(
     obj: &Bound<'py, PyAny>,
 ) -> PyResult<(PyReadonlyArrayDyn<'py, f32>, Vec<usize>)> {
-    read_f32(obj, &[1, 2], "a 1-D or 2-D array")
+    read_f32(obj, "values", &[1, 2], "a 1-D or 2-D array")
 }
 
 /// Read a 1-D array of real numbers as `f32` values.
 pub fn as_f32_values<'py>(obj: &Bound<'py, PyAny>) -> PyResult<PyReadonlyArrayDyn<'py, f32>> {
-    read_f32(obj, &[1], "a 1-D array").map(|(values, _)| values)
+    read_f32(obj, "values", &[1], "a 1-D array").map(|(values, _)| values)
 }
 
 /// Anything that `numpy.asarray` turns into an array works, like a list or a
 /// PyTorch tensor, as long as it holds real numbers and has one of
-/// `dimensions`, which `wanted` describes. An array that already holds
-/// C-contiguous float32 values is read where it is, without a copy.
+/// `dimensions`, which `wanted` describes. Errors call it `argument`. An
+/// array that already holds C-contiguous float32 values is read where it is,
+/// without a copy.
 fn read_f32<'py>(
     obj: &Bound<'py, PyAny>,
+    argument: &str,
     dimensions: &[usize],
     wanted: &str,
 ) -> PyResult<(PyReadonlyArrayDyn<'py, f32>, Vec<usize>)> {
     let numpy = obj.py().import("numpy")?;
     if obj.is_instance(&numpy.getattr("ma")?.getattr("MaskedArray")?)? {
-        return Err(PyTypeError::new_err(MASKED_VALUES));
+        return Err(PyTypeError::new_err(format!(
+            "{argument} can't be a masked array, since its mask would be ignored; fill in the masked values first, like {argument}.filled(0)"
+        )));
     }
     let converted = numpy.call_method1("asarray", (obj,))?;
     let array = converted.cast::<PyUntypedArray>()?;
     if !matches!(dtype_kind(array)?.as_str(), "b" | "i" | "u" | "f") {
         return Err(PyTypeError::new_err(format!(
-            "values must be {wanted} of real numbers, got {}",
+            "{argument} must be {wanted} of real numbers, got {}",
             describe(obj, array)?
         )));
     }
     if !dimensions.contains(&array.ndim()) {
         return Err(PyValueError::new_err(format!(
-            "values must be {wanted}, got {}",
+            "{argument} must be {wanted}, got {}",
             describe(obj, array)?
         )));
     }
@@ -92,11 +95,11 @@ pub fn as_f32_matmul_values<'py>(
     obj: &Bound<'py, PyAny>,
     columns: usize,
 ) -> PyResult<(PyReadonlyArrayDyn<'py, f32>, Option<usize>)> {
-    let (values, shape) = as_f32_array(obj)?;
+    let (values, shape) = read_f32(obj, "inputs", &[1, 2], "a 1-D or 2-D array")?;
     let input_columns = shape[shape.len() - 1];
     if input_columns != columns {
         return Err(length_mismatch(
-            "each vector in values",
+            "each vector in inputs",
             columns,
             input_columns,
         ));

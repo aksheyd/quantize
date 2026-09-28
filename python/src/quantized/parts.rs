@@ -59,8 +59,8 @@ impl Parts {
             ("adaptive", None, Some(block_bits)) => Quantized::Adaptive {
                 scales,
                 zero_points,
-                bytes: self.codes,
-                bits: block_widths(block_bits)?,
+                codes: self.codes,
+                block_bits: block_widths(block_bits)?,
                 block,
                 len,
                 columns,

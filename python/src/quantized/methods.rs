@@ -47,19 +47,19 @@ fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
             codes.unpack_into(&mut unpacked);
         }
         Quantized::Adaptive {
-            bytes,
-            bits,
+            codes,
+            block_bits,
             block,
             len,
             ..
         } => {
             let mut byte_offset = 0;
             let mut value_offset = 0;
-            for &bit_width in bits {
+            for &bit_width in block_bits {
                 let count = (*len - value_offset).min(*block);
                 let byte_count = (count * bit_width as usize).div_ceil(8);
                 Packed::unpack_slice(
-                    &bytes[byte_offset..byte_offset + byte_count],
+                    &codes[byte_offset..byte_offset + byte_count],
                     bit_width.into(),
                     &mut unpacked[value_offset..value_offset + count],
                     count,
@@ -117,26 +117,26 @@ impl PyQuantized {
         })
     }
 
-    /// Multiply `values` by this tensor's matrix `W`, of shape
+    /// Multiply `inputs` by this tensor's matrix `W`, of shape
     /// `(rows, columns)`, which the tensor was quantized from.
     ///
-    /// `values` is one vector of shape `(columns,)` or a batch of shape
-    /// `(batch, columns)`. The result is `values @ W.T`, of shape `(rows,)`
+    /// `inputs` is one vector of shape `(columns,)` or a batch of shape
+    /// `(batch, columns)`. The result is `inputs @ W.T`, of shape `(rows,)`
     /// or `(batch, rows)`.
     fn matmul<'py>(
         slf: &Bound<'py, Self>,
-        values: Bound<'_, PyAny>,
+        inputs: Bound<'_, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let py = slf.py();
         let inner = slf.borrow().inner.clone();
         let Some((rows, columns)) = with_inner!(&inner, |quantized| quantized.shape()) else {
             return Err(from_quantize(Error::NotAMatrix { len: inner.len() }));
         };
-        let (array, batch) = as_f32_matmul_values(&values, columns)?;
-        let values = array.as_slice()?;
+        let (array, batch) = as_f32_matmul_values(&inputs, columns)?;
+        let inputs = array.as_slice()?;
         let output = py.detach(|| {
             with_inner!(&inner, |quantized| quantized
-                .matmul(values)
+                .matmul(inputs)
                 .map_err(from_quantize))
         })?;
         let output = output.into_pyarray(py);
@@ -367,19 +367,22 @@ mod tests {
         let unpacked = unpacked_codes(&quantized);
 
         let Quantized::Adaptive {
-            bytes, bits, block, ..
+            codes,
+            block_bits,
+            block,
+            ..
         } = quantized
         else {
             unreachable!()
         };
         let mut repacked = Vec::new();
-        for (block_index, &bit_width) in bits.iter().enumerate() {
+        for (block_index, &bit_width) in block_bits.iter().enumerate() {
             let start = block_index * block;
             let end = (start + block).min(unpacked.len());
             repacked.extend_from_slice(
                 Packed::from_i32s(&unpacked[start..end], bit_width.into()).as_bytes(),
             );
         }
-        assert_eq!(repacked, bytes);
+        assert_eq!(repacked, codes);
     }
 }

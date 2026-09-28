@@ -18,14 +18,14 @@ back = q.dequantize()  # [0.421, -0.098, 0.700, -0.498]
 dot = q.dot(weights)  # 0.926
 ```
 
-`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.Bf16`. values can be a list, a numpy array, or anything else `np.asarray` reads, like a pytorch tensor. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer.
+`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.BF16`. values can be a list, a numpy array, or anything else `np.asarray` reads, like a pytorch tensor. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer.
 
 the scales count toward the size: 4-bit codes with one f16 scale per 32 values cost 4.5 bits per value, or 5 with the default f32 scale. `q.bits_per_element` reports it.
 
 the other schemes return the same `Quantized` type:
 
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
-- `adaptive.quantize(weights, block=32, tolerance=0.001)` gives each block the fewest bits, from 2 to 8, that round every weight within `tolerance`. it's in the weights' own units, so the default only suits weights of one size: pick it from yours, like `tolerance=0.1 * np.std(weights)`, which gives about 5 bits a block
+- `adaptive.quantize(weights, tolerance=0.1 * np.std(weights))` gives each block the fewest bits, from 2 to 8, that round every weight within `tolerance`, in the weights' own units. a tenth of their standard deviation gives about 5 bits a block
 - `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the error. it changes `q` in place, so call `q.copy()` first to keep the original
 - `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time

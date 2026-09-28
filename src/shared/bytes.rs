@@ -136,15 +136,15 @@ impl<S: Scale> Quantized<S> {
                 }
             }
             ADAPTIVE => {
-                let bits = reader.take(blocks)?.to_vec();
+                let block_bits = reader.take(blocks)?.to_vec();
                 let scales = reader.scales(blocks)?;
                 let zero_points = reader.scales(blocks)?;
-                let bytes = reader.rest();
+                let codes = reader.rest();
                 Self::Adaptive {
                     scales,
                     zero_points,
-                    bytes,
-                    bits,
+                    codes,
+                    block_bits,
                     block,
                     len,
                     columns,

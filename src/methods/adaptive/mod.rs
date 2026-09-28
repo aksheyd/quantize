@@ -52,8 +52,8 @@ pub fn quantize_with<S: Scale>(
         return Ok(Quantized::Adaptive {
             scales: Vec::new(),
             zero_points: Vec::new(),
-            bytes: Vec::new(),
-            bits: Vec::new(),
+            codes: Vec::new(),
+            block_bits: Vec::new(),
             block,
             len: 0,
             columns: None,
@@ -63,9 +63,9 @@ pub fn quantize_with<S: Scale>(
     let n_blocks = values.len().div_ceil(block);
     let mut scales = Vec::with_capacity(n_blocks);
     let mut zero_points = Vec::with_capacity(n_blocks);
-    let mut bits = Vec::with_capacity(n_blocks);
-    let mut bytes = Vec::new();
+    let mut block_bits = Vec::with_capacity(n_blocks);
     let mut codes = Vec::new();
+    let mut block_codes = Vec::new();
 
     for (block_index, chunk) in values.chunks(block).enumerate() {
         let (lowest, highest) = min_max(chunk);
@@ -83,20 +83,20 @@ pub fn quantize_with<S: Scale>(
                 });
             }
         };
-        codes.clear();
+        block_codes.clear();
         let (scale, zero_point) =
-            quantize_asym_block::<S>(chunk, block_index, bit_width, &mut codes)?;
+            quantize_asym_block::<S>(chunk, block_index, bit_width, &mut block_codes)?;
         scales.push(scale);
         zero_points.push(zero_point);
-        bits.push(bit_width as u8);
-        bytes.extend_from_slice(Packed::from_i32s(&codes, bit_width).as_bytes());
+        block_bits.push(bit_width as u8);
+        codes.extend_from_slice(Packed::from_i32s(&block_codes, bit_width).as_bytes());
     }
 
     Ok(Quantized::Adaptive {
         scales,
         zero_points,
-        bytes,
-        bits,
+        codes,
+        block_bits,
         block,
         len: values.len(),
         columns: None,

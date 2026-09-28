@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use crate::error::QuantizeError;
 
 /// How each block's scale and zero-point are stored. `Scale.F32` keeps them
-/// exactly, in 4 bytes each. `Scale.F16` and `Scale.Bf16` round them to 2
+/// exactly, in 4 bytes each. `Scale.F16` and `Scale.BF16` round them to 2
 /// bytes: f16 keeps more digits, and bf16 more range. `scale=` also takes
 /// the name that `name` returns.
 #[pyclass(
@@ -21,6 +21,7 @@ use crate::error::QuantizeError;
 pub enum PyScale {
     F32,
     F16,
+    #[pyo3(name = "BF16")]
     Bf16,
 }
 
@@ -37,7 +38,7 @@ impl PyScale {
 
 impl std::fmt::Display for PyScale {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Scale.{self:?}")
+        write!(f, "Scale.{}", self.name().to_uppercase())
     }
 }
 

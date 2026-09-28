@@ -4,7 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyTuple};
 
-use quantize::{Error, Packed, Quantized, Scale};
+use quantize::{Error, Quantized, Scale};
 
 use super::inner::{PyQuantized, QuantizedInner, with_inner};
 use super::parts::Parts;
@@ -38,38 +38,6 @@ fn bits<S: Scale>(quantized: &Quantized<S>) -> Option<u32> {
         }
         Quantized::Adaptive { .. } => None,
     }
-}
-
-fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
-    let mut unpacked = vec![0; quantized.len()];
-    match quantized {
-        Quantized::Symmetric { codes, .. } | Quantized::Asymmetric { codes, .. } => {
-            codes.unpack_into(&mut unpacked);
-        }
-        Quantized::Adaptive {
-            codes,
-            block_bits,
-            block,
-            len,
-            ..
-        } => {
-            let mut byte_offset = 0;
-            let mut value_offset = 0;
-            for &bit_width in block_bits {
-                let count = (*len - value_offset).min(*block);
-                let byte_count = (count * bit_width as usize).div_ceil(8);
-                Packed::unpack_slice(
-                    &codes[byte_offset..byte_offset + byte_count],
-                    bit_width.into(),
-                    &mut unpacked[value_offset..value_offset + count],
-                    count,
-                );
-                byte_offset += byte_count;
-                value_offset += count;
-            }
-        }
-    }
-    unpacked
 }
 
 // Methods that release the GIL take `slf` instead of `&self`, and clone the
@@ -229,7 +197,7 @@ impl PyQuantized {
     /// One code per value, as int32, row after row for a matrix.
     #[getter]
     fn unpacked_codes<'py>(&self, py: Python<'py>) -> Bound<'py, PyArray1<i32>> {
-        let codes = with_inner!(&self.inner, |quantized| unpacked_codes(quantized));
+        let codes = with_inner!(&self.inner, |quantized| quantized.unpacked_codes());
         codes.into_pyarray(py)
     }
 
@@ -352,37 +320,5 @@ impl PyQuantized {
             _ => "malformed pickle state",
         };
         Err(PyValueError::new_err(reason))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use quantize::adaptive;
-
-    #[test]
-    fn unpacked_adaptive_codes_repack_to_the_original_bytes() {
-        let values: Vec<f32> = (0..40).map(|index| index as f32 * 0.02 - 0.4).collect();
-        let quantized = adaptive::quantize::<f32, 32>(&values, 0.002).unwrap();
-        let unpacked = unpacked_codes(&quantized);
-
-        let Quantized::Adaptive {
-            codes,
-            block_bits,
-            block,
-            ..
-        } = quantized
-        else {
-            unreachable!()
-        };
-        let mut repacked = Vec::new();
-        for (block_index, &bit_width) in block_bits.iter().enumerate() {
-            let start = block_index * block;
-            let end = (start + block).min(unpacked.len());
-            repacked.extend_from_slice(
-                Packed::from_i32s(&unpacked[start..end], bit_width.into()).as_bytes(),
-            );
-        }
-        assert_eq!(repacked, codes);
     }
 }

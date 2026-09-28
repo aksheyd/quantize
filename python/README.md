@@ -18,7 +18,7 @@ back = q.dequantize()  # [0.421, -0.098, 0.700, -0.498]
 dot = q.dot(weights)  # 0.926
 ```
 
-`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.Bf16`. values can be a list of floats or a 1-d numpy array. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer.
+`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.Bf16`. values can be a list, a numpy array, or anything else `np.asarray` reads, like a pytorch tensor. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer.
 
 the scales count toward the size: 4-bit codes with one f16 scale per 32 values cost 4.5 bits per value, or 5 with the default f32 scale. `q.bits_per_element` reports it.
 
@@ -26,12 +26,21 @@ the other schemes return the same `Quantized` type:
 
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive.quantize(weights, block=32, tolerance=0.001)` picks each block's bit width from `tolerance`, the rounding error to aim for, in the same units as the weights
-- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the error
+- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the error. it changes `q` in place, so call `q.copy()` first to keep the original
+- `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
 
 quantized values can be pickled, and compared with `==`. `q.to_bytes()` saves one as bytes, in the same format as the rust crate, and `Quantized.from_bytes(data)` loads it back. to keep it in an `np.savez` or safetensors file, store `np.frombuffer(q.to_bytes(), np.uint8)`.
 
-to save a quantized value another way, like with `np.savez`, keep its `kind`, `shape`, `block`, `codes`, `scales`, `zero_points`, `bits`, `block_bits`, and `scale`, and pass them back by name to `Quantized.from_parts`.
+to save its parts as plain arrays instead, like with `np.savez`, pass them back by name to `Quantized.from_parts`. an adaptive tensor keeps `block_bits` instead of `bits`:
+
+```python
+np.savez("layer.npz", kind=q.kind, shape=q.shape, block=q.block, bits=q.bits,
+         codes=q.codes, scales=q.scales, zero_points=q.zero_points, scale=q.scale.name)
+q = Quantized.from_parts(**np.load("layer.npz"))
+```
+
+each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
 
 to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):
 

@@ -35,7 +35,7 @@ pub(crate) fn dequant_adaptive<S: Scale>(
     scales: &[S],
     zero_points: &[S],
     bytes: &[u8],
-    bits: &[u32],
+    bits: &[u8],
     block: usize,
     len: usize,
     out: &mut [f32],
@@ -44,11 +44,11 @@ pub(crate) fn dequant_adaptive<S: Scale>(
     let mut value_index = 0;
     for (block_index, &bit_width) in bits.iter().enumerate() {
         let count = (len - value_index).min(block);
-        let byte_count = nbytes(count, bit_width);
+        let byte_count = nbytes(count, bit_width.into());
         let mut codes = vec![0i32; count];
         Packed::unpack_slice(
             &bytes[byte_offset..byte_offset + byte_count],
-            bit_width,
+            bit_width.into(),
             &mut codes,
             count,
         );
@@ -118,10 +118,10 @@ pub(crate) fn unpack_codes<S: Scale>(quantized: &Quantized<S>, out: &mut [i32]) 
             let mut value_index = 0;
             for &bit_width in bits {
                 let count = (*len - value_index).min(*block);
-                let byte_count = nbytes(count, bit_width);
+                let byte_count = nbytes(count, bit_width.into());
                 Packed::unpack_slice(
                     &bytes[byte_offset..byte_offset + byte_count],
-                    bit_width,
+                    bit_width.into(),
                     &mut out[value_index..value_index + count],
                     count,
                 );
@@ -274,7 +274,7 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
             let end_block = (start + out.len()).div_ceil(block);
             let byte_offset: usize = bits[..first_block]
                 .iter()
-                .map(|&bit_width| nbytes(block, bit_width))
+                .map(|&bit_width| nbytes(block, bit_width.into()))
                 .sum();
             let first_value = first_block * block;
             let mut decoded = vec![0.0; (end_block * block).min(*len) - first_value];

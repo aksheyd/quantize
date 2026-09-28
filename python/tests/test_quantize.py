@@ -538,3 +538,21 @@ def test_from_parts_rejects_parts_that_do_not_fit_together():
     ]:
         with pytest.raises(error, match=message):
             Quantized.from_parts(**{**parts, **changed})
+
+
+def test_adaptive_block_widths_take_one_byte_each():
+    quantized = adaptive.quantize(weight_matrix(3, 30), block=32)
+    assert quantized.block_bits.dtype == np.uint8
+    parts = [quantized.codes, quantized.scales, quantized.zero_points, quantized.block_bits]
+    assert quantized.nbytes == sum(part.nbytes for part in parts)
+    with pytest.raises(InvalidBitsError, match="got 300"):
+        Quantized.from_parts(
+            kind="adaptive",
+            shape=quantized.shape,
+            block=quantized.block,
+            codes=quantized.codes,
+            scales=quantized.scales,
+            zero_points=quantized.zero_points,
+            block_bits=[300, 8, 8],
+            scale="f32",
+        )

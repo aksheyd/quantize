@@ -15,7 +15,7 @@ use crate::error::{
     NotAMatrixError, QuantizeError, ShapeMismatchError,
 };
 use crate::input::as_f32_array;
-use crate::learned::{fit_scale_and_zero_point, refine};
+use crate::learned::{alternate, fit_scale_and_zero_point, refine};
 use crate::quantized::PyQuantized;
 use crate::scale::PyScale;
 use crate::scheme::PyScheme;
@@ -115,6 +115,7 @@ fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(asymmetric_quantize_tensor, m)?)?;
     m.add_function(wrap_pyfunction!(adaptive_quantize, m)?)?;
     m.add_function(wrap_pyfunction!(refine, m)?)?;
+    m.add_function(wrap_pyfunction!(alternate, m)?)?;
     m.add_function(wrap_pyfunction!(fit_scale_and_zero_point, m)?)?;
     Ok(())
 }

@@ -228,5 +228,6 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::NotAMatrix { len } => PyErr::new::<NotAMatrixError, _>(len),
         quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),
         quantize::Error::Malformed { .. } => PyValueError::new_err(err.to_string()),
+        quantize::Error::ScaleMismatch { .. } => PyValueError::new_err(err.to_string()),
     }
 }

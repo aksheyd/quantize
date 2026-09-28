@@ -1,8 +1,9 @@
 //! Save a quantized tensor as bytes, and load it back.
 
+use core::cmp::Ordering;
 use core::mem::size_of;
 
-use crate::error::{check_block, malformed, Result};
+use crate::error::{check_block, malformed, Error, Result};
 use crate::packed::Packed;
 use crate::scale::Scale;
 use crate::tensor::Quantized;
@@ -35,6 +36,9 @@ impl<S: Scale> Quantized<S> {
     /// | 4 or 2 per block | scales, as little-endian `f32`, `f16`, or `bf16` |
     /// | 4 or 2 per block | asymmetric and adaptive only: zero-points |
     /// | the rest | the packed [`codes`](Self::codes) |
+    ///
+    /// [`from_bytes`](Self::from_bytes) reads exactly one tensor, so to keep
+    /// several in one file, write each one's length before it.
     ///
     /// ```
     /// use quantize::{quantize, Quantized};
@@ -78,8 +82,9 @@ impl<S: Scale> Quantized<S> {
     ///
     /// # Errors
     ///
-    /// [`Error::Malformed`](crate::Error::Malformed) if the bytes don't hold
-    /// a tensor saved with scale type `S`, or any error from
+    /// [`Error::ScaleMismatch`] if the tensor was saved with another scale
+    /// type, [`Error::Malformed`] if the bytes end early, go on past the
+    /// tensor, or don't hold one, and any error from
     /// [`validate`](Self::validate).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let mut reader = Reader { bytes };
@@ -91,8 +96,12 @@ impl<S: Scale> Quantized<S> {
         }
         let kind = reader.byte()?;
         let name_len = usize::from(reader.byte()?);
-        if reader.take(name_len)? != S::NAME.as_bytes() {
-            return Err(malformed("the tensor was saved with another scale type"));
+        let saved_name = reader.take(name_len)?;
+        if saved_name != S::NAME.as_bytes() {
+            return Err(Error::ScaleMismatch {
+                saved: String::from_utf8_lossy(saved_name).into_owned(),
+                expected: S::NAME,
+            });
         }
         let code_bits = u32::from(reader.byte()?);
         let block = reader.size()?;
@@ -147,6 +156,14 @@ impl<S: Scale> Quantized<S> {
             }
             _ => return Err(malformed("unknown kind")),
         };
+
+        // The header says how many bytes the codes fill, so any other count
+        // means the bytes were cut off, or something follows the tensor.
+        match quantized.codes().len().cmp(&quantized.code_bytes()?) {
+            Ordering::Less => return Err(malformed("the bytes end early")),
+            Ordering::Greater => return Err(malformed("extra bytes follow the tensor")),
+            Ordering::Equal => {}
+        }
         quantized.validate()?;
         Ok(quantized)
     }
@@ -197,7 +214,6 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::Error;
     use crate::{adaptive, asymmetric, symmetric};
     use half::{bf16, f16};
 
@@ -232,32 +248,53 @@ mod tests {
     }
 
     #[test]
-    fn every_truncation_is_an_error() {
+    fn every_truncation_says_the_bytes_end_early() {
         let quantized = asymmetric::quantize_with::<f16>(&values(), 4, 32).unwrap();
         let bytes = quantized.to_bytes();
         for end in 0..bytes.len() {
-            let loaded = Quantized::<f16>::from_bytes(&bytes[..end]);
-            assert!(loaded.is_err(), "{end} bytes");
+            assert_eq!(
+                Quantized::<f16>::from_bytes(&bytes[..end]),
+                Err(Error::Malformed {
+                    reason: "the bytes end early"
+                }),
+                "{end} bytes"
+            );
         }
     }
 
     #[test]
-    fn an_extra_byte_is_an_error() {
+    fn bytes_after_the_tensor_are_an_error() {
         let quantized = adaptive::quantize_with::<f32>(&values(), 32, 0.01).unwrap();
-        let mut bytes = quantized.to_bytes();
-        bytes.push(0);
-        let loaded = Quantized::<f32>::from_bytes(&bytes);
-        assert!(matches!(loaded, Err(Error::Malformed { .. })));
+        for extra in [vec![0], quantized.to_bytes()] {
+            let mut bytes = quantized.to_bytes();
+            bytes.extend(extra);
+            assert_eq!(
+                Quantized::<f32>::from_bytes(&bytes),
+                Err(Error::Malformed {
+                    reason: "extra bytes follow the tensor"
+                })
+            );
+        }
     }
 
     #[test]
-    fn loading_with_another_scale_type_is_an_error() {
+    fn loading_with_another_scale_type_names_both() {
         let quantized = symmetric::quantize_with::<f16>(&values(), 8, 32).unwrap();
         let bytes = quantized.to_bytes();
-        let as_bf16 = Quantized::<bf16>::from_bytes(&bytes);
-        let as_f32 = Quantized::<f32>::from_bytes(&bytes);
-        assert!(matches!(as_bf16, Err(Error::Malformed { .. })));
-        assert!(matches!(as_f32, Err(Error::Malformed { .. })));
+        assert_eq!(
+            Quantized::<bf16>::from_bytes(&bytes),
+            Err(Error::ScaleMismatch {
+                saved: "f16".to_string(),
+                expected: "bf16"
+            })
+        );
+        assert_eq!(
+            Quantized::<f32>::from_bytes(&bytes),
+            Err(Error::ScaleMismatch {
+                saved: "f16".to_string(),
+                expected: "f32"
+            })
+        );
     }
 
     #[test]

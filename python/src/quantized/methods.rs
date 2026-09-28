@@ -103,14 +103,15 @@ impl PyQuantized {
     /// `len(q)` numbers, without storing the decoded values. For a matrix
     /// times a vector, use `matmul`.
     fn dot(slf: &Bound<'_, Self>, values: Bound<'_, PyAny>) -> PyResult<f32> {
-        let values = as_f32_values(&values)?;
+        let array = as_f32_values(&values)?;
+        let values = array.as_slice()?;
         let inner = slf.borrow().inner.clone();
         if values.len() != inner.len() {
             return Err(length_mismatch("values", inner.len(), values.len()));
         }
         slf.py().detach(|| {
             with_inner!(&inner, |quantized| quantized
-                .dot(&values)
+                .dot(values)
                 .map_err(from_quantize))
         })
     }
@@ -130,10 +131,11 @@ impl PyQuantized {
         let Some((rows, columns)) = with_inner!(&inner, |quantized| quantized.shape()) else {
             return Err(from_quantize(Error::NotAMatrix { len: inner.len() }));
         };
-        let (values, batch) = as_f32_matmul_values(&values, columns)?;
+        let (array, batch) = as_f32_matmul_values(&values, columns)?;
+        let values = array.as_slice()?;
         let output = py.detach(|| {
             with_inner!(&inner, |quantized| quantized
-                .matmul(&values)
+                .matmul(values)
                 .map_err(from_quantize))
         })?;
         let output = output.into_pyarray(py);
@@ -277,7 +279,7 @@ impl PyQuantized {
         block_bits: Option<Vec<u32>>,
     ) -> PyResult<Self> {
         let zero_points = match zero_points {
-            Some(zero_points) => as_f32_values(&zero_points)?,
+            Some(zero_points) => as_f32_values(&zero_points)?.to_vec()?,
             None => Vec::new(),
         };
         let parts = Parts {
@@ -285,7 +287,7 @@ impl PyQuantized {
             shape,
             block,
             codes: as_packed_codes(&codes)?,
-            scales: as_f32_values(&scales)?,
+            scales: as_f32_values(&scales)?.to_vec()?,
             zero_points,
             bits,
             block_bits,

@@ -40,7 +40,7 @@ fn quantize_values(
 /// Quantize `values` symmetrically: each block of `block` values shares one
 /// scale, and each value is stored as a signed `bits`-wide code that decodes
 /// as `code * scale`. `bits` runs from 2 to 16. `scale` is how each scale is
-/// stored: `Scale.F32`, `Scale.F16`, `Scale.Bf16`, or its name. `values` is a
+/// stored: `Scale.F32`, `Scale.F16`, `Scale.BF16`, or its name. `values` is a
 /// 1-D or 2-D array or a list, and a 2-D array keeps its shape.
 #[pyfunction]
 #[pyo3(
@@ -125,7 +125,7 @@ fn asymmetric_quantize_tensor(
 ///
 /// If even 8 bits can't round a block within `tolerance`, this raises
 /// `ToleranceTooTightError`, which gives the smallest tolerance that every
-/// block meets. With `Scale.F16` or `Scale.Bf16`, a value can land slightly
+/// block meets. With `Scale.F16` or `Scale.BF16`, a value can land slightly
 /// past the tolerance, and several times past on blocks far from zero, so use
 /// `Scale.F32` there.
 #[pyfunction]

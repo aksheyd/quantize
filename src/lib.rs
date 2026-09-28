@@ -59,6 +59,12 @@
 //! measures its range and is stored as code 0, so the other values in that
 //! block are unaffected. An infinity is kept, which stretches its block's
 //! range to infinity, so every finite value in that block decodes to NaN.
+//!
+//! ## Features
+//!
+//! `std`, on by default, is reserved for future `no_std` support. For now the
+//! crate always uses the standard library, and `std` only implements
+//! [`std::error::Error`] for [`Error`].
 
 #![warn(missing_docs)]
 

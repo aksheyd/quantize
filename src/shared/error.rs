@@ -17,8 +17,8 @@ pub enum Error {
     },
     /// Reconstruction tolerance must be finite and strictly positive.
     InvalidTolerance,
-    /// A block's scale or zero-point doesn't fit in the scale type. f16, for
-    /// example, holds magnitudes from about 6e-8 to 65504.
+    /// A block's scale or zero-point is too large for the scale type. f16, for
+    /// example, holds magnitudes up to 65504.
     ScaleOutOfRange {
         /// Index of the first block that doesn't fit.
         block_index: usize,

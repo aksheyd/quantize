@@ -7,6 +7,13 @@ use crate::scale::Scale;
 
 /// Packed codes and the scheme that produced them.
 ///
+/// Value `i` is in block `i / block`, counting a matrix row after row, and
+/// decodes from its code and that block's scale: as `code * scale` in a
+/// symmetric block, and as `(code - zero_point) * scale` in an asymmetric or
+/// adaptive one. Scales can be negative: a symmetric block puts its value
+/// farthest from zero on the most negative code, even when that value is
+/// positive, as [`symmetric_scale`](crate::params::symmetric_scale) explains.
+///
 /// The `len` values are a flat vector until
 /// [`set_shape`](Self::set_shape) records `columns`, the length of each
 /// row of a row-major matrix.

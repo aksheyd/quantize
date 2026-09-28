@@ -3,8 +3,20 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-/// Runtime choice of `Quantized<f32>`, `Quantized<f16>`, or `Quantized<bf16>`.
-#[pyclass(eq, frozen, hash, from_py_object, name = "Scale", module = "quantize")]
+use crate::error::QuantizeError;
+
+/// How each block's scale and zero-point are stored. `Scale.F32` keeps them
+/// exactly, in 4 bytes each. `Scale.F16` and `Scale.Bf16` round them to 2
+/// bytes: f16 keeps more digits, and bf16 more range. `scale=` also takes
+/// the name that `name` returns.
+#[pyclass(
+    eq,
+    frozen,
+    hash,
+    skip_from_py_object,
+    name = "Scale",
+    module = "quantize"
+)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PyScale {
     F32,
@@ -13,14 +25,6 @@ pub enum PyScale {
 }
 
 impl PyScale {
-    fn name(self) -> &'static str {
-        match self {
-            Self::F32 => "f32",
-            Self::F16 => "f16",
-            Self::Bf16 => "bf16",
-        }
-    }
-
     fn from_name(name: &str) -> Option<Self> {
         match name {
             "f32" => Some(Self::F32),
@@ -37,8 +41,38 @@ impl std::fmt::Display for PyScale {
     }
 }
 
+/// A `scale` argument is a `Scale`, or its name, like `"f16"`. `str()` reads
+/// the name, so the 0-d array that `numpy.load` returns for a saved name
+/// works too.
+impl FromPyObject<'_, '_> for PyScale {
+    type Error = PyErr;
+
+    fn extract(obj: Borrowed<'_, '_, PyAny>) -> PyResult<Self> {
+        if let Ok(scale) = obj.cast::<PyScale>() {
+            return Ok(*scale.get());
+        }
+        match Self::from_name(obj.str()?.to_str()?) {
+            Some(scale) => Ok(scale),
+            None => Err(PyErr::new::<QuantizeError, _>(format!(
+                "scale must be a Scale or its name, 'f32', 'f16', or 'bf16', got {}",
+                obj.repr()?
+            ))),
+        }
+    }
+}
+
 #[pymethods]
 impl PyScale {
+    /// The name that `scale=` also accepts: `'f32'`, `'f16'`, or `'bf16'`.
+    #[getter]
+    fn name(&self) -> &'static str {
+        match self {
+            Self::F32 => "f32",
+            Self::F16 => "f16",
+            Self::Bf16 => "bf16",
+        }
+    }
+
     fn __getstate__(&self) -> &'static str {
         self.name()
     }

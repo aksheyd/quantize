@@ -1,8 +1,9 @@
 //! Arbitrary bit-width and asymmetric loops. 4/8-bit symmetric bypasses this.
 
+use crate::error::Result;
 use crate::packed::Packed;
 use crate::params::{asymmetric_params, largest_code, smallest_code, symmetric_scale};
-use crate::scale::Scale;
+use crate::scale::{store_scale, store_zero_point, Scale};
 
 use super::i4::pack_sym_i4;
 use super::i8::pack_sym_i8;
@@ -14,11 +15,13 @@ use super::reduce::{min_max, signed_extreme};
 /// multiplies by. f16 and bf16 round a scale when they store it: bf16 keeps 8
 /// significant bits, so its scale can be off by 1/256, and at 8 bits a code of
 /// -128 picked against the unrounded scale would decode half a tick away.
+/// [`store_scale`] rounds away from zero, so the value farthest from zero
+/// still has a code.
 pub(crate) fn quantize_sym_packed<S: Scale>(
     values: &[f32],
     bits: u32,
     block: usize,
-) -> (Vec<S>, Packed) {
+) -> Result<(Vec<S>, Packed)> {
     match bits {
         8 => pack_sym_i8(values, block),
         4 => pack_sym_i4(values, block),
@@ -26,11 +29,11 @@ pub(crate) fn quantize_sym_packed<S: Scale>(
     }
 }
 
-fn pack_sym_general<S: Scale>(values: &[f32], bits: u32, block: usize) -> (Vec<S>, Packed) {
+fn pack_sym_general<S: Scale>(values: &[f32], bits: u32, block: usize) -> Result<(Vec<S>, Packed)> {
     let mut scales = Vec::with_capacity(values.len().div_ceil(block));
     let mut codes = Vec::with_capacity(values.len());
-    for chunk in values.chunks(block) {
-        let scale = S::from_f32(symmetric_scale(signed_extreme(chunk), bits));
+    for (block_index, chunk) in values.chunks(block).enumerate() {
+        let scale: S = store_scale(symmetric_scale(signed_extreme(chunk), bits), block_index)?;
         let one_over_scale = 1.0 / scale.to_f32();
         let code_min = smallest_code(bits) as f32;
         let code_max = largest_code(bits) as f32;
@@ -39,7 +42,7 @@ fn pack_sym_general<S: Scale>(values: &[f32], bits: u32, block: usize) -> (Vec<S
         }
         scales.push(scale);
     }
-    (scales, Packed::from_i32s(&codes, bits))
+    Ok((scales, Packed::from_i32s(&codes, bits)))
 }
 
 /// Asymmetric codes for one block, plus its scale and zero-point as stored in
@@ -48,12 +51,20 @@ fn pack_sym_general<S: Scale>(values: &[f32], bits: u32, block: usize) -> (Vec<S
 /// -1451, which f16 rounds to a whole number and bf16 to a multiple of 8.
 pub(crate) fn quantize_asym_block<S: Scale>(
     block: &[f32],
+    block_index: usize,
     bits: u32,
     codes: &mut Vec<i32>,
-) -> (S, S) {
+) -> Result<(S, S)> {
     let (lowest, highest) = min_max(block);
-    let (scale, zero_point) = asymmetric_params(lowest, highest, bits);
-    let (scale, zero_point) = (S::from_f32(scale), S::from_f32(zero_point));
+    let (scale, mut zero_point) = asymmetric_params(lowest, highest, bits);
+    let scale: S = store_scale(scale, block_index)?;
+    if lowest < highest {
+        // The stored scale can be a little wider than the range needs, so
+        // place the zero-point again from it: `lowest` stays on the smallest
+        // code, and `highest` lands on or below the largest.
+        zero_point = smallest_code(bits) as f32 - lowest / scale.to_f32();
+    }
+    let zero_point: S = store_zero_point(zero_point, block_index)?;
     let one_over_scale = 1.0 / scale.to_f32();
     let code_min = smallest_code(bits);
     let code_max = largest_code(bits);
@@ -61,7 +72,7 @@ pub(crate) fn quantize_asym_block<S: Scale>(
         let code = (value * one_over_scale + zero_point.to_f32()).round() as i32;
         codes.push(code.clamp(code_min, code_max));
     }
-    (scale, zero_point)
+    Ok((scale, zero_point))
 }
 
 pub(crate) fn dequant_sym_into(scales: &[f32], packed: &Packed, block: usize, out: &mut [f32]) {

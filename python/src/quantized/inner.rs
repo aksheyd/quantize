@@ -25,6 +25,24 @@ macro_rules! with_inner {
 
 pub(crate) use with_inner;
 
+/// The scale type that [`Quantized::to_bytes`] saved `bytes` with. `QNTZ`,
+/// the format version, and the kind fill the first 6 bytes, then one byte
+/// gives the length of the scale type's [`Scale::NAME`], which follows it.
+/// Bytes that name no scale type read as f32, so that
+/// [`Quantized::from_bytes`] says what's wrong with them.
+fn saved_scale(bytes: &[u8]) -> PyScale {
+    let name = bytes
+        .get(6)
+        .and_then(|&length| bytes.get(7..7 + usize::from(length)));
+    if name == Some(f16::NAME.as_bytes()) {
+        PyScale::F16
+    } else if name == Some(bf16::NAME.as_bytes()) {
+        PyScale::Bf16
+    } else {
+        PyScale::F32
+    }
+}
+
 /// Quantize `values`, then record `shape` if it is a matrix's.
 fn quantize_shaped<S: Scale>(
     scheme: Scheme,
@@ -85,8 +103,10 @@ impl QuantizedInner {
         with_inner!(self, |quantized| quantized.to_bytes())
     }
 
-    pub(crate) fn from_bytes(scale: PyScale, bytes: &[u8]) -> quantize::Result<Self> {
-        match scale {
+    /// Load bytes that [`Quantized::to_bytes`] saved, with the scale type
+    /// their header names.
+    pub(crate) fn from_bytes(bytes: &[u8]) -> quantize::Result<Self> {
+        match saved_scale(bytes) {
             PyScale::F32 => Quantized::from_bytes(bytes).map(Self::F32),
             PyScale::F16 => Quantized::from_bytes(bytes).map(Self::F16),
             PyScale::Bf16 => Quantized::from_bytes(bytes).map(Self::Bf16),
@@ -102,6 +122,22 @@ impl QuantizedInner {
     }
 }
 
+/// Quantized values: small integer codes, with one scale for each block of
+/// `block` values, and one zero-point too for asymmetric and adaptive ones.
+/// Value `i` is in block `i // block`, counting a matrix row after row, and
+/// decodes as
+///
+///     code * scale                   (symmetric)
+///     (code - zero_point) * scale    (asymmetric and adaptive)
+///
+/// Codes are signed and `bits` wide: -8 to 7 at 4 bits. `codes` packs them
+/// low bits first, so at 4 bits the first code of each byte is its low
+/// nibble, and `unpacked_codes` gives one per value. An adaptive tensor packs
+/// each block at its own width from `block_bits`, starting on a new byte.
+///
+/// Scales can be negative: a symmetric block puts its value farthest from
+/// zero on the most negative code, even when that value is positive.
+/// Zero-points are rarely whole numbers.
 #[pyclass(name = "Quantized", module = "quantize", eq)]
 #[derive(PartialEq)]
 pub struct PyQuantized {

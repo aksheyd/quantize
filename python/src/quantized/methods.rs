@@ -69,6 +69,9 @@ fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
     unpacked
 }
 
+// Methods that release the GIL take `slf` instead of `&self`, and clone the
+// tensor out of a short borrow first. A borrow held while the GIL is released
+// would keep `learned.refine` on another thread from borrowing it mutably.
 #[pymethods]
 impl PyQuantized {
     /// Decode the values into an array of the tensor's `shape`. `out`, if
@@ -99,13 +102,13 @@ impl PyQuantized {
     /// The dot product of the decoded values with `values`, a 1-D array of
     /// `len(q)` numbers, without storing the decoded values. For a matrix
     /// times a vector, use `matmul`.
-    fn dot(&self, py: Python<'_>, values: Bound<'_, PyAny>) -> PyResult<f32> {
+    fn dot(slf: &Bound<'_, Self>, values: Bound<'_, PyAny>) -> PyResult<f32> {
         let values = as_f32_values(&values)?;
-        if values.len() != self.len() {
-            return Err(length_mismatch("values", self.len(), values.len()));
+        let inner = slf.borrow().inner.clone();
+        if values.len() != inner.len() {
+            return Err(length_mismatch("values", inner.len(), values.len()));
         }
-        let inner = self.inner.clone();
-        py.detach(|| {
+        slf.py().detach(|| {
             with_inner!(&inner, |quantized| quantized
                 .dot(&values)
                 .map_err(from_quantize))
@@ -119,13 +122,13 @@ impl PyQuantized {
     /// `(batch, columns)`. The result is `values @ W.T`, of shape `(rows,)`
     /// or `(batch, rows)`.
     fn matmul<'py>(
-        &self,
-        py: Python<'py>,
+        slf: &Bound<'py, Self>,
         values: Bound<'_, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let inner = self.inner.clone();
+        let py = slf.py();
+        let inner = slf.borrow().inner.clone();
         let Some((rows, columns)) = with_inner!(&inner, |quantized| quantized.shape()) else {
-            return Err(from_quantize(Error::NotAMatrix { len: self.len() }));
+            return Err(from_quantize(Error::NotAMatrix { len: inner.len() }));
         };
         let (values, batch) = as_f32_matmul_values(&values, columns)?;
         let output = py.detach(|| {

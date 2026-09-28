@@ -67,6 +67,14 @@ pub enum Error {
         /// What is wrong.
         reason: &'static str,
     },
+    /// [`from_bytes`](crate::Quantized::from_bytes) read a tensor saved with
+    /// another scale type.
+    ScaleMismatch {
+        /// The scale type the tensor was saved with, as its bytes name it.
+        saved: String,
+        /// The scale type it was loaded as.
+        expected: &'static str,
+    },
 }
 
 impl fmt::Display for Error {
@@ -112,6 +120,12 @@ impl fmt::Display for Error {
                 write!(f, "a {batch} x {rows} output is too large to allocate")
             }
             Self::Malformed { reason } => write!(f, "malformed tensor: {reason}"),
+            Self::ScaleMismatch { saved, expected } => {
+                write!(
+                    f,
+                    "the tensor was saved with {saved} scales, not {expected}"
+                )
+            }
         }
     }
 }
@@ -193,6 +207,18 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "64 values can't be split into rows of 24 columns"
+        );
+    }
+
+    #[test]
+    fn display_names_both_scale_types() {
+        let err = Error::ScaleMismatch {
+            saved: "f16".to_string(),
+            expected: "f32",
+        };
+        assert_eq!(
+            err.to_string(),
+            "the tensor was saved with f16 scales, not f32"
         );
     }
 }

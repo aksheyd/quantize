@@ -235,5 +235,6 @@ pub fn from_quantize(err: quantize::Error) -> PyErr {
         quantize::Error::RowOutOfRange { .. } => PyIndexError::new_err(err.to_string()),
         quantize::Error::OutputTooLarge { .. } => PyMemoryError::new_err(err.to_string()),
         quantize::Error::Malformed { .. } => PyValueError::new_err(err.to_string()),
+        quantize::Error::ScaleMismatch { .. } => PyValueError::new_err(err.to_string()),
     }
 }

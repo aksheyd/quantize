@@ -424,7 +424,7 @@ def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
         data = quantized.to_bytes()
         with pytest.raises(ValueError, match="malformed"):
             Quantized.from_bytes(data[:-1])
-        with pytest.raises(ValueError, match="another scale type"):
+        with pytest.raises(ValueError, match="saved with f64 scales, not f32"):
             Quantized.from_bytes(data.replace(b"f32", b"f64", 1))
         with pytest.raises(ValueError, match="QNTZ"):
             Quantized.from_bytes(b"not a tensor")

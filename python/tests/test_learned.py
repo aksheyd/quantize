@@ -4,7 +4,15 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import pytest
 
-from quantize import LengthMismatchError, QuantizeError, adaptive, asymmetric, learned, quantize
+from quantize import (
+    LengthMismatchError,
+    QuantizeError,
+    adaptive,
+    asymmetric,
+    learned,
+    quantize,
+    quantize_tensor,
+)
 
 
 def test_fit_recovers_known_line():
@@ -64,8 +72,17 @@ def test_alternate_moves_a_value_to_a_closer_code_in_place():
     values = [0.02, -0.09, 0.10, 0.03, -0.04, 0.13, 0.04, -0.90]
     quantized = asymmetric.quantize(values, bits=4, block=8)
     assert list(quantized.unpacked_codes) == [5, 4, 7, 6, 5, 7, 6, -8]
-    assert learned.alternate(quantized, values) is quantized
+    assert learned.alternate(quantized, values) is True
     assert list(quantized.unpacked_codes) == [6, 4, 7, 6, 5, 7, 6, -8]
+
+
+def test_alternate_returns_false_until_the_codes_settle():
+    # One scale for 4096 values, most near zero and a few far out. Its codes
+    # keep moving for 150 passes, so the first call stops at 100.
+    values = (-np.log((np.arange(4096) + 0.5) / 4096)).astype(np.float32)
+    quantized = quantize_tensor(values, bits=6)
+    assert learned.alternate(quantized, values) is False
+    assert learned.alternate(quantized, values) is True
 
 
 def squared_error(quantized, weights):
@@ -82,7 +99,8 @@ def test_alternate_ends_no_higher_than_refine_and_keeps_the_tensor():
         adaptive.quantize(weights, block=32, tolerance=0.1),
     ]:
         refined = learned.refine(original.copy(), weights)
-        alternated = learned.alternate(original.copy(), weights)
+        alternated = original.copy()
+        assert learned.alternate(alternated, weights)
         assert squared_error(alternated, weights) <= squared_error(refined, weights)
         assert alternated.kind == original.kind
         assert alternated.shape == (8, 32)

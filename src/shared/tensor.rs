@@ -41,7 +41,7 @@ pub enum Quantized<S: Scale> {
         scales: Vec<S>,
         zero_points: Vec<S>,
         bytes: Vec<u8>,
-        bits: Vec<u32>,
+        bits: Vec<u8>,
         block: usize,
         len: usize,
         columns: Option<usize>,
@@ -137,7 +137,7 @@ impl<S: Scale> Quantized<S> {
         }
     }
 
-    pub fn block_bits(&self) -> Option<&[u32]> {
+    pub fn block_bits(&self) -> Option<&[u8]> {
         match self {
             Self::Adaptive { bits, .. } => Some(bits),
             _ => None,
@@ -232,7 +232,7 @@ impl<S: Scale> Quantized<S> {
                 let mut total = 0_usize;
                 for (block_index, &bit_width) in bits.iter().enumerate() {
                     let count = (*block).min(len - block_index * block);
-                    let block_bytes = packed_size(count, bit_width)?;
+                    let block_bytes = packed_size(count, bit_width.into())?;
                     total = total.checked_add(block_bytes).ok_or(too_large())?;
                 }
                 Ok(total)
@@ -440,7 +440,7 @@ mod tests {
         let adaptive = adaptive::quantize_with::<half::f16>(&values, 32, 0.01).unwrap();
         assert_eq!(
             format!("{adaptive:?}"),
-            r#"Adaptive { block: 32, len: 64, shape: None, scale: "f16", nbytes: 32, .. }"#
+            r#"Adaptive { block: 32, len: 64, shape: None, scale: "f16", nbytes: 26, .. }"#
         );
     }
 }

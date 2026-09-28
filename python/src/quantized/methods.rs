@@ -57,7 +57,7 @@ fn unpacked_codes<S: Scale>(quantized: &Quantized<S>) -> Vec<i32> {
                 let byte_count = (count * bit_width as usize).div_ceil(8);
                 Packed::unpack_slice(
                     &bytes[byte_offset..byte_offset + byte_count],
-                    bit_width,
+                    bit_width.into(),
                     &mut unpacked[value_offset..value_offset + count],
                     count,
                 );
@@ -232,9 +232,9 @@ impl PyQuantized {
         codes.into_pyarray(py)
     }
 
-    /// Each block's code width for an adaptive tensor, as uint32, or `None`.
+    /// Each block's code width for an adaptive tensor, as uint8, or `None`.
     #[getter]
-    fn block_bits<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArray1<u32>>> {
+    fn block_bits<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArray1<u8>>> {
         with_inner!(&self.inner, |quantized| quantized
             .block_bits()
             .map(|bits| bits.to_vec().into_pyarray(py)))
@@ -375,8 +375,9 @@ mod tests {
         for (block_index, &bit_width) in bits.iter().enumerate() {
             let start = block_index * block;
             let end = (start + block).min(unpacked.len());
-            repacked
-                .extend_from_slice(Packed::from_i32s(&unpacked[start..end], bit_width).as_bytes());
+            repacked.extend_from_slice(
+                Packed::from_i32s(&unpacked[start..end], bit_width.into()).as_bytes(),
+            );
         }
         assert_eq!(repacked, bytes);
     }

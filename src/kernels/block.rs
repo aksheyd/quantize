@@ -15,6 +15,8 @@ use super::reduce::{min_max, signed_extreme};
 /// multiplies by. f16 and bf16 round a scale when they store it: bf16 keeps 8
 /// significant bits, so its scale can be off by 1/256, and at 8 bits a code of
 /// -128 picked against the unrounded scale would decode half a tick away.
+/// [`store_scale`] rounds away from zero, so the value farthest from zero
+/// still has a code.
 pub(crate) fn quantize_sym_packed<S: Scale>(
     values: &[f32],
     bits: u32,
@@ -54,8 +56,14 @@ pub(crate) fn quantize_asym_block<S: Scale>(
     codes: &mut Vec<i32>,
 ) -> Result<(S, S)> {
     let (lowest, highest) = min_max(block);
-    let (scale, zero_point) = asymmetric_params(lowest, highest, bits);
+    let (scale, mut zero_point) = asymmetric_params(lowest, highest, bits);
     let scale: S = store_scale(scale, block_index)?;
+    if lowest < highest {
+        // The stored scale can be a little wider than the range needs, so
+        // place the zero-point again from it: `lowest` stays on the smallest
+        // code, and `highest` lands on or below the largest.
+        zero_point = smallest_code(bits) as f32 - lowest / scale.to_f32();
+    }
     let zero_point: S = store_zero_point(zero_point, block_index)?;
     let one_over_scale = 1.0 / scale.to_f32();
     let code_min = smallest_code(bits);

@@ -22,7 +22,7 @@ pub fn refine<'py>(
     check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
-        .refine(&owned)
+        .refine(owned.as_slice()?)
         .map_err(from_quantize)?;
     Ok(quantized)
 }
@@ -44,7 +44,7 @@ pub fn alternate<'py>(
     check_shape(values.py(), "values", &tensor_shape, &values_shape)?;
     quantized
         .borrow_mut()
-        .alternate(&owned)
+        .alternate(owned.as_slice()?)
         .map_err(from_quantize)?;
     Ok(quantized)
 }
@@ -59,15 +59,12 @@ pub fn fit_scale_and_zero_point(
 ) -> PyResult<(f32, f32)> {
     let owned_values = as_f32_values(&values)?;
     let owned_codes = as_i32_codes(&codes)?;
-    if owned_values.len() != owned_codes.len() {
-        return Err(length_mismatch(
-            "codes",
-            owned_values.len(),
-            owned_codes.len(),
-        ));
+    let values = owned_values.as_slice()?;
+    if values.len() != owned_codes.len() {
+        return Err(length_mismatch("codes", values.len(), owned_codes.len()));
     }
     Ok(quantize::learned::fit_scale_and_zero_point(
-        &owned_values,
+        values,
         &owned_codes,
     ))
 }

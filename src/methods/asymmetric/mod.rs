@@ -1,4 +1,10 @@
 //! Asymmetric quantization: scale and zero-point per group.
+//!
+//! The zero-point is stored in the scale type `S`. A block far from zero,
+//! compared with its range, needs a large zero-point: 4-bit values from 99.5
+//! to 100.5 get -1500.5. bf16 keeps only 8 significant bits, so it rounds that
+//! to -1504, and the block's worst error is 17 half-steps instead of 1. For
+//! such data, use f16 or f32 scales, which keep 11 and 24 significant bits.
 
 use crate::error::{check_bits, check_block, Result};
 use crate::kernels::quantize_asym_block;

@@ -79,7 +79,7 @@ impl PyScheme {
 
     /// The method of `adaptive.quantize`.
     #[classmethod]
-    #[pyo3(signature = (block = 32, tolerance = 0.001))]
+    #[pyo3(signature = (block = 32, *, tolerance))]
     fn adaptive(
         _cls: &Bound<'_, PyType>,
         #[pyo3(from_py_with = block_argument)] block: usize,

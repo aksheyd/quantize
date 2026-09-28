@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn dequantize_row_matches_dequantize_for_every_layout() {
+    fn dequantize_row_into_matches_dequantize_for_every_layout() {
         let values: Vec<f32> = (0..120).map(|i| (i as f32 * 0.37).sin()).collect();
         let (rows, columns) = (4, 30);
         // The first four decode each row with the packed kernels. The rest
@@ -394,7 +394,7 @@ mod tests {
             quantized.set_shape(rows, columns).unwrap();
             let mut row_values = vec![0.0; columns];
             for (row, expected) in every_value.chunks_exact(columns).enumerate() {
-                quantized.dequantize_row(row, &mut row_values).unwrap();
+                quantized.dequantize_row_into(row, &mut row_values).unwrap();
                 assert_eq!(row_values, expected, "row {row}");
             }
         }

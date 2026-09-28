@@ -8,8 +8,11 @@ use quantize::{Error, Quantized, Scale};
 
 use super::inner::{PyQuantized, QuantizedInner, with_inner};
 use super::parts::Parts;
-use crate::error::{from_quantize, length_mismatch};
-use crate::input::{as_f32_matmul_values, as_f32_values, as_packed_codes, as_writable_f32_out};
+use crate::error::from_quantize;
+use crate::input::{
+    as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes, as_writable_f32_out,
+    check_shape,
+};
 use crate::scale::PyScale;
 
 const PICKLED_BY_0_2: &str = "this tensor was pickled by quantize-py 0.2, which 0.3 can't load. \
@@ -67,16 +70,14 @@ impl PyQuantized {
         }
     }
 
-    /// The dot product of the decoded values with `values`, a 1-D array of
-    /// `len(q)` numbers, without storing the decoded values. For a matrix
+    /// The dot product of the decoded values with `values`, an array of the
+    /// tensor's `shape`, without storing the decoded values. For a matrix
     /// times a vector, use `matmul`.
     fn dot(slf: &Bound<'_, Self>, values: Bound<'_, PyAny>) -> PyResult<f32> {
-        let array = as_f32_values(&values)?;
+        let (array, values_shape) = as_f32_array(&values)?;
         let values = array.as_slice()?;
         let inner = slf.borrow().inner.clone();
-        if values.len() != inner.len() {
-            return Err(length_mismatch("values", inner.len(), values.len()));
-        }
+        check_shape(slf.py(), "values", &inner.shape(), &values_shape)?;
         slf.py().detach(|| {
             with_inner!(&inner, |quantized| quantized
                 .dot(values)
@@ -84,26 +85,26 @@ impl PyQuantized {
         })
     }
 
-    /// Multiply `values` by this tensor's matrix `W`, of shape
+    /// Multiply `inputs` by this tensor's matrix `W`, of shape
     /// `(rows, columns)`, which the tensor was quantized from.
     ///
-    /// `values` is one vector of shape `(columns,)` or a batch of shape
-    /// `(batch, columns)`. The result is `values @ W.T`, of shape `(rows,)`
+    /// `inputs` is one vector of shape `(columns,)` or a batch of shape
+    /// `(batch, columns)`. The result is `inputs @ W.T`, of shape `(rows,)`
     /// or `(batch, rows)`.
     fn matmul<'py>(
         slf: &Bound<'py, Self>,
-        values: Bound<'_, PyAny>,
+        inputs: Bound<'_, PyAny>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let py = slf.py();
         let inner = slf.borrow().inner.clone();
         let Some((rows, columns)) = with_inner!(&inner, |quantized| quantized.shape()) else {
             return Err(from_quantize(Error::NotAMatrix { len: inner.len() }));
         };
-        let (array, batch) = as_f32_matmul_values(&values, columns)?;
-        let values = array.as_slice()?;
+        let (array, batch) = as_f32_matmul_values(&inputs, columns)?;
+        let inputs = array.as_slice()?;
         let output = py.detach(|| {
             with_inner!(&inner, |quantized| quantized
-                .matmul(values)
+                .matmul(inputs)
                 .map_err(from_quantize))
         })?;
         let output = output.into_pyarray(py);

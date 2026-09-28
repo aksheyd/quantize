@@ -45,10 +45,10 @@
 //!
 //! For a weight matrix, [`set_shape`](Quantized::set_shape) records its shape,
 //! so [`matmul`](Quantized::matmul) can multiply a batch of inputs by it, like
-//! a linear layer, and [`dequantize_row`](Quantized::dequantize_row) can
-//! decode one row, like an embedding lookup. [`to_bytes`](Quantized::to_bytes)
-//! saves a tensor, shape included, and [`from_bytes`](Quantized::from_bytes)
-//! loads it back.
+//! a linear layer, and [`dequantize_row_into`](Quantized::dequantize_row_into)
+//! can decode one row, like an embedding lookup.
+//! [`to_bytes`](Quantized::to_bytes) saves a tensor, shape included, and
+//! [`from_bytes`](Quantized::from_bytes) loads it back.
 //!
 //! To learn how the library got here, see the
 //! [chapters](https://github.com/aksheyd/quantize/tree/main/chapters).
@@ -73,10 +73,10 @@ pub use half::{bf16, f16};
 
 pub use shared::error::{Error, Result};
 pub use shared::packed::Packed;
+pub use shared::params;
 pub use shared::scale::Scale;
 pub use shared::scheme::Scheme;
 pub use shared::tensor::Quantized;
-pub use shared::{error, packed, params, scale, scheme, tensor};
 pub use symmetric::{quantize, quantize_tensor};
 
-pub(crate) use shared::decode;
+pub(crate) use shared::{decode, error, packed, scale, tensor};

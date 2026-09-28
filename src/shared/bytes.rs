@@ -3,7 +3,7 @@
 use core::cmp::Ordering;
 use core::mem::size_of;
 
-use crate::error::{Error, Result, check_block, malformed};
+use crate::error::{Error, Result, check_bits, check_block, malformed};
 use crate::packed::Packed;
 use crate::scale::Scale;
 use crate::tensor::Quantized;
@@ -113,7 +113,7 @@ impl<S: Scale> Quantized<S> {
         let quantized = match kind {
             SYMMETRIC => {
                 let scales = reader.scales(blocks)?;
-                let codes = Packed::from_raw(reader.rest(), code_bits, len);
+                let codes = reader.codes(code_bits, len)?;
                 Self::Symmetric {
                     scales,
                     codes,
@@ -125,7 +125,7 @@ impl<S: Scale> Quantized<S> {
             ASYMMETRIC => {
                 let scales = reader.scales(blocks)?;
                 let zero_points = reader.scales(blocks)?;
-                let codes = Packed::from_raw(reader.rest(), code_bits, len);
+                let codes = reader.codes(code_bits, len)?;
                 Self::Asymmetric {
                     scales,
                     zero_points,
@@ -204,6 +204,13 @@ impl<'a> Reader<'a> {
     /// Everything not yet read.
     fn rest(self) -> Vec<u8> {
         self.bytes.to_vec()
+    }
+
+    /// Everything not yet read, as `len` codes of `bits` each. A width outside
+    /// `2..=16` is an error here, since [`Packed::from_raw`] panics on it.
+    fn codes(self, bits: u32, len: usize) -> Result<Packed> {
+        check_bits(bits)?;
+        Ok(Packed::from_raw(self.rest(), bits, len))
     }
 }
 

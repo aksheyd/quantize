@@ -11,8 +11,8 @@ use tokenizers::Tokenizer;
 const PAGE: usize = 100;
 const ROWS_URL: &str = "https://datasets-server.huggingface.co/rows?dataset=Salesforce/wikitext&config=wikitext-2-raw-v1&split=test";
 // The dataset server answers HTTP 429 (too many requests) when pages come too
-// fast. Hugging Face's rate limits reset every 5 minutes, so the wait doubles
-// until the waits add up to more than that: 1 + 2 + 4 + ... + 256 s is 8.5 minutes.
+// fast. Hugging Face's rate limits reset every 5 minutes, so the waits double
+// from 1 s up to 256 s, which adds up to 8.5 minutes.
 const LONGEST_WAIT: Duration = Duration::from_secs(256);
 
 #[derive(Deserialize)]

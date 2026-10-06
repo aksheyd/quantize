@@ -73,9 +73,8 @@ impl PyQuantized {
     /// The dot product of the decoded values with `values`, an array of the
     /// tensor's `shape`. For a matrix times a vector, use `matmul`.
     ///
-    /// Symmetric tensors with 4-bit or 8-bit codes are decoded straight from
-    /// the packed codes, without storing the decoded values. Other tensors are
-    /// first unpacked into a buffer as large as the decoded values.
+    /// Each code is read straight from the packed bytes as it's multiplied,
+    /// so the decoded values are never stored, whatever the scheme.
     fn dot(slf: &Bound<'_, Self>, values: Bound<'_, PyAny>) -> PyResult<f32> {
         let (array, values_shape) = as_f32_array(&values)?;
         let values = array.as_slice()?;
@@ -94,6 +93,10 @@ impl PyQuantized {
     /// `inputs` is one vector of shape `(columns,)` or a batch of shape
     /// `(batch, columns)`. The result is `inputs @ W.T`, of shape `(rows,)`
     /// or `(batch, rows)`.
+    ///
+    /// Each call decodes the matrix one row at a time, straight from the
+    /// packed codes, and multiplies each row by every input before moving
+    /// on, so the whole matrix is never decoded at once.
     fn matmul<'py>(
         slf: &Bound<'py, Self>,
         inputs: Bound<'_, PyAny>,

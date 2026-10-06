@@ -13,3 +13,8 @@ pub const DECODE_NEW: usize = 128;
 pub fn candle_msg(error: impl std::fmt::Display) -> candle_core::Error {
     candle_core::Error::msg(error)
 }
+
+/// ureq's errors don't say which URL failed, so download errors start with it.
+pub fn error_with_url(url: &str, error: impl std::fmt::Display) -> candle_core::Error {
+    candle_msg(format!("{url}: {error}"))
+}

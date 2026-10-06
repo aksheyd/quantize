@@ -1,4 +1,4 @@
-use crate::wikitext::candle_msg;
+use crate::wikitext::{candle_msg, error_with_url};
 use candle_core::Result;
 use serde::Deserialize;
 use std::fs;
@@ -67,11 +67,9 @@ fn fetch_page(offset: usize) -> Result<Page> {
     let body = ureq::get(&url)
         .header("User-Agent", "quantize-wikitext/0.2")
         .call()
-        .map_err(candle_msg)?
-        .body_mut()
-        .read_to_string()
-        .map_err(candle_msg)?;
-    serde_json::from_str(&body).map_err(candle_msg)
+        .and_then(|mut response| response.body_mut().read_to_string())
+        .map_err(|error| error_with_url(&url, error))?;
+    serde_json::from_str(&body).map_err(|error| error_with_url(&url, error))
 }
 
 fn append_rows(text: &mut String, page: &Page) {

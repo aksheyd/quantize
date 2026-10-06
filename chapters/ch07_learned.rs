@@ -23,6 +23,7 @@ const SMALLEST_CODE: f32 = -8.0;
 const LARGEST_CODE: f32 = 7.0;
 
 /// Chapter 5: the minimum lands on the smallest code, the maximum on the largest.
+/// Unlike chapter 5, it doesn't handle a flat block, which comes out as NaN.
 fn asymmetric_params(values: &[f32]) -> (f32, f32) {
     let lowest = values.iter().copied().fold(f32::INFINITY, f32::min);
     let highest = values.iter().copied().fold(f32::NEG_INFINITY, f32::max);

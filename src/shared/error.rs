@@ -34,9 +34,9 @@ pub enum Error {
         /// The scale type's [`NAME`](crate::Scale::NAME), like `f16`.
         scale_type: &'static str,
     },
-    /// A buffer holds a different number of values than the quantized tensor.
+    /// A buffer holds a different number of values than the call needs.
     LengthMismatch {
-        /// Length required by the quantized tensor.
+        /// Length the call needs, like the tensor's length.
         expected: usize,
         /// Length the caller actually passed.
         got: usize,
@@ -58,7 +58,8 @@ pub enum Error {
         /// Number of values in the tensor.
         len: usize,
     },
-    /// [`matmul`](crate::Quantized::matmul) and
+    /// [`matmul`](crate::Quantized::matmul),
+    /// [`matmul_into`](crate::Quantized::matmul_into), and
     /// [`dequantize_row_into`](crate::Quantized::dequantize_row_into) need a
     /// matrix, but the tensor is a flat vector.
     NotAMatrix {

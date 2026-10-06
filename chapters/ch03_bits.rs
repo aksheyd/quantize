@@ -17,10 +17,10 @@
 //!
 //! Run it: `cargo run --release --example ch03_bits`
 
+// `1 << n` is 2 to the power n: 4 bits give codes -8..=7, 8 bits -128..=127.
 const fn largest_code<const BITS: u32>() -> i32 {
     (1_i32 << (BITS - 1)) - 1
 }
-
 const fn smallest_code<const BITS: u32>() -> i32 {
     -(1_i32 << (BITS - 1))
 }

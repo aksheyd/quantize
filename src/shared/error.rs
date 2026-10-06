@@ -81,16 +81,6 @@ pub enum Error {
         /// Number of matrix rows.
         rows: usize,
     },
-    /// [`matmul_into`](crate::Quantized::matmul_into)'s `out` doesn't hold
-    /// the `batch × rows` values of the result.
-    OutputMismatch {
-        /// Number of input vectors that `inputs` splits into.
-        batch: usize,
-        /// Number of matrix rows.
-        rows: usize,
-        /// Length of the `out` that was passed.
-        got: usize,
-    },
     /// Saved bytes, or a tensor built by hand, don't hold a valid tensor.
     Malformed {
         /// What is wrong.
@@ -115,6 +105,16 @@ pub enum Error {
     InvalidScheme {
         /// The text that was read.
         text: String,
+    },
+    /// [`matmul_into`](crate::Quantized::matmul_into)'s `out` doesn't hold
+    /// the `batch × rows` values of the result.
+    OutputMismatch {
+        /// Number of input vectors that `inputs` splits into.
+        batch: usize,
+        /// Number of matrix rows.
+        rows: usize,
+        /// Length of the `out` that was passed.
+        got: usize,
     },
 }
 
@@ -179,12 +179,6 @@ impl fmt::Display for Error {
             Self::OutputTooLarge { batch, rows } => {
                 write!(f, "a {batch} x {rows} output is too large to allocate")
             }
-            Self::OutputMismatch { batch, rows, got } => {
-                write!(
-                    f,
-                    "out should hold batch x rows = {batch} x {rows} values, but holds {got}; if your batch isn't {batch}, set_shape may have rows and columns swapped"
-                )
-            }
             Self::Malformed { reason } => write!(f, "malformed tensor: {reason}"),
             Self::ScaleMismatch { saved, expected } => {
                 write!(
@@ -202,6 +196,12 @@ impl fmt::Display for Error {
                 write!(
                     f,
                     "{text:?} isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), adaptive(block=32, tolerance=0.002), Q8_32, or Q4_32"
+                )
+            }
+            Self::OutputMismatch { batch, rows, got } => {
+                write!(
+                    f,
+                    "out should hold batch x rows = {batch} x {rows} values, but holds {got}; if your batch isn't {batch}, set_shape may have rows and columns swapped"
                 )
             }
         }

@@ -1,5 +1,38 @@
 # changelog
 
+## 0.3.1
+
+0.3.1 is a patch release of the rust crate `quantize` and the python package `quantize-py`. it decodes with less memory, and adds `matmul_into` and `Scheme` text.
+
+### faster, with less memory
+
+- `dot`, `dequantize_into`, and `dequantize_row_into` allocate nothing, whatever the scheme. on a 5-bit, asymmetric, or adaptive tensor of 16 million values, `dot` used to allocate about 70 MB, and `dequantize_into` is about twice as fast.
+- `matmul` decodes one row at a time. it used to decode an adaptive matrix whole on every call, and a 4096 × 4096 one is now over twice as fast.
+- python's `dot`, `matmul`, and `dequantize()` no longer copy the tensor on every call.
+
+### new
+
+- `matmul_into` writes into a buffer you pass, so a loop can reuse it, and its `Error::OutputMismatch` catches a `set_shape` with rows and columns swapped, at any batch size.
+- `Scheme` prints as text, like `symmetric(bits=4, block=32)`, and `parse` reads it back, so a scheme can come from config or a cli flag.
+- python: `Scale(name)` and `Scheme(text)`, like `Scale("f16")` and `Scheme("Q4_32")`.
+
+### fixes
+
+- `fit_scale_and_zero_point` fits the closest line through zero when the values don't rise or fall with your codes. it returned scale 1, which decoded each code to itself.
+- python: `torch.load` reads `Scale` and `Scheme` pickles once you allow their classes, as with `Quantized`.
+
+### changes you might notice
+
+- free-threaded python turns the gil back on when it imports `quantize`, with a `RuntimeWarning`, so a refit can't panic when another thread uses the tensor.
+- 0.3.0 can't load `Scale` or `Scheme` pickles made by 0.3.1, though 0.3.1 loads 0.3.0's, and tensors pickle as before.
+- `Scheme` text rejects values that `quantize` would, like `bits=99`, so in python, a scheme like `Scheme.symmetric(bits=99)` raises when it's unpickled or copied.
+- the `no_std` claim is gone: the `std` feature does nothing, and `Error` implements `std::error::Error` either way.
+
+### chapters and contributors
+
+- chapters 3 to 8 fill small gaps, like what `1 << n` means, and chapter 3's worst error no longer hides nan.
+- the benchmark examples need `-p benchmarks`, so a first chapter run no longer downloads candle.
+
 ## 0.3.0
 
 0.3.0 is a breaking release of the rust crate `quantize` and the python package `quantize-py`. it adds matrices, saving and loading, and `learned::alternate`, and its 4-bit accuracy now matches candle's.

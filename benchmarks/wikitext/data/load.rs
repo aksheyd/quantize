@@ -2,7 +2,7 @@ use crate::wikitext::{MODEL_ID, candle_msg};
 use candle_core::{DType, Device, Result};
 use candle_nn::VarBuilder;
 use candle_transformers::models::llama::{Config, LlamaConfig};
-use hf_hub::api::sync::Api;
+use hf_hub::api::sync::ApiBuilder;
 use std::fs;
 use tokenizers::Tokenizer;
 
@@ -14,7 +14,9 @@ pub struct Loaded {
 }
 
 pub fn load(device: &Device) -> Result<Loaded> {
-    let api = Api::new().map_err(candle_msg)?;
+    // Unlike Api::new(), from_env() reads HF_HOME (where the cache lives) and
+    // HF_ENDPOINT (which server to download from).
+    let api = ApiBuilder::from_env().build().map_err(candle_msg)?;
     let repo = api.model(MODEL_ID.to_string());
     let config_path = repo.get("config.json").map_err(candle_msg)?;
     let tokenizer_path = repo.get("tokenizer.json").map_err(candle_msg)?;

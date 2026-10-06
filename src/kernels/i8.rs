@@ -121,7 +121,12 @@ unsafe fn dequant_16(src: *const u8, scale: f32, dst: *mut f32) {
     }
 }
 
-pub(crate) fn dot_i8_blocks(scales: &[f32], bytes: &[u8], block: usize, rhs: &[f32]) -> f32 {
+pub(crate) fn dot_i8_blocks<S: Scale>(
+    scales: &[S],
+    bytes: &[u8],
+    block: usize,
+    rhs: &[f32],
+) -> f32 {
     let mut acc = 0.0_f32;
     let mut off = 0;
     for (bi, chunk) in rhs.chunks(block).enumerate() {
@@ -129,7 +134,7 @@ pub(crate) fn dot_i8_blocks(scales: &[f32], bytes: &[u8], block: usize, rhs: &[f
         for (j, &x) in chunk.iter().enumerate() {
             inner += (bytes[off + j] as i8 as f32) * x;
         }
-        acc += scales[bi] * inner;
+        acc += scales[bi].to_f32() * inner;
         off += chunk.len();
     }
     acc

@@ -17,9 +17,6 @@ include = [
     "/README.md",
 ]
 
-[package.metadata.docs.rs]
-features = ["std"]
-
 [workspace]
 members = ["python", "chapters", "benchmarks"]
 # benchmarks isn't a default member, so a first chapter run doesn't download
@@ -41,8 +38,8 @@ all = { level = "deny", priority = -1 }
 
 [features]
 default = ["std"]
-# Reserved for future no_std support. For now it only implements
-# std::error::Error for Error.
+# Does nothing, since the crate always needs the standard library. Kept so
+# that a Cargo.toml that names it still builds.
 std = []
 
 [dependencies]

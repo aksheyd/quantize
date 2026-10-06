@@ -299,8 +299,9 @@ mod tests {
         assert_eq!(q.matmul(&inputs).unwrap().len(), 64 * 32);
         assert_eq!(
             q.matmul_into(&inputs, &mut [0.0; 4 * 2]),
-            Err(crate::Error::LengthMismatch {
-                expected: 64 * 32,
+            Err(crate::Error::OutputMismatch {
+                batch: 64,
+                rows: 32,
                 got: 4 * 2
             })
         );

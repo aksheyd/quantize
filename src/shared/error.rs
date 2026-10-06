@@ -81,6 +81,16 @@ pub enum Error {
         /// Number of matrix rows.
         rows: usize,
     },
+    /// [`matmul_into`](crate::Quantized::matmul_into)'s `out` doesn't hold
+    /// the `batch × rows` values of the result.
+    OutputMismatch {
+        /// Number of input vectors that `inputs` splits into.
+        batch: usize,
+        /// Number of matrix rows.
+        rows: usize,
+        /// Length of the `out` that was passed.
+        got: usize,
+    },
     /// Saved bytes, or a tensor built by hand, don't hold a valid tensor.
     Malformed {
         /// What is wrong.
@@ -168,6 +178,12 @@ impl fmt::Display for Error {
             }
             Self::OutputTooLarge { batch, rows } => {
                 write!(f, "a {batch} x {rows} output is too large to allocate")
+            }
+            Self::OutputMismatch { batch, rows, got } => {
+                write!(
+                    f,
+                    "out should hold batch x rows = {batch} x {rows} values, but holds {got}; if your batch isn't {batch}, set_shape may have rows and columns swapped"
+                )
             }
             Self::Malformed { reason } => write!(f, "malformed tensor: {reason}"),
             Self::ScaleMismatch { saved, expected } => {
@@ -270,6 +286,21 @@ mod tests {
             got: 1,
         };
         assert_eq!(err.to_string(), "length mismatch: expected 4, got 1");
+    }
+
+    #[test]
+    fn display_says_how_many_values_out_should_hold() {
+        // A layer with 4096 outputs and 11008 inputs, recorded the wrong way
+        // round, splits a batch of 16 inputs into 43 vectors of 4096.
+        let err = Error::OutputMismatch {
+            batch: 43,
+            rows: 11008,
+            got: 16 * 4096,
+        };
+        assert_eq!(
+            err.to_string(),
+            "out should hold batch x rows = 43 x 11008 values, but holds 65536; if your batch isn't 43, set_shape may have rows and columns swapped"
+        );
     }
 
     #[test]

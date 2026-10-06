@@ -473,12 +473,13 @@ impl<S: Scale> Quantized<S> {
     /// let mut w = quantize::<f32, 8, 4>(&[0.5; 8]).unwrap();
     /// w.set_shape(4, 2).unwrap();
     ///
-    /// // A batch of 2 inputs of 4 values also splits into 4 vectors of 2.
+    /// // A batch of 2 inputs of 4 values also splits into 4 vectors of 2, so
+    /// // the error gives a batch of 4 where you'd expect 2.
     /// let inputs = [1.0; 8];
     /// let mut out = [0.0; 2 * 2];
     /// assert_eq!(
     ///     w.matmul_into(&inputs, &mut out),
-    ///     Err(Error::LengthMismatch { expected: 16, got: 4 })
+    ///     Err(Error::OutputMismatch { batch: 4, rows: 4, got: 4 })
     /// );
     /// ```
     ///
@@ -486,14 +487,17 @@ impl<S: Scale> Quantized<S> {
     ///
     /// [`Error::NotAMatrix`] and [`Error::ShapeMismatch`] as in
     /// [`matmul`](Self::matmul), [`Error::OutputTooLarge`] if `batch × rows`
-    /// is more values than a `usize` can count, and [`Error::LengthMismatch`]
+    /// is more values than a `usize` can count, and [`Error::OutputMismatch`]
     /// if `out` isn't `batch × rows` long.
     pub fn matmul_into(&self, inputs: &[f32], out: &mut [f32]) -> Result<()> {
         let (batch, rows, columns) = self.matmul_shape(inputs)?;
         let Some(output_len) = batch.checked_mul(rows) else {
             return Err(Error::OutputTooLarge { batch, rows });
         };
-        check_len(output_len, out.len())?;
+        if out.len() != output_len {
+            let got = out.len();
+            return Err(Error::OutputMismatch { batch, rows, got });
+        }
         crate::decode::matmul_into(self, inputs, columns, out);
         Ok(())
     }

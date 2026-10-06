@@ -98,14 +98,6 @@ impl Packed {
         }
     }
 
-    /// Unpack the codes from `start` to `start + out.len()`, which may begin
-    /// partway through a byte.
-    pub(crate) fn unpack_range(&self, start: usize, out: &mut [i32]) {
-        for (index, slot) in (start..).zip(out) {
-            *slot = read_code(&self.bytes, index, self.bits);
-        }
-    }
-
     /// Read code `index` alone, without unpacking the others.
     #[inline]
     pub(crate) fn code(&self, index: usize) -> i32 {
@@ -270,13 +262,12 @@ mod tests {
     }
 
     #[test]
-    fn unpack_range_starts_partway_through_a_byte() {
+    fn code_reads_codes_that_start_partway_through_a_byte() {
         let codes = [-8, -1, 0, 7, 3, -4];
         for bits in [4, 5, 8] {
             let p = Packed::from_i32s(&codes, bits);
-            let mut out = [0i32; 3];
-            p.unpack_range(1, &mut out);
-            assert_eq!(out, codes[1..4], "{bits} bits");
+            let read: Vec<i32> = (1..4).map(|index| p.code(index)).collect();
+            assert_eq!(read, codes[1..4], "{bits} bits");
         }
     }
 }

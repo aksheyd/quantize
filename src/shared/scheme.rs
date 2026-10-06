@@ -21,6 +21,10 @@ use crate::{adaptive, asymmetric, symmetric};
 /// assert_eq!("Q4_32".parse(), Ok(Scheme::Q4_32));
 /// ```
 ///
+/// `Scheme` doesn't implement serde's traits. In a serde config, read it as a
+/// string and parse it, for example with `serde_with`'s
+/// `#[serde_as(as = "DisplayFromStr")]`.
+///
 /// The [`Quantized`] variant that [`quantize`](Self::quantize) returns is the
 /// scheme that ran.
 #[derive(Clone, Copy, Debug, PartialEq)]

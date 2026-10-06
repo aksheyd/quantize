@@ -23,10 +23,11 @@ use crate::tensor::Quantized;
 /// When every code is the same there is no slope to fit, so the scale stays
 /// `1.0` and only the offset is fitted: every code decodes to the mean value.
 ///
-/// When every value is the same but the codes differ, the best line is flat,
-/// and `scale * (codes - zero_point)` is flat only at 0. So the zero-point
-/// stays 0 and only the scale is fitted, giving the line through zero that
-/// comes closest to the values.
+/// When the values don't rise or fall with the codes, as when every value is
+/// the same but the codes differ, the best line is flat, and
+/// `scale * (codes - zero_point)` is flat only at 0. So the zero-point stays 0
+/// and only the scale is fitted, giving the line through zero that comes
+/// closest to the values.
 pub fn fit_scale_and_zero_point(values: &[f32], codes: &[i32]) -> (f32, f32) {
     debug_assert_eq!(values.len(), codes.len());
     let count = values.len() as f64;
@@ -315,6 +316,15 @@ mod tests {
             let decoded = scale * (code as f32 - zero_point);
             assert!((decoded - 0.5).abs() < 0.1, "{decoded}");
         }
+    }
+
+    #[test]
+    fn fit_with_values_that_do_not_follow_the_codes_goes_through_zero() {
+        // 0.2, 0, 0.2 neither rise nor fall with codes 1, 2, 3, so the best
+        // line is flat, and the closest line through zero has slope 0.8 / 14.
+        let (scale, zero_point) = fit_scale_and_zero_point(&[0.2, 0.0, 0.2], &[1, 2, 3]);
+        assert_eq!(zero_point, 0.0);
+        assert!((scale - 0.8 / 14.0).abs() < 1e-6, "{scale}");
     }
 
     #[test]

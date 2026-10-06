@@ -20,9 +20,10 @@
 //! ```
 //!
 //! `S` is the scale type: `f32`, [`f16`](struct@f16), or [`bf16`], the last two
-//! re-exported from the `half` crate. Each block shares one scale, so one `f16`
-//! per 32 values adds 16 / 32 = 0.5 bits to each value: 4-bit codes cost 4.5
-//! bits per value.
+//! re-exported from the `half` crate, so import them with
+//! `use quantize::{f16, bf16}`. Each block shares one scale, so one `f16` per
+//! 32 values adds 16 / 32 = 0.5 bits to each value: 4-bit codes cost 4.5 bits
+//! per value.
 //!
 //! `BITS` and `BLOCK` are const generics. To choose them at run time, call the
 //! scheme's `quantize_with`, like [`symmetric::quantize_with`], which takes

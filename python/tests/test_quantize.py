@@ -419,6 +419,8 @@ def test_scheme_reads_text_written_like_its_class_methods():
     assert Scheme("symmetric(bits=4, block=32)") == Scheme("Q4_32") == Scheme.Q4_32
     assert Scheme("asymmetric(bits=3, block=7)") == Scheme.asymmetric(bits=3, block=7)
     assert Scheme("adaptive(block=32, tolerance=0.002)") == Scheme.adaptive(tolerance=0.002)
+    assert Scheme("symmetric(bits=4)") == Scheme.symmetric(bits=4)
+    assert Scheme("adaptive(tolerance=0.002)") == Scheme.adaptive(tolerance=0.002)
     with pytest.raises(QuantizeError, match=r"isn't a scheme; write one like symmetric\(bits=4"):
         Scheme("symmetric:4:32")
     with pytest.raises(InvalidBitsError):

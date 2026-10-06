@@ -33,6 +33,16 @@ python-test:
 wheels:
     maturin build --release --out dist
 
+# CI runs this on a version tag, like 0.3.0, before publishing anything.
+release-check tag:
+    grep -qxF 'version = "{{tag}}"' Cargo.toml
+    grep -qxF '## {{tag}}' CHANGELOG.md
+    cargo publish -p quantize --dry-run
+
+# Prints a version's section of CHANGELOG.md: the notes of its GitHub release.
+release-notes version:
+    @awk '/^## /{p = ($2 == "{{version}}"); next} p' CHANGELOG.md
+
 chapters:
     cargo run --release --example ch01_simple
     cargo run --release --example ch02_naive

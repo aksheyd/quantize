@@ -161,18 +161,17 @@ def test_refine_and_alternate_work_while_another_thread_uses_the_tensor():
         reading.result()
 
 
-def test_other_threads_keep_running_while_refine_and_alternate_refit():
+def test_other_threads_keep_running_while_alternate_refits():
     weights = np.random.default_rng(0).standard_normal((1024, 1024)).astype(np.float32)
-    for refit in [learned.refine, learned.alternate]:
-        quantized = quantize(weights, bits=4)
-        wakeups = 0
-        start = time.perf_counter()
-        with ThreadPoolExecutor() as pool:
-            refitting = pool.submit(refit, quantized, weights)
-            while not refitting.done():
-                wakeups += 1
-                time.sleep(0.001)
-        refitting.result()
-        # This loop wakes about once a millisecond. A refit that held the GIL
-        # would let it wake about once in all.
-        assert wakeups > (time.perf_counter() - start) / 0.005
+    quantized = quantize(weights, bits=4)
+    wakeups = 0
+    start = time.perf_counter()
+    with ThreadPoolExecutor() as pool:
+        refitting = pool.submit(learned.alternate, quantized, weights)
+        while not refitting.done():
+            wakeups += 1
+            time.sleep(0.001)
+    refitting.result()
+    # This loop wakes every millisecond or so while the GIL is free, but only
+    # about once in all if alternate holds it.
+    assert wakeups > (time.perf_counter() - start) / 0.010

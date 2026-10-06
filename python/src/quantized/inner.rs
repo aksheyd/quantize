@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use half::{bf16, f16};
 use pyo3::prelude::*;
 use quantize::{Quantized, Scale, Scheme, learned};
@@ -6,11 +8,16 @@ use super::parts::Parts;
 use crate::error::from_quantize;
 use crate::scale::PyScale;
 
+/// The tensor, with one of three scale types, behind an `Arc` so that a
+/// clone shares its codes and scales instead of copying them. `refine` and
+/// `alternate` change it through `Arc::make_mut`, which copies a shared
+/// tensor first, so a `copy()`, or a `dot` or `matmul` still running, keeps
+/// the values it had.
 #[derive(Clone, PartialEq)]
 pub(crate) enum QuantizedInner {
-    F32(Quantized<f32>),
-    F16(Quantized<f16>),
-    Bf16(Quantized<bf16>),
+    F32(Arc<Quantized<f32>>),
+    F16(Arc<Quantized<f16>>),
+    Bf16(Arc<Quantized<bf16>>),
 }
 
 macro_rules! with_inner {
@@ -64,9 +71,15 @@ impl QuantizedInner {
         scale: PyScale,
     ) -> PyResult<Self> {
         match scale {
-            PyScale::F32 => quantize_shaped(scheme, values, shape).map(Self::F32),
-            PyScale::F16 => quantize_shaped(scheme, values, shape).map(Self::F16),
-            PyScale::Bf16 => quantize_shaped(scheme, values, shape).map(Self::Bf16),
+            PyScale::F32 => quantize_shaped(scheme, values, shape)
+                .map(Arc::new)
+                .map(Self::F32),
+            PyScale::F16 => quantize_shaped(scheme, values, shape)
+                .map(Arc::new)
+                .map(Self::F16),
+            PyScale::Bf16 => quantize_shaped(scheme, values, shape)
+                .map(Arc::new)
+                .map(Self::Bf16),
         }
         .map_err(from_quantize)
     }
@@ -92,11 +105,15 @@ impl QuantizedInner {
     }
 
     pub(crate) fn refine(&mut self, values: &[f32]) -> quantize::Result<()> {
-        with_inner!(self, |quantized| learned::refine(quantized, values))
+        with_inner!(self, |quantized| {
+            learned::refine(Arc::make_mut(quantized), values)
+        })
     }
 
     pub(crate) fn alternate(&mut self, values: &[f32]) -> quantize::Result<bool> {
-        with_inner!(self, |quantized| learned::alternate(quantized, values))
+        with_inner!(self, |quantized| {
+            learned::alternate(Arc::make_mut(quantized), values)
+        })
     }
 
     pub(crate) fn to_bytes(&self) -> Vec<u8> {
@@ -107,17 +124,17 @@ impl QuantizedInner {
     /// their header names.
     pub(crate) fn from_bytes(bytes: &[u8]) -> quantize::Result<Self> {
         match saved_scale(bytes) {
-            PyScale::F32 => Quantized::from_bytes(bytes).map(Self::F32),
-            PyScale::F16 => Quantized::from_bytes(bytes).map(Self::F16),
-            PyScale::Bf16 => Quantized::from_bytes(bytes).map(Self::Bf16),
+            PyScale::F32 => Quantized::from_bytes(bytes).map(Arc::new).map(Self::F32),
+            PyScale::F16 => Quantized::from_bytes(bytes).map(Arc::new).map(Self::F16),
+            PyScale::Bf16 => Quantized::from_bytes(bytes).map(Arc::new).map(Self::Bf16),
         }
     }
 
     pub(crate) fn from_parts(parts: Parts, scale: PyScale) -> PyResult<Self> {
         match scale {
-            PyScale::F32 => parts.into_quantized().map(Self::F32),
-            PyScale::F16 => parts.into_quantized().map(Self::F16),
-            PyScale::Bf16 => parts.into_quantized().map(Self::Bf16),
+            PyScale::F32 => parts.into_quantized().map(Arc::new).map(Self::F32),
+            PyScale::F16 => parts.into_quantized().map(Arc::new).map(Self::F16),
+            PyScale::Bf16 => parts.into_quantized().map(Arc::new).map(Self::Bf16),
         }
     }
 }

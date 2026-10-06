@@ -39,9 +39,10 @@ fn bits<S: Scale>(quantized: &Quantized<S>) -> Option<u32> {
     }
 }
 
-// Methods that release the GIL take `slf` instead of `&self`, and clone the
-// tensor out of a short borrow first. A borrow held while the GIL is released
-// would keep `learned.refine` on another thread from borrowing it mutably.
+// Methods that release the GIL take `slf` instead of `&self`, and clone
+// `inner` out of a short borrow first, which shares the tensor instead of
+// copying it. A borrow held while the GIL is released would keep
+// `learned.refine` on another thread from borrowing it mutably.
 #[pymethods]
 impl PyQuantized {
     /// Decode the values into an array of the tensor's `shape`. `out`, if

@@ -59,7 +59,7 @@ against [candle](https://github.com/huggingface/candle)'s `Q4_0`, `Q5_0`, and `Q
 ### quality
 
 ```
-cargo run --release --example compare
+cargo run --release -p benchmarks --example compare
 ```
 
 quantize two random matrices, reconstruct them, then matmul. mse is the mean squared error against the exact f32 result: smaller is better, and it varies a little between runs. bits/value counts the scales too: 4-bit codes plus one f16 scale per 32 values is 4 + 16/32 = 4.5.
@@ -74,12 +74,12 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 <!-- comparison:end -->
 
-on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93. lower is better, and `cargo run --release --example wikitext --features benchmarks/workload` reproduces them.
+on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93. lower is better, and `cargo run --release -p benchmarks --example wikitext --features workload` reproduces them.
 
 ### speed
 
 ```
-cargo run --release --example throughput
+cargo run --release -p benchmarks --example throughput
 ```
 
 quantize and dequantize with f16 scales. both libraries allocate their output on every call. aarch64 is an apple M5 Max and x86_64 an intel xeon. the hand-written simd only targets aarch64, so x86_64 runs plain loops and is slower.

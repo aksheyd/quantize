@@ -7,12 +7,12 @@ The version lives only in `[workspace.package]` in the root `Cargo.toml`. The cr
 
 CI publishes each release from its tag. Never run `cargo publish`, `uv publish`, or `gh release create` by hand.
 
-Every commit and tag uses `Akshey D <131929364+aksheyd@users.noreply.github.com>` as author, committer, and tagger, whatever the local git config says.
+Every commit and tag uses `Akshey D <131929364+aksheyd@users.noreply.github.com>`, never another of the owner's emails, whatever the local git config says.
 
 To release:
 
-1. Set the release version (`0.3.0-dev` becomes `0.3.0`), run `just test` so `Cargo.lock` picks it up, add a `## 0.3.0` section to `CHANGELOG.md`, and commit
-2. `just release-check <ver>` runs the checks CI runs before publishing
+1. Set the release version (`0.3.0-dev` becomes `0.3.0`), run `just test` so `Cargo.lock` picks it up, add a `## 0.3.0` section to `CHANGELOG.md`, and merge that commit into `main`
+2. On an up-to-date `main`, `just release-check <ver>` runs the checks CI runs before publishing
 3. `git -c user.name="Akshey D" -c user.email=131929364+aksheyd@users.noreply.github.com tag -a <ver> -m "Release <ver>"` (plain version, e.g. `0.3.0`)
 4. `git push origin <ver>` publishes the release
 5. Set the next dev version the same way (e.g. `0.3.1-dev`), commit, and push

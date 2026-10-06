@@ -36,7 +36,7 @@ a block with outliers can need more than 8 bits, which raises `ToleranceTooTight
 import numpy as np
 from quantize import ToleranceTooTightError, adaptive
 
-weights = np.array(weights)  # .std() needs an array or a pytorch tensor, not a list
+weights = np.array(weights)  # a list has no .std(). skip this line for a pytorch tensor
 try:
     q = adaptive.quantize(weights, tolerance=0.1 * weights.std())
 except ToleranceTooTightError as error:

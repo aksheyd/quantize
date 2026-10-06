@@ -277,6 +277,36 @@ mod tests {
     }
 
     #[test]
+    fn matmul_into_writes_every_value_of_out() {
+        let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
+        let mut q = quantize::<f32, 8, 32>(&w).unwrap();
+        q.set_shape(2, 32).unwrap();
+        let inputs: Vec<f32> = (0..96).map(|i| (i as f32) * 0.02 - 0.15).collect();
+        let mut out = [f32::NAN; 3 * 2];
+        q.matmul_into(&inputs, &mut out).unwrap();
+        assert_eq!(out.to_vec(), q.matmul(&inputs).unwrap());
+    }
+
+    #[test]
+    fn matmul_into_catches_a_shape_recorded_the_wrong_way_round() {
+        // A layer with 2 outputs and 32 inputs, recorded as 32 rows of 2. A
+        // batch of 4 inputs also splits into 64 vectors of 2, so matmul
+        // returns 64 × 32 values where 4 × 2 were expected.
+        let w: Vec<f32> = (0..64).map(|i| (i as f32) * 0.01 - 0.3).collect();
+        let mut q = quantize::<f32, 8, 32>(&w).unwrap();
+        q.set_shape(32, 2).unwrap();
+        let inputs = [0.1_f32; 4 * 32];
+        assert_eq!(q.matmul(&inputs).unwrap().len(), 64 * 32);
+        assert_eq!(
+            q.matmul_into(&inputs, &mut [0.0; 4 * 2]),
+            Err(crate::Error::LengthMismatch {
+                expected: 64 * 32,
+                got: 4 * 2
+            })
+        );
+    }
+
+    #[test]
     fn set_shape_rejects_zero_columns() {
         let mut q = quantize::<f32, 8, 8>(&[0.1; 8]).unwrap();
         assert_eq!(
@@ -376,5 +406,24 @@ mod tests {
                 Err(crate::Error::OutputTooLarge { batch: 2, rows }) if rows == len
             ));
         }
+    }
+
+    #[test]
+    fn matmul_into_rejects_a_result_too_large_to_count() {
+        // As above, 2 inputs times `usize::MAX` rows overflow a `usize`.
+        let huge = Quantized::<f32>::Symmetric {
+            scales: Vec::new(),
+            codes: Packed::from_raw(Vec::new(), 8, 0),
+            block: 1,
+            len: usize::MAX,
+            columns: Some(1),
+        };
+        assert_eq!(
+            huge.matmul_into(&[0.0; 2], &mut []),
+            Err(crate::Error::OutputTooLarge {
+                batch: 2,
+                rows: usize::MAX
+            })
+        );
     }
 }

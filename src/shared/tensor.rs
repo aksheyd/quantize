@@ -1,7 +1,7 @@
 //! One enum, one variant per scheme.
 
 use crate::decode::{
-    decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, matmul_into, unpack_codes,
+    decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, unpack_codes,
 };
 use crate::error::{Error, Result, check_bits, check_block, check_len, malformed};
 use crate::packed::Packed;
@@ -423,6 +423,9 @@ impl<S: Scale> Quantized<S> {
     /// multiple of the block size and each row fills whole bytes. Otherwise,
     /// and for adaptive tensors, every call first decodes the whole matrix.
     ///
+    /// To reuse one buffer for the result, or to catch a shape recorded the
+    /// wrong way round, use [`matmul_into`](Self::matmul_into).
+    ///
     /// # Errors
     ///
     /// [`Error::NotAMatrix`] if the tensor has no shape,
@@ -430,16 +433,7 @@ impl<S: Scale> Quantized<S> {
     /// of `columns` values, and [`Error::OutputTooLarge`] if the
     /// `batch × rows` result can't be allocated.
     pub fn matmul(&self, inputs: &[f32]) -> Result<Vec<f32>> {
-        let Some((rows, columns)) = self.shape() else {
-            return Err(Error::NotAMatrix { len: self.len() });
-        };
-        if !inputs.len().is_multiple_of(columns) {
-            return Err(Error::ShapeMismatch {
-                len: inputs.len(),
-                columns,
-            });
-        }
-        let batch = inputs.len() / columns;
+        let (batch, rows, _) = self.matmul_shape(inputs)?;
 
         // The result can be far larger than the tensor and the inputs
         // together. Multiply with an overflow check and reserve the memory up
@@ -455,8 +449,64 @@ impl<S: Scale> Quantized<S> {
         }
         out.resize(output_len, 0.0);
 
-        matmul_into(self, inputs, columns, &mut out);
+        self.matmul_into(inputs, &mut out)?;
         Ok(out)
+    }
+
+    /// Like [`matmul`](Self::matmul), but write the `batch × rows` result into
+    /// `out`, so a loop can reuse one buffer.
+    ///
+    /// `matmul` works out the batch from the length of `inputs`, so when a
+    /// shape is recorded the wrong way round and the inputs still split into
+    /// whole vectors, it returns a result of the wrong size. Here the length
+    /// of `out` says what size the result should be, so that mistake is an
+    /// error at any batch size:
+    ///
+    /// ```
+    /// use quantize::{Error, quantize};
+    ///
+    /// // A layer with 2 outputs and 4 inputs, recorded as 4 rows × 2 columns.
+    /// let mut w = quantize::<f32, 8, 4>(&[0.5; 8]).unwrap();
+    /// w.set_shape(4, 2).unwrap();
+    ///
+    /// // A batch of 2 inputs of 4 values also splits into 4 vectors of 2.
+    /// let inputs = [1.0; 8];
+    /// let mut out = [0.0; 2 * 2];
+    /// assert_eq!(
+    ///     w.matmul_into(&inputs, &mut out),
+    ///     Err(Error::LengthMismatch { expected: 16, got: 4 })
+    /// );
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAMatrix`] and [`Error::ShapeMismatch`] as in
+    /// [`matmul`](Self::matmul), [`Error::OutputTooLarge`] if `batch × rows`
+    /// is more values than a `usize` can count, and [`Error::LengthMismatch`]
+    /// if `out` isn't `batch × rows` long.
+    pub fn matmul_into(&self, inputs: &[f32], out: &mut [f32]) -> Result<()> {
+        let (batch, rows, columns) = self.matmul_shape(inputs)?;
+        let Some(output_len) = batch.checked_mul(rows) else {
+            return Err(Error::OutputTooLarge { batch, rows });
+        };
+        check_len(output_len, out.len())?;
+        crate::decode::matmul_into(self, inputs, columns, out);
+        Ok(())
+    }
+
+    /// `(batch, rows, columns)`: how many input vectors `inputs` holds, and
+    /// the shape of the matrix they multiply.
+    fn matmul_shape(&self, inputs: &[f32]) -> Result<(usize, usize, usize)> {
+        let Some((rows, columns)) = self.shape() else {
+            return Err(Error::NotAMatrix { len: self.len() });
+        };
+        if !inputs.len().is_multiple_of(columns) {
+            return Err(Error::ShapeMismatch {
+                len: inputs.len(),
+                columns,
+            });
+        }
+        Ok((inputs.len() / columns, rows, columns))
     }
 }
 

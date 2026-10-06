@@ -2,7 +2,7 @@
 //! libraries by `speed.rs`, plus this crate's fused `dot` and `matmul`.
 //! `matmul` multiplies the weights by 16 vectors, so its time covers all 16.
 //!
-//! Run: `cargo run --release --example throughput`
+//! Run: `cargo run --release -p benchmarks --example throughput`
 
 mod speed;
 

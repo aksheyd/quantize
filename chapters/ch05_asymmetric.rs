@@ -14,6 +14,8 @@
 //! largest. Chapter 4's symmetric scale is the case where the zero-point is 0.
 //! Here it's a float like the scale, so it can land between codes or far
 //! outside them. Many libraries store it as a code, so 0.0 comes back exactly.
+//! As a float, it costs as much to store as the scale: an f32 of each per 4
+//! values makes 4 + 64/4 = 20 bits per value; real formats go from 4.5 to 5.
 //!
 //! **Still wrong**: every block gets the same bit width, however wide its
 //! range. At 4 bits the quiet block below comes back far more precisely than

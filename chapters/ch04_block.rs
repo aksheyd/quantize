@@ -91,7 +91,8 @@ fn compare<const BITS: u32, const BLOCK: usize>(weights: &[f32]) {
     println!("\nGlobal scale is dominated by the outlier → first block collapses to 0.");
     println!("Per-block scales rescue it. The outlier still ruins its own block, so");
     println!("smaller blocks would limit the damage to fewer values, but store more scales.");
-    println!("The library does this in `quantize::symmetric::quantize`, with `max_abs` on -8.");
+    println!("The library does this in `quantize::symmetric::quantize`, but the value farthest");
+    println!("from 0 lands on -8, not 7: one more code, and a negative scale if it's positive.");
 }
 
 fn main() {

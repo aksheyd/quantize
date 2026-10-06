@@ -2,6 +2,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use pyo3::types::PyType;
 
 use crate::error::QuantizeError;
 
@@ -9,7 +10,10 @@ use crate::error::QuantizeError;
 /// exactly, in 4 bytes each. `Scale.F16` and `Scale.BF16` round them to 2
 /// bytes: f16 keeps more digits, and bf16 more range. Rounded zero-points cap
 /// the accuracy of asymmetric codes above about 10 bits, so use `Scale.F32`
-/// there. `scale=` also takes the name that `name` returns.
+/// there. `scale=` also takes the name that `name` returns, and
+/// `Scale(name)` gives the scale back, like `Scale("f16")`. Pickles load
+/// through it, so `torch.load` accepts them once
+/// `torch.serialization.add_safe_globals([Scale])` allows the class.
 #[pyclass(
     eq,
     frozen,
@@ -65,6 +69,11 @@ impl FromPyObject<'_, '_> for PyScale {
 
 #[pymethods]
 impl PyScale {
+    #[new]
+    fn new(name: PyScale) -> Self {
+        name
+    }
+
     /// The name that `scale=` also accepts: `'f32'`, `'f16'`, or `'bf16'`.
     #[getter]
     fn name(&self) -> &'static str {
@@ -79,13 +88,15 @@ impl PyScale {
         self.name()
     }
 
+    /// Pickles saved by quantize-py 0.3.0 and earlier call this with the name.
     #[staticmethod]
     fn _from_pickle(name: &str) -> PyResult<Self> {
         Self::from_name(name).ok_or_else(|| PyValueError::new_err("malformed pickle state"))
     }
 
-    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<(Bound<'py, PyAny>, (&'static str,))> {
-        let callable = slf.as_any().getattr("_from_pickle")?;
-        Ok((callable, (slf.get().name(),)))
+    // Pickles call the class with the name, so that `torch.load` loads them
+    // once `add_safe_globals([Scale])` allows it, as with `Quantized`.
+    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> (Bound<'py, PyType>, (&'static str,)) {
+        (slf.as_any().get_type(), (slf.get().name(),))
     }
 }

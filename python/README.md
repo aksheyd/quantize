@@ -6,7 +6,7 @@ python bindings for [quantize](https://github.com/aksheyd/quantize), a simple, f
 pip install quantize-py
 ```
 
-requires python 3.12 or newer. numpy is installed with it.
+requires python 3.12 or newer. numpy is installed with it. where no wheel fits, like free-threaded python or alpine linux, pip builds it from source, which needs rust 1.88 or newer.
 
 ```python
 from quantize import Scale, quantize
@@ -27,12 +27,16 @@ the other schemes return the same `Quantized` type:
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive.quantize(weights, tolerance=0.1 * weights.std())` gives each block the fewest bits, from 2 to 8, that round every weight within `tolerance`, in the weights' own units. a tenth of their standard deviation gives about 5 bits a block. for a list, use `np.std(weights)`
 - `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the mean squared error. it changes `q` in place, so call `q.copy()` first to keep the original
-- `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place. both can raise the worst error past an adaptive tensor's tolerance
+- `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place. both can raise the worst error past an adaptive tensor's tolerance, and lowering the error of the weights doesn't always lower the error of a model's outputs, so check those too
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
 
 a block with outliers can need more than 8 bits, which raises `ToleranceTooTightError`. retrying with its `smallest_tolerance` works, but loosens every block, not just that one:
 
 ```python
+import numpy as np
+from quantize import ToleranceTooTightError, adaptive
+
+weights = np.array(weights)  # .std() needs an array or a pytorch tensor, not a list
 try:
     q = adaptive.quantize(weights, tolerance=0.1 * weights.std())
 except ToleranceTooTightError as error:

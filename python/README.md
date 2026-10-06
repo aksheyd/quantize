@@ -50,7 +50,7 @@ np.savez("layer.npz", **{name: part for name, part in parts.items() if part is n
 q = Quantized.from_parts(**np.load("layer.npz"))
 ```
 
-to load quantized values from a `torch.save` checkpoint, call `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
+to keep quantized values in a `torch.save` checkpoint, store `torch.frombuffer(bytearray(q.to_bytes()), dtype=torch.uint8)`, and load each back with `Quantized(t)`. the checkpoint is then as small as the bytes, and `torch.load` reads it without `add_safe_globals`. pickling `q` itself makes the checkpoint about 1.5 times larger, since `torch.save` stores bytes as text, and needs `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
 
 each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
 

@@ -7,7 +7,7 @@
 mod speed;
 
 use half::f16;
-use quantize::quantize;
+use quantize::{Scheme, quantize};
 use speed::{ITERATIONS, SIDE, time_per_value};
 
 fn main() -> candle_core::Result<()> {
@@ -34,5 +34,23 @@ fn main() -> candle_core::Result<()> {
     let matmul = time_per_value(|| quantized_4bit.matmul(sixteen_vectors).unwrap());
     println!("{:<18}{dot:>10.3}", "8-bit dot");
     println!("{:<18}{matmul:>10.3}", "4-bit matmul ×16");
+
+    // Decode an adaptive matrix one row at a time, the way an embedding table
+    // is read.
+    let adaptive = Scheme::Adaptive {
+        block: 32,
+        tolerance: 0.1,
+    };
+    let mut table = adaptive.quantize::<f16>(&values).unwrap();
+    table.set_shape(SIDE, SIDE).unwrap();
+    let rows = time_per_value(|| {
+        let mut decoded = vec![0.0; SIDE * SIDE];
+        for row in 0..SIDE {
+            let out = &mut decoded[row * SIDE..(row + 1) * SIDE];
+            table.dequantize_row_into(row, out).unwrap();
+        }
+        decoded
+    });
+    println!("{:<18}{rows:>10.3}", "adaptive rows");
     Ok(())
 }

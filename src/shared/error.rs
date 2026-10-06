@@ -100,6 +100,12 @@ pub enum Error {
         /// The format version the tensor was saved in.
         version: u8,
     },
+    /// [`Scheme`](crate::Scheme)'s [`parse`](str::parse) read text that isn't
+    /// written like a scheme.
+    InvalidScheme {
+        /// The text that was read.
+        text: String,
+    },
 }
 
 impl fmt::Display for Error {
@@ -176,12 +182,17 @@ impl fmt::Display for Error {
                     "the tensor was saved by a newer version of quantize, in format version {version}; upgrade quantize to load it"
                 )
             }
+            Self::InvalidScheme { text } => {
+                write!(
+                    f,
+                    "{text:?} isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), or adaptive(block=32, tolerance=0.002)"
+                )
+            }
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
+impl core::error::Error for Error {}
 
 /// Result alias for this crate.
 pub type Result<T, E = Error> = core::result::Result<T, E>;
@@ -315,6 +326,17 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "the tensor was saved by a newer version of quantize, in format version 2; upgrade quantize to load it"
+        );
+    }
+
+    #[test]
+    fn display_shows_how_to_write_a_scheme() {
+        let err = Error::InvalidScheme {
+            text: "symmetric:4:32".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            r#""symmetric:4:32" isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), or adaptive(block=32, tolerance=0.002)"#
         );
     }
 }

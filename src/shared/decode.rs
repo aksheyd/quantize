@@ -4,7 +4,8 @@ use crate::kernels::{
     dequant_asym_into, dequant_i4_blocks, dequant_i8_blocks, dequant_sym_into, dot_asym,
     dot_i4_blocks, dot_i8_blocks, dot_sym,
 };
-use crate::packed::{Packed, nbytes};
+use crate::packed::{Packed, nbytes, read_code};
+use crate::params::assert_bits_in_range;
 use crate::scale::Scale;
 use crate::tensor::Quantized;
 
@@ -62,6 +63,36 @@ pub(crate) fn dequant_adaptive<S: Scale>(
     }
 }
 
+/// Like [`dot_asym`], one block at a time: each block's codes are packed at
+/// its own width, starting on the byte after the block before it.
+pub(crate) fn dot_adaptive<S: Scale>(
+    scales: &[S],
+    zero_points: &[S],
+    bytes: &[u8],
+    bits: &[u8],
+    block: usize,
+    rhs: &[f32],
+) -> f32 {
+    let mut total = 0.0_f32;
+    let mut byte_offset = 0;
+    for (block_index, block_rhs) in rhs.chunks(block).enumerate() {
+        let bit_width = u32::from(bits[block_index]);
+        assert_bits_in_range(bit_width);
+        let block_codes = &bytes[byte_offset..];
+        let mut code_total = 0.0_f32;
+        let mut rhs_total = 0.0_f32;
+        for (code_index, &x) in block_rhs.iter().enumerate() {
+            code_total += read_code(block_codes, code_index, bit_width) as f32 * x;
+            rhs_total += x;
+        }
+        let scale = scales[block_index].to_f32();
+        let zero_point = zero_points[block_index].to_f32();
+        total += scale * (code_total - zero_point * rhs_total);
+        byte_offset += nbytes(block_rhs.len(), bit_width);
+    }
+    total
+}
+
 pub(crate) fn dot_of<S: Scale>(quantized: &Quantized<S>, rhs: &[f32]) -> f32 {
     match quantized {
         Quantized::Symmetric {
@@ -69,36 +100,34 @@ pub(crate) fn dot_of<S: Scale>(quantized: &Quantized<S>, rhs: &[f32]) -> f32 {
             codes,
             block,
             ..
-        } if codes.bits() == 8 => dot_i8_blocks(&as_f32(scales), codes.as_bytes(), *block, rhs),
+        } if codes.bits() == 8 => dot_i8_blocks(scales, codes.as_bytes(), *block, rhs),
         Quantized::Symmetric {
             scales,
             codes,
             block,
             ..
-        } if codes.bits() == 4 => dot_i4_blocks(&as_f32(scales), codes.as_bytes(), *block, rhs),
+        } if codes.bits() == 4 => dot_i4_blocks(scales, codes.as_bytes(), *block, rhs),
         Quantized::Symmetric {
             scales,
             codes,
             block,
             ..
-        } => dot_sym(&as_f32(scales), codes, *block, rhs),
+        } => dot_sym(scales, codes, *block, rhs),
         Quantized::Asymmetric {
             scales,
             zero_points,
             codes,
             block,
             ..
-        } => dot_asym(&as_f32(scales), &as_f32(zero_points), codes, *block, rhs),
-        Quantized::Adaptive { block, .. } => {
-            // Added up block by block, like the kernels above.
-            let weights = quantized.dequantize();
-            let mut total = 0.0;
-            for (block_weights, block_rhs) in weights.chunks(*block).zip(rhs.chunks(*block)) {
-                let products = block_weights.iter().zip(block_rhs);
-                total += products.map(|(weight, x)| weight * x).sum::<f32>();
-            }
-            total
-        }
+        } => dot_asym(scales, zero_points, codes, *block, rhs),
+        Quantized::Adaptive {
+            scales,
+            zero_points,
+            codes,
+            block_bits,
+            block,
+            ..
+        } => dot_adaptive(scales, zero_points, codes, block_bits, *block, rhs),
     }
 }
 
@@ -355,6 +384,31 @@ mod tests {
             let got = quantized.dot(&ones).unwrap() as f64;
             let relative_error = ((got - exact) / exact).abs();
             assert!(relative_error < 2e-5, "{relative_error}");
+        }
+    }
+
+    #[test]
+    fn dot_matches_the_decoded_values_for_every_layout() {
+        // Blocks of 7 codes at 3, 4, or 5 bits end partway through a byte,
+        // 120 values leave a last block of 1, and the adaptive blocks widen
+        // from 2 to 7 bits as the values do.
+        let values: Vec<f32> = (0..120)
+            .map(|i| (i as f32 * 0.37).sin() * i as f32 / 120.0)
+            .collect();
+        let rhs: Vec<f32> = (0..120).map(|i| (i as f32 * 0.11).cos()).collect();
+        let tensors: [Quantized<f32>; 5] = [
+            symmetric::quantize_with(&values, 8, 7).unwrap(),
+            symmetric::quantize_with(&values, 4, 7).unwrap(),
+            symmetric::quantize_with(&values, 5, 7).unwrap(),
+            asymmetric::quantize_with(&values, 3, 7).unwrap(),
+            adaptive::quantize_with(&values, 7, 0.01).unwrap(),
+        ];
+        for quantized in tensors {
+            let decoded = quantized.dequantize();
+            let products = decoded.iter().zip(&rhs);
+            let expected: f32 = products.map(|(weight, x)| weight * x).sum();
+            let got = quantized.dot(&rhs).unwrap();
+            assert!((expected - got).abs() < 1e-5, "{expected} vs {got}");
         }
     }
 

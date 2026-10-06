@@ -26,13 +26,28 @@ fn main() -> candle_core::Result<()> {
         );
     }
 
-    let quantized_8bit = quantize::<f16, 8, 32>(&values).unwrap();
+    let dot_schemes = [
+        ("8-bit dot", Scheme::Q8_32),
+        ("5-bit dot", Scheme::Symmetric { bits: 5, block: 32 }),
+        ("asymmetric dot", Scheme::Asymmetric { bits: 4, block: 32 }),
+        (
+            "adaptive dot",
+            Scheme::Adaptive {
+                block: 32,
+                tolerance: 0.1,
+            },
+        ),
+    ];
+    for (name, scheme) in dot_schemes {
+        let quantized = scheme.quantize::<f16>(&values).unwrap();
+        let dot = time_per_value(|| quantized.dot(&values).unwrap());
+        println!("{name:<18}{dot:>10.3}");
+    }
+
     let mut quantized_4bit = quantize::<f16, 4, 32>(&values).unwrap();
     quantized_4bit.set_shape(SIDE, SIDE).unwrap();
     let sixteen_vectors = &values[..16 * SIDE];
-    let dot = time_per_value(|| quantized_8bit.dot(&values).unwrap());
     let matmul = time_per_value(|| quantized_4bit.matmul(sixteen_vectors).unwrap());
-    println!("{:<18}{dot:>10.3}", "8-bit dot");
     println!("{:<18}{matmul:>10.3}", "4-bit matmul ×16");
 
     // Decode an adaptive matrix one row at a time, the way an embedding table

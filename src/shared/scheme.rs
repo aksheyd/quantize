@@ -3,7 +3,7 @@
 use core::fmt;
 use core::str::FromStr;
 
-use crate::error::{Error, Result};
+use crate::error::{Error, Result, check_bits, check_block, check_tolerance};
 use crate::scale::Scale;
 use crate::tensor::Quantized;
 use crate::{adaptive, asymmetric, symmetric};
@@ -86,15 +86,32 @@ impl fmt::Display for Scheme {
     }
 }
 
-/// Reads what [`Display`](fmt::Display) prints, with or without the spaces,
-/// or the name `Q8_32` or `Q4_32`.
+/// Reads what [`Display`](fmt::Display) prints, with or without the spaces
+/// and with the arguments in any order, or the name `Q8_32` or `Q4_32`.
+///
+/// A value that [`quantize`](Scheme::quantize) would reject, like `bits=99`,
+/// gets the same error here, so a bad config fails where it's read:
+/// [`Error::InvalidBits`], [`Error::InvalidBlock`], or
+/// [`Error::InvalidTolerance`]. Other text that isn't a scheme gets
+/// [`Error::InvalidScheme`].
 impl FromStr for Scheme {
     type Err = Error;
 
     fn from_str(text: &str) -> Result<Self> {
-        parse_scheme(text.trim()).ok_or_else(|| Error::InvalidScheme {
+        let scheme = parse_scheme(text.trim()).ok_or_else(|| Error::InvalidScheme {
             text: text.to_string(),
-        })
+        })?;
+        match scheme {
+            Scheme::Symmetric { bits, block } | Scheme::Asymmetric { bits, block } => {
+                check_bits(bits)?;
+                check_block(block)?;
+            }
+            Scheme::Adaptive { block, tolerance } => {
+                check_block(block)?;
+                check_tolerance(tolerance)?;
+            }
+        }
+        Ok(scheme)
     }
 }
 
@@ -106,25 +123,32 @@ fn parse_scheme(text: &str) -> Option<Scheme> {
         _ => {}
     }
     // "symmetric(bits=4, block=32)" is the kind "symmetric", then the
-    // arguments ("bits", "4") and ("block", "32").
+    // arguments ("bits", "4") and ("block", "32"), in any order. Each name
+    // may appear once.
     let (kind, arguments) = text.strip_suffix(')')?.split_once('(')?;
-    let arguments: Vec<(&str, &str)> = arguments
-        .split(',')
-        .map(|argument| {
-            let (name, value) = argument.split_once('=')?;
-            Some((name.trim(), value.trim()))
-        })
-        .collect::<Option<_>>()?;
-    Some(match (kind.trim(), arguments.as_slice()) {
-        ("symmetric", [("bits", bits), ("block", block)]) => Scheme::Symmetric {
+    let (mut bits, mut block, mut tolerance) = (None, None, None);
+    for argument in arguments.split(',') {
+        let (name, value) = argument.split_once('=')?;
+        let slot = match name.trim() {
+            "bits" => &mut bits,
+            "block" => &mut block,
+            "tolerance" => &mut tolerance,
+            _ => return None,
+        };
+        if slot.replace(value.trim()).is_some() {
+            return None;
+        }
+    }
+    Some(match (kind.trim(), bits, block, tolerance) {
+        ("symmetric", Some(bits), Some(block), None) => Scheme::Symmetric {
             bits: bits.parse().ok()?,
             block: block.parse().ok()?,
         },
-        ("asymmetric", [("bits", bits), ("block", block)]) => Scheme::Asymmetric {
+        ("asymmetric", Some(bits), Some(block), None) => Scheme::Asymmetric {
             bits: bits.parse().ok()?,
             block: block.parse().ok()?,
         },
-        ("adaptive", [("block", block), ("tolerance", tolerance)]) => Scheme::Adaptive {
+        ("adaptive", None, Some(block), Some(tolerance)) => Scheme::Adaptive {
             block: block.parse().ok()?,
             tolerance: tolerance.parse().ok()?,
         },
@@ -172,13 +196,27 @@ mod tests {
     }
 
     #[test]
+    fn parse_reads_the_arguments_in_any_order() {
+        assert_eq!("symmetric(block=32, bits=4)".parse(), Ok(Scheme::Q4_32));
+        assert_eq!(
+            "adaptive(tolerance=0.002, block=32)".parse(),
+            Ok(Scheme::Adaptive {
+                block: 32,
+                tolerance: 0.002
+            })
+        );
+    }
+
+    #[test]
     fn parse_rejects_text_that_is_not_a_scheme() {
         for text in [
             "",
             "q4_32",
             "symetric(bits=4, block=32)",
             "symmetric(bits=4)",
-            "symmetric(block=32, bits=4)",
+            "symmetric(bits=4, block=32, bits=8)",
+            "symmetric(bits=4, block=32, tolerance=0.1)",
+            "symmetric(bits=4, size=32)",
             "adaptive(bits=4, block=32)",
             "symmetric(bits=four, block=32)",
             "symmetric:4:32",
@@ -189,6 +227,22 @@ mod tests {
                     text: text.to_string()
                 }),
             );
+        }
+    }
+
+    #[test]
+    fn parse_rejects_values_that_quantize_would_reject() {
+        assert_eq!(
+            "symmetric(bits=99, block=32)".parse::<Scheme>(),
+            Err(Error::InvalidBits { bits: 99 })
+        );
+        assert_eq!(
+            "asymmetric(bits=4, block=0)".parse::<Scheme>(),
+            Err(Error::InvalidBlock { block: 0 })
+        );
+        for tolerance in ["0", "-0.1", "NaN", "inf"] {
+            let text = format!("adaptive(block=32, tolerance={tolerance})");
+            assert_eq!(text.parse::<Scheme>(), Err(Error::InvalidTolerance));
         }
     }
 }

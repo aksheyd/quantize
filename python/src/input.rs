@@ -15,6 +15,7 @@ const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized
 const BYTES_TYPE: &str = "data must be bytes, like to_bytes returns, or a 1-D uint8 array";
 const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
 const OUT_CONTIG: &str = "out must be writable and C-contiguous";
+const OUT_OVERLAPS_INPUTS: &str = "out can't share memory with inputs";
 
 fn is_native_dtype(arr: &Bound<'_, PyUntypedArray>) -> PyResult<bool> {
     arr.dtype().getattr("isnative")?.extract()
@@ -225,6 +226,25 @@ pub fn as_writable_f32_out<'py>(
     check_shape(obj.py(), "out", shape, arr.shape())?;
     arr.try_readwrite()
         .map_err(|_| PyValueError::new_err(OUT_CONTIG))
+}
+
+/// Check that `out` shares no memory with `inputs`, which `matmul` reads
+/// while it writes `out`. The arrays' memory is compared, not the arrays,
+/// since two arrays over one buffer, like `t.numpy()` and the array read
+/// from a tensor `t`, are separate objects. An `out` that isn't an array is
+/// left for `as_writable_f32_out` to reject.
+pub fn check_no_overlap(out: &Bound<'_, PyAny>, inputs: &Bound<'_, PyAny>) -> PyResult<()> {
+    if !out.is_instance_of::<PyUntypedArray>() {
+        return Ok(());
+    }
+    let numpy = out.py().import("numpy")?;
+    if numpy
+        .call_method1("may_share_memory", (out, inputs))?
+        .is_truthy()?
+    {
+        return Err(PyValueError::new_err(OUT_OVERLAPS_INPUTS));
+    }
+    Ok(())
 }
 
 /// Check that `argument`, which came in with shape `got`, has exactly the

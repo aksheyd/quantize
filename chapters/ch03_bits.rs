@@ -48,7 +48,10 @@ fn choose_scale_bits<const BITS: u32>(values: &[f32]) -> f32 {
 fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
     let mut worst = 0.0_f32;
     for (input, output) in inputs.iter().zip(outputs) {
-        worst = worst.max((input - output).abs());
+        let gap = (input - output).abs();
+        if gap > worst || gap.is_nan() {
+            worst = gap;
+        }
     }
     worst
 }

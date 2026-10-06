@@ -127,6 +127,16 @@ def test_except_quantize_error_catches_length():
     assert isinstance(raised.value, ValueError)
 
 
+def test_a_copy_keeps_the_original_through_refine_and_alternate():
+    weights = np.linspace(-0.5, 0.5, 64, dtype=np.float32).reshape(2, 32)
+    for refit in [learned.refine, learned.alternate]:
+        quantized = quantize(weights, bits=4)
+        original = quantized.copy()
+        refit(quantized, weights)
+        assert quantized != original
+        assert original == quantize(weights, bits=4)
+
+
 def test_refine_and_alternate_work_while_another_thread_uses_the_tensor():
     weights = np.random.default_rng(0).standard_normal((256, 256)).astype(np.float32)
     quantized = quantize(weights, bits=4)

@@ -105,6 +105,12 @@ impl Packed {
             *slot = read_code(&self.bytes, index, self.bits);
         }
     }
+
+    /// Read code `index` alone, without unpacking the others.
+    #[inline]
+    pub(crate) fn code(&self, index: usize) -> i32 {
+        read_code(&self.bytes, index, self.bits)
+    }
 }
 
 /// A one-line summary, like `Packed { bits: 4, len: 64, .. }`. The bytes are
@@ -183,10 +189,11 @@ fn write_code(bytes: &mut [u8], index: usize, bits: u32, q: i32) {
     }
 }
 
-// Every unpacking loop calls this once per code, so it must be inlined into
-// each of them.
+// Every loop that reads codes calls this once per code, so it must be inlined
+// into each of them. It doesn't check `bits`, so callers check it first, as
+// `Packed` does when it's built.
 #[inline(always)]
-fn read_code(bytes: &[u8], index: usize, bits: u32) -> i32 {
+pub(crate) fn read_code(bytes: &[u8], index: usize, bits: u32) -> i32 {
     let bit = index * bits as usize;
     let byte = bit / 8;
     let off = bit % 8;

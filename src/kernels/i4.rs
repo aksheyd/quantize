@@ -156,7 +156,12 @@ unsafe fn store_i8x16(q: core::arch::aarch64::int8x16_t, scale: f32, dst: *mut f
     }
 }
 
-pub(crate) fn dot_i4_blocks(scales: &[f32], bytes: &[u8], block: usize, rhs: &[f32]) -> f32 {
+pub(crate) fn dot_i4_blocks<S: Scale>(
+    scales: &[S],
+    bytes: &[u8],
+    block: usize,
+    rhs: &[f32],
+) -> f32 {
     let mut acc = 0.0_f32;
     let mut value_index = 0;
     for (block_index, chunk) in rhs.chunks(block).enumerate() {
@@ -171,7 +176,7 @@ pub(crate) fn dot_i4_blocks(scales: &[f32], bytes: &[u8], block: usize, rhs: &[f
             inner += (((nibble as i8) << 4) >> 4) as f32 * x;
             value_index += 1;
         }
-        acc += scales[block_index] * inner;
+        acc += scales[block_index].to_f32() * inner;
     }
     acc
 }

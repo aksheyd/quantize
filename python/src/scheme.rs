@@ -4,6 +4,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 
+use crate::error::from_quantize;
 use crate::input::{bits_argument, block_argument};
 use crate::quantize_values;
 use crate::quantized::PyQuantized;
@@ -13,6 +14,17 @@ use crate::scale::PyScale;
 /// `Scheme.symmetric`, `Scheme.asymmetric`, and `Scheme.adaptive` build one,
 /// and `quantize` runs it. `Scheme.Q8_32` and `Scheme.Q4_32` are symmetric
 /// 8-bit and 4-bit codes, with blocks of 32.
+///
+/// `Scheme(text)` reads a scheme written like a call to one of those
+/// methods, without the `Scheme.`, such as
+/// `Scheme("adaptive(block=32, tolerance=0.002)")`, or a constant's name,
+/// such as `Scheme("Q4_32")`. Text that isn't a scheme, or that holds a
+/// value `quantize` would reject, like `bits=99`, raises `QuantizeError`.
+///
+/// Pickles and copies load through `Scheme(text)`, so a scheme that
+/// `quantize` would reject, like `Scheme.symmetric(bits=99)`, raises the
+/// same error when it's unpickled or copied. `torch.load` accepts pickles
+/// once `torch.serialization.add_safe_globals([Scheme])` allows the class.
 #[pyclass(frozen, name = "Scheme", module = "quantize", eq, skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq)]
 pub struct PyScheme {
@@ -35,6 +47,12 @@ impl PyScheme {
 
 #[pymethods]
 impl PyScheme {
+    #[new]
+    fn new(text: &str) -> PyResult<Self> {
+        let inner = text.parse().map_err(from_quantize)?;
+        Ok(Self { inner })
+    }
+
     #[classattr]
     #[pyo3(name = "Q8_32")]
     fn q8_32() -> Self {
@@ -165,6 +183,8 @@ impl PyScheme {
         self.pickle_parts()
     }
 
+    /// Pickles saved by quantize-py 0.3.0 and earlier call this with the
+    /// parts that `__getstate__` returns.
     #[staticmethod]
     fn _from_pickle(
         kind: &str,
@@ -186,8 +206,10 @@ impl PyScheme {
         }
     }
 
-    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> PyResult<(Bound<'py, PyAny>, SchemePickle)> {
-        let callable = slf.getattr("_from_pickle")?;
-        Ok((callable, slf.get().pickle_parts()))
+    // Pickles call the class with the scheme's text, so that `torch.load`
+    // loads them once `add_safe_globals([Scheme])` allows it, as with
+    // `Quantized`.
+    fn __reduce__<'py>(slf: &Bound<'py, Self>) -> (Bound<'py, PyType>, (String,)) {
+        (slf.get_type(), (slf.get().inner.to_string(),))
     }
 }

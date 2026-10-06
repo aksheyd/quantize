@@ -410,6 +410,19 @@ def test_scheme_factory_does_not_validate():
     assert scheme.bits == 1
     with pytest.raises(InvalidBitsError):
         scheme.quantize([0.1])
+    data = pickle.dumps(scheme)
+    with pytest.raises(InvalidBitsError):
+        pickle.loads(data)
+
+
+def test_scheme_reads_text_written_like_its_class_methods():
+    assert Scheme("symmetric(bits=4, block=32)") == Scheme("Q4_32") == Scheme.Q4_32
+    assert Scheme("asymmetric(bits=3, block=7)") == Scheme.asymmetric(bits=3, block=7)
+    assert Scheme("adaptive(block=32, tolerance=0.002)") == Scheme.adaptive(tolerance=0.002)
+    with pytest.raises(QuantizeError, match=r"isn't a scheme; write one like symmetric\(bits=4"):
+        Scheme("symmetric:4:32")
+    with pytest.raises(InvalidBitsError):
+        Scheme("symmetric(bits=99, block=32)")
 
 
 def test_quantize_rejects_other_dimensions():
@@ -437,9 +450,12 @@ def test_scale_enum_selects_storage():
 def test_scale_can_be_given_by_name():
     for scale in [Scale.F32, Scale.F16, Scale.BF16]:
         assert quantize([0.1], scale=scale.name).scale == scale
+        assert Scale(scale.name) == scale
     assert Scale.BF16.name == "bf16"
     with pytest.raises(QuantizeError, match="scale must be a Scale or its name"):
         quantize([0.1], scale="float32")
+    with pytest.raises(QuantizeError, match="scale must be a Scale or its name"):
+        Scale("float32")
 
 
 def test_bad_values_raise_value_errors_that_name_the_argument():
@@ -521,25 +537,38 @@ def test_pickles_call_the_class_with_the_bytes_that_to_bytes_saves():
     assert Quantized(data) == Quantized.from_bytes(data) == quantized
 
 
-class OnlyQuantizedUnpickler(pickle.Unpickler):
+class OnlyOurClassesUnpickler(pickle.Unpickler):
     """Stands in for `torch.load`, which by default refuses any global it
-    doesn't trust, after `torch.serialization.add_safe_globals([Quantized])`.
+    doesn't trust, after
+    `torch.serialization.add_safe_globals([Quantized, Scale, Scheme])`.
     It also trusts `_codecs.encode`, as `torch.load` does, since pickles below
     protocol 3 store bytes with it."""
 
     def find_class(self, module, name):
-        if (module, name) == ("quantize", "Quantized"):
-            return Quantized
+        classes = {"Quantized": Quantized, "Scale": Scale, "Scheme": Scheme}
+        if module == "quantize" and name in classes:
+            return classes[name]
         if (module, name) == ("_codecs", "encode"):
             return codecs.encode
         raise pickle.UnpicklingError(f"{module}.{name} isn't allowed")
 
 
-def test_pickles_load_when_only_the_class_is_allowed_as_in_torch_load():
-    checkpoint = {"layer": quantize(weight_matrix(8, 32), bits=4, scale=Scale.F16)}
+def test_pickles_load_when_only_the_classes_are_allowed_as_in_torch_load():
+    checkpoint = {
+        "layer": quantize(weight_matrix(8, 32), bits=4, scale=Scale.F16),
+        "scheme": Scheme.adaptive(block=32, tolerance=0.002),
+        "scale": Scale.BF16,
+    }
     for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
         data = pickle.dumps(checkpoint, protocol)
-        assert OnlyQuantizedUnpickler(io.BytesIO(data)).load() == checkpoint
+        assert OnlyOurClassesUnpickler(io.BytesIO(data)).load() == checkpoint
+
+
+def test_scales_and_schemes_pickle_as_a_call_to_their_class():
+    for value in [Scale.F16, Scheme.Q4_32, Scheme.adaptive(block=32, tolerance=0.002)]:
+        rebuild, arguments = value.__reduce__()
+        assert rebuild is type(value)
+        assert rebuild(*arguments) == value
 
 
 def test_from_bytes_rejects_bytes_that_do_not_hold_a_tensor():
@@ -597,6 +626,26 @@ PICKLED_THROUGH_FROM_BYTES = (
 def test_a_pickle_through_from_bytes_still_loads():
     weights = [0.42, -0.10, 0.70, -0.50]
     assert pickle.loads(PICKLED_THROUGH_FROM_BYTES) == quantize(weights, bits=8, block=4)
+
+
+# [Scale.F16, Scheme.adaptive(block=32, tolerance=0.002), Scheme.Q4_32], pickled
+# by quantize-py 0.3.0, which called their _from_pickle methods.
+SCALE_AND_SCHEMES_PICKLED_BY_0_3_0 = (
+    b"\x80\x04\x95\xad\x00\x00\x00\x00\x00\x00\x00]\x94(\x8c\x08builtins\x94\x8c"
+    b"\x07getattr\x94\x93\x94\x8c\x08quantize\x94\x8c\x05Scale\x94\x93\x94\x8c\x0c"
+    b"_from_pickle\x94\x86\x94R\x94\x8c\x03f16\x94\x85\x94R\x94h\x03\x8c\x08quanti"
+    b"ze\x94\x8c\x06Scheme\x94\x93\x94\x8c\x0c_from_pickle\x94\x86\x94R\x94(\x8c"
+    b"\x08adaptive\x94NK G?`bM\xe0\x00\x00\x00t\x94R\x94h\x12(\x8c\tsymmetric\x94K"
+    b"\x04K Nt\x94R\x94e."
+)
+
+
+def test_scales_and_schemes_pickled_by_0_3_0_still_load():
+    assert pickle.loads(SCALE_AND_SCHEMES_PICKLED_BY_0_3_0) == [
+        Scale.F16,
+        Scheme.adaptive(block=32, tolerance=0.002),
+        Scheme.Q4_32,
+    ]
 
 
 def test_quantized_compares_by_value():

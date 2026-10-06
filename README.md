@@ -74,7 +74,13 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 <!-- comparison:end -->
 
-on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93. lower is better, and `cargo run --release -p benchmarks --example wikitext --features workload` reproduces them.
+on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93. perplexity is roughly how many tokens the model is choosing between when it guesses the next one, so lower is better. reproducing these numbers downloads the model and dataset from hugging face, then scores the whole test set, which takes hours:
+
+```
+cargo run --release -p benchmarks --example wikitext --features workload
+```
+
+add `-- --max-tokens 512` to score only the first 512 tokens. that takes about a minute, though its numbers won't match.
 
 ### speed
 

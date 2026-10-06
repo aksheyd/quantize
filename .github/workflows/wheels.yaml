@@ -155,7 +155,10 @@ jobs:
           path: dist
           merge-multiple: true
 
+      # With caching on, setup-uv's post step can fail the job after the upload.
       - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
 
       - name: Publish to PyPI
         run: uv publish --trusted-publishing always dist/*

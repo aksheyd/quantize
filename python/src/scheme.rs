@@ -18,8 +18,12 @@ use crate::scale::PyScale;
 /// `Scheme(text)` reads a scheme written like a call to one of those
 /// methods, without the `Scheme.`, such as
 /// `Scheme("adaptive(block=32, tolerance=0.002)")`, or a constant's name,
-/// such as `Scheme("Q4_32")`. Text that isn't a scheme raises
-/// `QuantizeError`. Pickles load through it, so `torch.load` accepts them
+/// such as `Scheme("Q4_32")`. Text that isn't a scheme, or that holds a
+/// value `quantize` would reject, like `bits=99`, raises `QuantizeError`.
+///
+/// Pickles and copies load through `Scheme(text)`, so a scheme that
+/// `quantize` would reject, like `Scheme.symmetric(bits=99)`, raises the
+/// same error when it's unpickled or copied. `torch.load` accepts pickles
 /// once `torch.serialization.add_safe_globals([Scheme])` allows the class.
 #[pyclass(frozen, name = "Scheme", module = "quantize", eq, skip_from_py_object)]
 #[derive(Clone, Copy, PartialEq)]

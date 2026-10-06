@@ -410,6 +410,9 @@ def test_scheme_factory_does_not_validate():
     assert scheme.bits == 1
     with pytest.raises(InvalidBitsError):
         scheme.quantize([0.1])
+    data = pickle.dumps(scheme)
+    with pytest.raises(InvalidBitsError):
+        pickle.loads(data)
 
 
 def test_scheme_reads_text_written_like_its_class_methods():
@@ -418,6 +421,8 @@ def test_scheme_reads_text_written_like_its_class_methods():
     assert Scheme("adaptive(block=32, tolerance=0.002)") == Scheme.adaptive(tolerance=0.002)
     with pytest.raises(QuantizeError, match=r"isn't a scheme; write one like symmetric\(bits=4"):
         Scheme("symmetric:4:32")
+    with pytest.raises(InvalidBitsError):
+        Scheme("symmetric(bits=99, block=32)")
 
 
 def test_quantize_rejects_other_dimensions():

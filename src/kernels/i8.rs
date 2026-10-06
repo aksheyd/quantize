@@ -68,10 +68,15 @@ unsafe fn quant_16(src: *const f32, inv: f32, dst: *mut u8) {
     }
 }
 
-pub(crate) fn dequant_i8_blocks(scales: &[f32], bytes: &[u8], block: usize, out: &mut [f32]) {
+pub(crate) fn dequant_i8_blocks<S: Scale>(
+    scales: &[S],
+    bytes: &[u8],
+    block: usize,
+    out: &mut [f32],
+) {
     let mut off = 0;
     for (bi, chunk) in out.chunks_mut(block).enumerate() {
-        dequant_chunk(&bytes[off..off + chunk.len()], scales[bi], chunk);
+        dequant_chunk(&bytes[off..off + chunk.len()], scales[bi].to_f32(), chunk);
         off += chunk.len();
     }
 }

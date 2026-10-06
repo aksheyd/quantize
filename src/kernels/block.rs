@@ -75,33 +75,36 @@ pub(crate) fn quantize_asym_block<S: Scale>(
     Ok((scale, zero_point))
 }
 
-pub(crate) fn dequant_sym_into(scales: &[f32], packed: &Packed, block: usize, out: &mut [f32]) {
-    let mut codes = vec![0i32; packed.len()];
-    packed.unpack_into(&mut codes);
-    let blocks = out.chunks_mut(block).zip(codes.chunks(block));
-    for (block_index, (block_out, block_codes)) in blocks.enumerate() {
-        let scale = scales[block_index];
-        for (slot, &code) in block_out.iter_mut().zip(block_codes) {
-            *slot = code as f32 * scale;
-        }
-    }
-}
-
-pub(crate) fn dequant_asym_into(
-    scales: &[f32],
-    zero_points: &[f32],
+pub(crate) fn dequant_sym_into<S: Scale>(
+    scales: &[S],
     packed: &Packed,
     block: usize,
     out: &mut [f32],
 ) {
-    let mut codes = vec![0i32; packed.len()];
-    packed.unpack_into(&mut codes);
-    let blocks = out.chunks_mut(block).zip(codes.chunks(block));
-    for (block_index, (block_out, block_codes)) in blocks.enumerate() {
-        let scale = scales[block_index];
-        let zero_point = zero_points[block_index];
-        for (slot, &code) in block_out.iter_mut().zip(block_codes) {
-            *slot = (code as f32 - zero_point) * scale;
+    let mut value_index = 0;
+    for (block_out, scale) in out.chunks_mut(block).zip(scales) {
+        let scale = scale.to_f32();
+        for slot in block_out {
+            *slot = packed.code(value_index) as f32 * scale;
+            value_index += 1;
+        }
+    }
+}
+
+pub(crate) fn dequant_asym_into<S: Scale>(
+    scales: &[S],
+    zero_points: &[S],
+    packed: &Packed,
+    block: usize,
+    out: &mut [f32],
+) {
+    let parameters = scales.iter().zip(zero_points);
+    let mut value_index = 0;
+    for (block_out, (scale, zero_point)) in out.chunks_mut(block).zip(parameters) {
+        let (scale, zero_point) = (scale.to_f32(), zero_point.to_f32());
+        for slot in block_out {
+            *slot = (packed.code(value_index) as f32 - zero_point) * scale;
+            value_index += 1;
         }
     }
 }

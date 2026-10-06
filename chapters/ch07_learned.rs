@@ -3,8 +3,8 @@
 //! **Previously** (`ch06_adaptive`): bit width follows a tolerance, but
 //! scale/zero-point still come from min/max of the block.
 //!
-//! **Problem**: min/max fit the *range*, not the *error*. Outliers set the
-//! scale; the rest of the block pays for it.
+//! **Problem**: min/max fit the *range*, not the *average* error. Outliers
+//! set the scale; the rest of the block pays for it.
 //!
 //! **Fix**: start from chapter 5's codes, freeze them, and treat dequant as a
 //! line: `value ≈ scale * code + offset`, with `offset = -scale * zero_point`.
@@ -31,23 +31,21 @@ fn asymmetric_params(values: &[f32]) -> (f32, f32) {
     (scale, SMALLEST_CODE - lowest / scale)
 }
 
+/// The least-squares line goes through the mean code and mean value. Its slope
+/// is how much codes and values vary together, over how much the codes vary.
 fn fit_scale_and_zero_point(values: &[f32], codes: &[i32]) -> (f32, f32) {
     let count = values.len() as f32;
-    let mut sum_codes = 0.0;
-    let mut sum_values = 0.0;
-    let mut sum_code_squared = 0.0;
-    let mut sum_code_times_value = 0.0;
+    let mean_code = codes.iter().map(|&code| code as f32).sum::<f32>() / count;
+    let mean_value = values.iter().sum::<f32>() / count;
+    let mut code_value_spread = 0.0;
+    let mut code_spread = 0.0;
     for (&value, &code) in values.iter().zip(codes) {
-        let code = code as f32;
-        sum_codes += code;
-        sum_values += value;
-        sum_code_squared += code * code;
-        sum_code_times_value += code * value;
+        let centered_code = code as f32 - mean_code;
+        let centered_value = value - mean_value;
+        code_value_spread += centered_code * centered_value;
+        code_spread += centered_code * centered_code;
     }
-    let mean_code = sum_codes / count;
-    let mean_value = sum_values / count;
-    let code_spread = sum_code_squared - sum_codes * mean_code;
-    let scale = (sum_code_times_value - sum_codes * mean_value) / code_spread;
+    let scale = code_value_spread / code_spread;
     let offset = mean_value - scale * mean_code;
     (scale, -offset / scale)
 }

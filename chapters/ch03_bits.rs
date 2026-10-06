@@ -17,10 +17,10 @@
 //!
 //! Run it: `cargo run --release --example ch03_bits`
 
+// `1 << n` is 2 to the power n: 4 bits give codes -8..=7, 8 bits -128..=127.
 const fn largest_code<const BITS: u32>() -> i32 {
     (1_i32 << (BITS - 1)) - 1
 }
-
 const fn smallest_code<const BITS: u32>() -> i32 {
     -(1_i32 << (BITS - 1))
 }
@@ -48,7 +48,10 @@ fn choose_scale_bits<const BITS: u32>(values: &[f32]) -> f32 {
 fn worst_error(inputs: &[f32], outputs: &[f32]) -> f32 {
     let mut worst = 0.0_f32;
     for (input, output) in inputs.iter().zip(outputs) {
-        worst = worst.max((input - output).abs());
+        let gap = (input - output).abs();
+        if gap > worst || gap.is_nan() {
+            worst = gap;
+        }
     }
     worst
 }

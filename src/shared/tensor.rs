@@ -304,6 +304,9 @@ impl<S: Scale> Quantized<S> {
 
     /// Decode every value into `out`, row after row for a matrix.
     ///
+    /// Each code is read straight from the packed bytes as it's decoded, so
+    /// `dequantize_into` doesn't allocate, whatever the scheme.
+    ///
     /// # Errors
     ///
     /// [`Error::LengthMismatch`] if `out` isn't [`len`](Self::len) long.
@@ -326,15 +329,9 @@ impl<S: Scale> Quantized<S> {
                 block,
                 ..
             } => dequant_asym(scales, zero_points, codes, *block, out),
-            Self::Adaptive {
-                scales,
-                zero_points,
-                codes,
-                block_bits,
-                block,
-                len,
-                ..
-            } => dequant_adaptive(scales, zero_points, codes, block_bits, *block, *len, out),
+            Self::Adaptive { .. } => {
+                dequant_adaptive(self, 0, 0, out);
+            }
         }
         Ok(())
     }
@@ -357,9 +354,10 @@ impl<S: Scale> Quantized<S> {
     /// assert_eq!(embedding, [0.5, 0.6, 0.7, 0.8]);
     /// ```
     ///
-    /// An adaptive tensor packs each block at its own width, so finding a row
-    /// means adding up the widths of every block before it, and rows further
-    /// down take longer to find. Other tensors find any row equally fast.
+    /// It reads the codes in place, so it doesn't allocate. An adaptive tensor
+    /// packs each block at its own width, so finding a row means adding up the
+    /// widths of every block before it, and rows further down take longer to
+    /// find. Other tensors find any row equally fast.
     ///
     /// # Errors
     ///
@@ -423,9 +421,9 @@ impl<S: Scale> Quantized<S> {
     ///                  4.0, 11.0]);
     /// ```
     ///
-    /// Each row is decoded straight from the packed codes when `columns` is a
-    /// multiple of the block size and each row fills whole bytes. Otherwise,
-    /// and for adaptive tensors, every call first decodes the whole matrix.
+    /// Each call decodes the matrix one row at a time, straight from the
+    /// packed codes, and multiplies each row by every input before moving on,
+    /// so the whole matrix is never decoded at once.
     ///
     /// To reuse one buffer for the result, or to catch a shape recorded the
     /// wrong way round, use [`matmul_into`](Self::matmul_into).
@@ -458,7 +456,8 @@ impl<S: Scale> Quantized<S> {
     }
 
     /// Like [`matmul`](Self::matmul), but write the `batch × rows` result into
-    /// `out`, so a loop can reuse one buffer.
+    /// `out`, so a loop can reuse one buffer. The only memory it allocates is
+    /// one decoded row of `columns` values.
     ///
     /// `matmul` works out the batch from the length of `inputs`, so when a
     /// shape is recorded the wrong way round and the inputs still split into

@@ -1,6 +1,6 @@
 //! Mixed-precision: pick bits per block from a tolerance.
 
-use crate::error::{Error, Result, check_block};
+use crate::error::{Error, Result, check_block, check_tolerance};
 use crate::kernels::{min_max, quantize_asym_block};
 use crate::packed::Packed;
 use crate::params::{choose_bits, half_step};
@@ -45,9 +45,7 @@ pub fn quantize_with<S: Scale>(
     tolerance: f32,
 ) -> Result<Quantized<S>> {
     check_block(block)?;
-    if !(tolerance.is_finite() && tolerance > 0.0) {
-        return Err(Error::InvalidTolerance);
-    }
+    check_tolerance(tolerance)?;
     if values.is_empty() {
         return Ok(Quantized::Adaptive {
             scales: Vec::new(),

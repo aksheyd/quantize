@@ -201,7 +201,7 @@ impl fmt::Display for Error {
             Self::InvalidScheme { text } => {
                 write!(
                     f,
-                    "{text:?} isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), or adaptive(block=32, tolerance=0.002)"
+                    "{text:?} isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), adaptive(block=32, tolerance=0.002), Q8_32, or Q4_32"
                 )
             }
         }
@@ -226,6 +226,14 @@ pub(crate) fn check_block(block: usize) -> Result<()> {
         Err(Error::InvalidBlock { block })
     } else {
         Ok(())
+    }
+}
+
+pub(crate) fn check_tolerance(tolerance: f32) -> Result<()> {
+    if tolerance.is_finite() && tolerance > 0.0 {
+        Ok(())
+    } else {
+        Err(Error::InvalidTolerance)
     }
 }
 
@@ -367,7 +375,7 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            r#""symmetric:4:32" isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), or adaptive(block=32, tolerance=0.002)"#
+            r#""symmetric:4:32" isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), adaptive(block=32, tolerance=0.002), Q8_32, or Q4_32"#
         );
     }
 }

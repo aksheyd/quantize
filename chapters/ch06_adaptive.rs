@@ -10,7 +10,8 @@
 //! **Fix**: pick a *tolerance* by hand: the worst error we'll accept. Rounding
 //! to the nearest code is off by at most half a step, so each block gets the
 //! fewest bits whose half-step is `<= tolerance`. Quiet blocks drop to 2–3
-//! bits; busy blocks get up to 8, which may not be enough.
+//! bits; busy blocks get up to 8, which may not be enough. Each block's bit
+//! width takes a byte: 8/4 = 2 bits per value, or 8/32 = 0.25 in blocks of 32.
 //!
 //! **Still wrong**: scale and zero-point are computed from min/max, which caps
 //! the worst error but ignores the average one. They can be *learned*.

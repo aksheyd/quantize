@@ -60,9 +60,11 @@ pub(crate) fn dequant_adaptive<S: Scale>(
         let scale = scales[block_index].to_f32();
         let zero_point = zero_points[block_index].to_f32();
         let block_start = block_index * block;
-        for index in block_start.max(start)..(block_start + block).min(end) {
+        let indices = block_start.max(start)..(block_start + block).min(end);
+        let slots = &mut out[indices.start - start..indices.end - start];
+        for (slot, index) in slots.iter_mut().zip(indices) {
             let code = read_code(block_codes, index - block_start, bit_width);
-            out[index - start] = (code as f32 - zero_point) * scale;
+            *slot = (code as f32 - zero_point) * scale;
         }
         // Step past only the blocks that end within the range: the values
         // after these start in a block that runs past `end`. Those blocks are
@@ -272,8 +274,10 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
                     .get(block_index)
                     .map_or(0.0, |zero_point| zero_point.to_f32());
                 let block_start = block_index * block;
-                for index in block_start.max(start)..(block_start + block).min(end) {
-                    out[index - start] = (codes.code(index) as f32 - zero_point) * scale;
+                let indices = block_start.max(start)..(block_start + block).min(end);
+                let slots = &mut out[indices.start - start..indices.end - start];
+                for (slot, index) in slots.iter_mut().zip(indices) {
+                    *slot = (codes.code(index) as f32 - zero_point) * scale;
                 }
             }
         }

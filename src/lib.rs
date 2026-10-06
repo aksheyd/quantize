@@ -63,9 +63,9 @@
 //!
 //! ## Features
 //!
-//! `std`, on by default, is reserved for future `no_std` support. For now the
-//! crate always uses the standard library, and `std` only implements
-//! [`std::error::Error`] for [`Error`].
+//! The crate needs the standard library. Its `std` feature, on by default,
+//! does nothing, and is kept so that a `Cargo.toml` that names it still
+//! builds.
 
 #![warn(missing_docs)]
 

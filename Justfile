@@ -54,13 +54,13 @@ chapters:
     cargo run --release --example ch08_alternating
 
 compare:
-    cargo run --release --example compare
+    cargo run --release -p benchmarks --example compare
 
 throughput:
-    cargo run --release --example throughput
+    cargo run --release -p benchmarks --example throughput
 
 wikitext *args:
-    cargo run --release --example wikitext --features benchmarks/workload -- {{args}}
+    cargo run --release -p benchmarks --example wikitext --features workload -- {{args}}
 
 update-readme:
-    cargo run --release --example update_readme
+    cargo run --release -p benchmarks --example update_readme

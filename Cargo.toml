@@ -22,7 +22,9 @@ features = ["std"]
 
 [workspace]
 members = ["python", "chapters", "benchmarks"]
-default-members = [".", "chapters", "benchmarks"]
+# benchmarks isn't a default member, so a first chapter run doesn't download
+# candle and the rest of its dependencies. Its examples run with -p benchmarks.
+default-members = [".", "chapters"]
 resolver = "3"
 
 [workspace.package]

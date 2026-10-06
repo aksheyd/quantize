@@ -2,7 +2,7 @@
 //! machine's rows of its speed table. Rows from other architectures stay,
 //! so each platform's speed comes from a run on that platform.
 //!
-//! Usage: `cargo run --release --example update_readme`
+//! Usage: `cargo run --release -p benchmarks --example update_readme`
 
 mod harness;
 mod speed;

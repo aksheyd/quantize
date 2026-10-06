@@ -3,8 +3,8 @@
 //! **Previously** (`ch06_adaptive`): bit width follows a tolerance, but
 //! scale/zero-point still come from min/max of the block.
 //!
-//! **Problem**: min/max fit the *range*, not the *error*. Outliers set the
-//! scale; the rest of the block pays for it.
+//! **Problem**: min/max fit the *range*, not the *average* error. Outliers
+//! set the scale; the rest of the block pays for it.
 //!
 //! **Fix**: start from chapter 5's codes, freeze them, and treat dequant as a
 //! line: `value ≈ scale * code + offset`, with `offset = -scale * zero_point`.

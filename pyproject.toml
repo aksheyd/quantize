@@ -37,6 +37,7 @@ exclude = [
     "target/**",
     "**/__pycache__/**",
     "python/quantize/_native.*",
+    "AGENTS.md",
 ]
 
 [tool.maturin.generate-ci.github]

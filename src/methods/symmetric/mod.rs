@@ -396,13 +396,12 @@ mod tests {
         let mut q = quantize::<f32, 8, 32>(&w).unwrap();
         q.set_shape(2, 32).unwrap();
         let inputs = [0.0_f32; 48];
-        assert!(matches!(
-            q.matmul(&inputs),
-            Err(crate::Error::ShapeMismatch {
-                len: 48,
-                columns: 32
-            })
-        ));
+        let mismatch = crate::Error::InputMismatch {
+            columns: 32,
+            got: 48,
+        };
+        assert_eq!(q.matmul(&inputs), Err(mismatch.clone()));
+        assert_eq!(q.matmul_into(&inputs, &mut [0.0; 2]), Err(mismatch));
     }
 
     #[test]

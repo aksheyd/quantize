@@ -181,16 +181,4 @@ impl PyQuantized {
     pub fn len(&self) -> usize {
         self.inner.len()
     }
-
-    pub fn refine(&mut self, values: &[f32]) -> quantize::Result<()> {
-        self.inner.refine(values)
-    }
-
-    pub fn alternate(&mut self, values: &[f32]) -> quantize::Result<bool> {
-        self.inner.alternate(values)
-    }
-
-    pub(crate) fn dequantize_into(&self, out: &mut [f32]) -> quantize::Result<()> {
-        with_inner!(&self.inner, |quantized| quantized.dequantize_into(out))
-    }
 }

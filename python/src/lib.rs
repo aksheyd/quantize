@@ -147,7 +147,7 @@ fn adaptive_quantize(
     quantize_values(py, values, scale, |_| Scheme::Adaptive { block, tolerance })
 }
 
-// `refine` and `alternate` borrow a tensor mutably while they change it, and
+// `refine` and `alternate` borrow a tensor mutably to store each refit, and
 // only the GIL keeps other threads from borrowing it at the same time, which
 // would panic. So free-threaded Python turns the GIL back on when it imports
 // this module.

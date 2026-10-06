@@ -357,6 +357,10 @@ impl<S: Scale> Quantized<S> {
     /// assert_eq!(embedding, [0.5, 0.6, 0.7, 0.8]);
     /// ```
     ///
+    /// An adaptive tensor packs each block at its own width, so finding a row
+    /// means adding up the widths of every block before it, and rows further
+    /// down take longer to find. Other tensors find any row equally fast.
+    ///
     /// # Errors
     ///
     /// [`Error::NotAMatrix`] if [`set_shape`](Self::set_shape) hasn't

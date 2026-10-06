@@ -298,13 +298,25 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
             ..
         } => {
             // Each block is packed at its own width, so the first block's bytes
-            // start after those of every block before it.
+            // start after those of every block before it. Only the last block
+            // can be short, so those blocks are full, and when `block` is a
+            // multiple of 8, `block` codes of `bit_width` bits fill exactly
+            // `block / 8 × bit_width` bytes: adding up the widths is enough.
             let first_block = start / block;
             let end_block = (start + out.len()).div_ceil(block);
-            let byte_offset: usize = block_bits[..first_block]
-                .iter()
-                .map(|&bit_width| nbytes(block, bit_width.into()))
-                .sum();
+            let blocks_before = &block_bits[..first_block];
+            let byte_offset: usize = if block.is_multiple_of(8) {
+                let width_total: usize = blocks_before
+                    .iter()
+                    .map(|&bit_width| usize::from(bit_width))
+                    .sum();
+                block / 8 * width_total
+            } else {
+                blocks_before
+                    .iter()
+                    .map(|&bit_width| nbytes(block, bit_width.into()))
+                    .sum()
+            };
             let first_value = first_block * block;
             let mut decoded = vec![0.0; (end_block * block).min(*len) - first_value];
             let blocks = first_block..end_block;
@@ -432,8 +444,10 @@ mod tests {
         let (rows, columns) = (4, 30);
         // The first four decode each row with the packed kernels. The rest
         // don't: 5-bit rows of 30 values end partway through a byte, and
-        // blocks of 8, 7, and 9 cross from one row into the next.
-        let tensors: [Quantized<f32>; 8] = [
+        // blocks of 8, 7, and 9 cross from one row into the next. The last
+        // has 4-bit and 5-bit blocks of 8, so its rows start after a mix of
+        // widths.
+        let tensors: [Quantized<f32>; 9] = [
             symmetric::quantize_with(&values, 8, 10).unwrap(),
             symmetric::quantize_with(&values, 4, 6).unwrap(),
             symmetric::quantize_with(&values, 12, 15).unwrap(),
@@ -442,6 +456,7 @@ mod tests {
             symmetric::quantize_with(&values, 4, 8).unwrap(),
             asymmetric::quantize_with(&values, 3, 7).unwrap(),
             adaptive::quantize_with(&values, 9, 0.01).unwrap(),
+            adaptive::quantize_with(&values, 8, 0.05).unwrap(),
         ];
         for mut quantized in tensors {
             let every_value = quantized.dequantize();

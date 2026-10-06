@@ -4,10 +4,16 @@ use serde::Deserialize;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::thread;
+use std::time::Duration;
 use tokenizers::Tokenizer;
 
 const PAGE: usize = 100;
 const ROWS_URL: &str = "https://datasets-server.huggingface.co/rows?dataset=Salesforce/wikitext&config=wikitext-2-raw-v1&split=test";
+// The dataset server answers HTTP 429 (too many requests) when pages come too
+// fast. Hugging Face's rate limits reset every 5 minutes, so the wait doubles
+// until the waits add up to more than that: 1 + 2 + 4 + ... + 256 s is 8.5 minutes.
+const LONGEST_WAIT: Duration = Duration::from_secs(256);
 
 #[derive(Deserialize)]
 struct Page {
@@ -64,12 +70,25 @@ fn download() -> Result<String> {
 
 fn fetch_page(offset: usize) -> Result<Page> {
     let url = format!("{ROWS_URL}&offset={offset}&length={PAGE}");
-    let body = ureq::get(&url)
-        .header("User-Agent", "quantize-wikitext/0.2")
-        .call()
-        .and_then(|mut response| response.body_mut().read_to_string())
-        .map_err(|error| error_with_url(&url, error))?;
+    let body = get_with_retries(&url).map_err(|error| error_with_url(&url, error))?;
     serde_json::from_str(&body).map_err(|error| error_with_url(&url, error))
+}
+
+fn get_with_retries(url: &str) -> std::result::Result<String, ureq::Error> {
+    let mut wait = Duration::from_secs(1);
+    loop {
+        let response = ureq::get(url)
+            .header("User-Agent", "quantize-wikitext/0.2")
+            .call();
+        match response {
+            Err(ureq::Error::StatusCode(429)) if wait <= LONGEST_WAIT => {
+                eprintln!("  too many requests, retrying in {} s", wait.as_secs());
+                thread::sleep(wait);
+                wait *= 2;
+            }
+            response => return response?.body_mut().read_to_string(),
+        }
+    }
 }
 
 fn append_rows(text: &mut String, page: &Page) {

@@ -425,6 +425,18 @@ def test_scheme_reads_text_written_like_its_class_methods():
         Scheme("symmetric(bits=99, block=32)")
 
 
+def test_str_writes_the_text_that_scheme_reads():
+    assert str(Scheme.Q4_32) == "symmetric(bits=4, block=32)"
+    assert f"{Scheme.adaptive(tolerance=0.002)}" == "adaptive(block=32, tolerance=0.002)"
+    for scheme in [
+        Scheme.Q8_32,
+        Scheme.asymmetric(bits=3, block=7),
+        Scheme.adaptive(block=32, tolerance=0.1 * 0.0173),
+    ]:
+        assert Scheme(str(scheme)) == scheme
+    assert repr(Scheme.Q4_32) == "Scheme(kind='symmetric', bits=4, block=32)"
+
+
 def test_quantize_rejects_other_dimensions():
     with pytest.raises(ValueError, match=r"1-D or 2-D array, got .* shape \(2, 2, 2\)"):
         quantize(np.zeros((2, 2, 2), dtype=np.float32))

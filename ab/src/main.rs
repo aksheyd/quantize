@@ -136,7 +136,6 @@ version!(vmain, qmain);
 version!(vfix, qfix);
 version!(vsame, qsame);
 version!(vh1, qh1);
-version!(vh3, qh3);
 version!(vh3dot, qh3dot);
 version!(va4, qa4);
 

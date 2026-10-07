@@ -32,6 +32,31 @@ jobs:
       - name: Chapters
         run: just chapters
 
+  apple-silicon-timing:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - uses: extractions/setup-just@v4
+
+      - name: Hardware
+        run: sysctl -n machdep.cpu.brand_string hw.ncpu hw.perflevel0.logicalcpu || true
+
+      - name: Throughput
+        run: just throughput
+
+      - name: Kernel variants
+        run: cargo run --release -p benchmarks --example kernel_scratch
+
+      - name: SmolLM linears, one thread
+        run: CANDLE_NUM_THREADS=1 cargo run --release -p benchmarks --example decode_scratch
+
+      - name: SmolLM linears, candle on every performance core
+        run: WHICH=candle cargo run --release -p benchmarks --example decode_scratch
+
   minimum-rust:
     runs-on: ubuntu-latest
     steps:

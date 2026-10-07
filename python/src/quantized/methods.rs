@@ -10,7 +10,7 @@ use super::parts::Parts;
 use crate::error::from_quantize;
 use crate::input::{
     as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
-    as_writable_f32_out, check_shape,
+    as_writable_f32_out, check_no_overlap, check_shape,
 };
 use crate::scale::PyScale;
 
@@ -92,14 +92,18 @@ impl PyQuantized {
     ///
     /// `inputs` is one vector of shape `(columns,)` or a batch of shape
     /// `(batch, columns)`. The result is `inputs @ W.T`, of shape `(rows,)`
-    /// or `(batch, rows)`.
+    /// or `(batch, rows)`. `out`, if given, must be a float32 array of that
+    /// shape that shares no memory with `inputs`, and is returned, so a loop
+    /// can reuse one array.
     ///
     /// Each call decodes the matrix one row at a time, straight from the
     /// packed codes, and multiplies each row by every input before moving
     /// on, so the whole matrix is never decoded at once.
+    #[pyo3(signature = (inputs, out = None))]
     fn matmul<'py>(
         slf: &Bound<'py, Self>,
         inputs: Bound<'_, PyAny>,
+        out: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let py = slf.py();
         let inner = slf.borrow().inner.clone();
@@ -108,6 +112,18 @@ impl PyQuantized {
         };
         let (array, batch) = as_f32_matmul_values(&inputs, columns)?;
         let inputs = array.as_slice()?;
+        if let Some(out) = out {
+            let shape = match batch {
+                Some(batch) => vec![batch, rows],
+                None => vec![rows],
+            };
+            check_no_overlap(&out, array.as_any())?;
+            let mut writable = as_writable_f32_out(&out, &shape)?;
+            let output = writable.as_slice_mut()?;
+            py.detach(|| with_inner!(&inner, |quantized| quantized.matmul_into(inputs, output)))
+                .map_err(from_quantize)?;
+            return Ok(out);
+        }
         let output = py.detach(|| {
             with_inner!(&inner, |quantized| quantized
                 .matmul(inputs)

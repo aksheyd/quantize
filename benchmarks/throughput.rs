@@ -1,14 +1,15 @@
 //! Quantize and dequantize speed against candle, timed the same way in both
 //! libraries by `speed.rs`, plus this crate's fused `dot` and `matmul`.
-//! `matmul` multiplies the weights by 16 vectors, so its time covers all 16,
-//! and then by one, as a language model does for each token it generates.
+//! `matmul` multiplies 4-bit and 8-bit weights by 16 vectors, so its time
+//! covers all 16, and then by one, as a language model does for each token it
+//! generates.
 //!
 //! Run: `cargo run --release -p benchmarks --example throughput`
 
 mod speed;
 
 use half::f16;
-use quantize::{Scheme, quantize};
+use quantize::Scheme;
 use speed::{ITERATIONS, SIDE, time_per_value};
 
 fn main() -> candle_core::Result<()> {
@@ -45,14 +46,16 @@ fn main() -> candle_core::Result<()> {
         println!("{name:<18}{dot:>10.3}");
     }
 
-    let mut quantized_4bit = quantize::<f16, 4, 32>(&values).unwrap();
-    quantized_4bit.set_shape(SIDE, SIDE).unwrap();
     let sixteen_vectors = &values[..16 * SIDE];
-    let matmul = time_per_value(|| quantized_4bit.matmul(sixteen_vectors).unwrap());
-    println!("{:<18}{matmul:>10.3}", "4-bit matmul ×16");
     let one_vector = &values[..SIDE];
-    let matmul = time_per_value(|| quantized_4bit.matmul(one_vector).unwrap());
-    println!("{:<18}{matmul:>10.3}", "4-bit matmul ×1");
+    for (name, scheme) in [("4-bit", Scheme::Q4_32), ("8-bit", Scheme::Q8_32)] {
+        let mut matrix = scheme.quantize::<f16>(&values).unwrap();
+        matrix.set_shape(SIDE, SIDE).unwrap();
+        let matmul = time_per_value(|| matrix.matmul(sixteen_vectors).unwrap());
+        println!("{:<18}{matmul:>10.3}", format!("{name} matmul ×16"));
+        let matmul = time_per_value(|| matrix.matmul(one_vector).unwrap());
+        println!("{:<18}{matmul:>10.3}", format!("{name} matmul ×1"));
+    }
 
     // Decode an adaptive matrix one row at a time, the way an embedding table
     // is read.

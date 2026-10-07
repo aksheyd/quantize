@@ -131,6 +131,20 @@ unsafe fn dequant_16(src: *const u8, scale: f32, dst: *mut f32) {
     }
 }
 
+/// Decode 32 codes times `scale`, as [`dequant_i8_blocks`] would. Inlined
+/// into its caller, and with a fixed size, the 32 values stay in SIMD
+/// registers, so the caller can multiply them without storing them first.
+#[inline]
+pub(crate) fn decode_i8_32(bytes: &[u8; 32], scale: f32) -> [f32; 32] {
+    // Not `bytes.map(...)`, which compiles to a call that hands the values
+    // back through memory.
+    let mut values = [0.0; 32];
+    for (value, &byte) in values.iter_mut().zip(bytes) {
+        *value = byte as i8 as f32 * scale;
+    }
+    values
+}
+
 pub(crate) fn dot_i8_blocks<S: Scale>(
     scales: &[S],
     bytes: &[u8],

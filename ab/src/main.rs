@@ -135,15 +135,21 @@ version!(v031, q031);
 version!(vmain, qmain);
 version!(vfix, qfix);
 version!(vsame, qsame);
+version!(vparta, qparta);
+version!(vruns1024, qruns1024);
+version!(vruns16384, qruns16384);
 
 type Builder = fn(&Spec, &[f32], usize, usize) -> Result<Box<dyn Ops>, String>;
 type Loader = fn(ScaleKind, &[u8]) -> Result<Box<dyn Ops>, String>;
 
-const VERSIONS: [(&str, Builder, Loader); 4] = [
+const VERSIONS: [(&str, Builder, Loader); 7] = [
     ("0.3.1", v031::build, v031::load),
     ("main", vmain::build, vmain::load),
     ("fix", vfix::build, vfix::load),
     ("main again", vsame::build, vsame::load),
+    ("only batch-1 commit", vparta::build, vparta::load),
+    ("runs of 1024", vruns1024::build, vruns1024::load),
+    ("runs of 16384", vruns16384::build, vruns16384::load),
 ];
 
 struct Random(u64);
@@ -402,6 +408,9 @@ fn compare(
             continue;
         };
         for ((section, expected), (_, value)) in reference.iter().zip(got) {
+            if section == "dot" && std::env::var("SKIP_DOT").is_ok() {
+                continue;
+            }
             tally.compared += 1;
             match (expected, value) {
                 (Ok(expected), Ok(value)) => {
@@ -604,12 +613,158 @@ fn token(args: &[String]) {
     }
 }
 
+/// One vector through a matrix in every layout, with `main`'s code.
+fn layouts(args: &[String]) {
+    let rows: usize = args.first().map_or(4096, |a| a.parse().unwrap());
+    let columns: usize = args.get(1).map_or(4096, |a| a.parse().unwrap());
+    let rounds: usize = args.get(2).map_or(9, |a| a.parse().unwrap());
+    let mut random = Random(5);
+    let values: Vec<f32> = (0..rows * columns).map(|_| random.normal() * 0.02).collect();
+    let input: Vec<f32> = (0..columns).map(|_| random.normal()).collect();
+    let mut out = vec![0.0; rows];
+    let symmetric = |bits, block| Spec { kind: Kind::Symmetric, bits, block, tolerance: 0.0, scale: ScaleKind::F16 };
+    let asymmetric = |bits, block| Spec { kind: Kind::Asymmetric, bits, block, tolerance: 0.0, scale: ScaleKind::F16 };
+    let specs = [
+        ("symmetric 4-bit, blocks of 32", symmetric(4, 32)),
+        ("symmetric 8-bit, blocks of 32", symmetric(8, 32)),
+        ("symmetric 4-bit, blocks of 128", symmetric(4, 128)),
+        ("symmetric 4-bit, blocks of 16", symmetric(4, 16)),
+        ("symmetric 8-bit, blocks of 16", symmetric(8, 16)),
+        ("symmetric 3-bit, blocks of 32", symmetric(3, 32)),
+        ("symmetric 5-bit, blocks of 32", symmetric(5, 32)),
+        ("asymmetric 4-bit, blocks of 32", asymmetric(4, 32)),
+        ("asymmetric 8-bit, blocks of 32", asymmetric(8, 32)),
+        ("adaptive, tolerance 0.002", Spec { kind: Kind::Adaptive, bits: 0, block: 32, tolerance: 0.002, scale: ScaleKind::F16 }),
+    ];
+    for (name, spec) in specs {
+        let tensors: Vec<(&str, Box<dyn Ops>)> = VERSIONS[1..3]
+            .iter()
+            .map(|(version, build, _)| (*version, build(&spec, &values, rows, columns).unwrap()))
+            .collect();
+        let mut times = vec![Vec::new(); tensors.len()];
+        for _ in 0..rounds {
+            for (index, (_, tensor)) in tensors.iter().enumerate() {
+                times[index].push(time_once(&mut || tensor.matmul_into(&input, &mut out).unwrap()));
+            }
+        }
+        let cells: Vec<String> = tensors
+            .iter()
+            .zip(times)
+            .map(|((version, _), times)| format!("{version} {:.2}", summarize(times).1))
+            .collect();
+        println!("{name:32} {}", cells.join("   "));
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(|s| s.as_str()) {
+        Some("layouts") => layouts(&args[1..]),
+        Some("dotprec") => dot_precision(&args[1..]),
+        Some("dotcheck") => dot_check(&args[1..]),
         Some("check") => check(&args[1..]),
         Some("fuzz") => fuzz(&args[1..]),
         Some("token") => token(&args[1..]),
         _ => bench(args.get(1..).unwrap_or(&[])),
     }
+}
+
+/// Relative error of `dot` and of a one-row `matmul` against f64, and how long
+/// `dot` takes, over one long vector.
+pub fn dot_precision(args: &[String]) {
+    let len: usize = args.first().map_or(1 << 24, |a| a.parse().unwrap());
+    let rounds: usize = args.get(1).map_or(5, |a| a.parse().unwrap());
+    let mut random = Random(9);
+    let cases: [(&str, Vec<f32>, Vec<f32>); 2] = [
+        (
+            "every product positive",
+            (0..len).map(|i| (i as f32 * 0.37).sin().abs()).collect(),
+            vec![1.0; len],
+        ),
+        (
+            "normal values",
+            (0..len).map(|_| random.normal() * 0.02).collect(),
+            (0..len).map(|_| random.normal()).collect(),
+        ),
+    ];
+    for (case, values, rhs) in &cases {
+        for bits in [4, 8] {
+            let spec = Spec { kind: Kind::Symmetric, bits, block: 32, tolerance: 0.0, scale: ScaleKind::F16 };
+            let mut cells = Vec::new();
+            for (name, build, _) in &VERSIONS[1..3] {
+                let tensor = build(&spec, values, 1, len).unwrap();
+                let mut decoded = vec![0.0; len];
+                tensor.dequantize_into(&mut decoded).unwrap();
+                let exact: f64 = decoded.iter().zip(rhs).map(|(&w, &x)| w as f64 * x as f64).sum();
+                let dot = tensor.dot(rhs).unwrap() as f64;
+                let matmul = tensor.matmul(rhs).unwrap()[0] as f64;
+                let times: Vec<f64> = (0..rounds)
+                    .map(|_| time_once(&mut || {
+                        std::hint::black_box(tensor.dot(rhs).unwrap());
+                    }))
+                    .collect();
+                let matmul_times: Vec<f64> = (0..rounds)
+                    .map(|_| time_once(&mut || {
+                        std::hint::black_box(tensor.matmul(rhs).unwrap());
+                    }))
+                    .collect();
+                cells.push(format!(
+                    "{name}: dot error {:.1e} in {:.2} ms, matmul error {:.1e} in {:.2} ms",
+                    ((dot - exact) / exact).abs(),
+                    summarize(times).1,
+                    ((matmul - exact) / exact).abs(),
+                    summarize(matmul_times).1
+                ));
+            }
+            println!("Q{bits}_32, {len} values, {case}: {}", cells.join("; "));
+        }
+    }
+}
+
+/// `dot` on random flat tensors, against f64: the worst error of `main` and of
+/// the fix, as a fraction of the sum of the products' sizes.
+pub fn dot_check(args: &[String]) {
+    let cases: usize = args.first().map_or(2000, |a| a.parse().unwrap());
+    let seed: u64 = args.get(1).map_or(1, |a| a.parse().unwrap());
+    let mut random = Random(seed);
+    let (mut fused, mut compared, mut nan_differs) = (0, 0, 0);
+    let (mut worst_main, mut worst_fix) = (0.0_f64, 0.0_f64);
+    for _ in 0..cases {
+        let mut spec = random_spec(&mut random);
+        if random.below(2) == 0 {
+            spec.kind = Kind::Symmetric;
+            spec.bits = random.pick(&[4, 8]);
+            spec.block = random.pick(&[32, 64, 96, 128, 256]);
+        }
+        let blocks = 1 + random.below(300);
+        let len = if random.below(4) == 0 { 1 + random.below(20000) } else { blocks * spec.block };
+        let style = random.below(4);
+        let values: Vec<f32> = (0..len).map(|_| random_weight(&mut random, style)).collect();
+        let specials = random.below(3) == 0;
+        let rhs: Vec<f32> = (0..len)
+            .map(|_| if specials { random_input(&mut random) } else { random.normal() })
+            .collect();
+        let (Ok(main), Ok(fix)) = (vmain::build(&spec, &values, 1, len), vfix::build(&spec, &values, 1, len)) else {
+            continue;
+        };
+        compared += 1;
+        if matches!(spec.kind, Kind::Symmetric) && matches!(spec.bits, 4 | 8) && spec.block % 32 == 0 && len % spec.block == 0 {
+            fused += 1;
+        }
+        let mut decoded = vec![0.0; len];
+        main.dequantize_into(&mut decoded).unwrap();
+        let exact: f64 = decoded.iter().zip(&rhs).map(|(&w, &x)| w as f64 * x as f64).sum();
+        let size: f64 = decoded.iter().zip(&rhs).map(|(&w, &x)| (w as f64 * x as f64).abs()).sum();
+        let (a, b) = (main.dot(&rhs).unwrap(), fix.dot(&rhs).unwrap());
+        if a.is_nan() != b.is_nan() || (a.is_infinite() && a != b) || (b.is_infinite() && a != b) {
+            nan_differs += 1;
+            println!("NAN OR INFINITY DIFFERS {}: main {a} fix {b}", spec_name(&spec));
+            continue;
+        }
+        if a.is_finite() && size > 0.0 && size.is_finite() {
+            worst_main = worst_main.max((a as f64 - exact).abs() / size);
+            worst_fix = worst_fix.max((b as f64 - exact).abs() / size);
+        }
+    }
+    println!("dot: {compared} tensors ({fused} take the fused path), worst error main {worst_main:.1e}, fix {worst_fix:.1e}, NaN or infinity differs in {nan_differs}");
 }

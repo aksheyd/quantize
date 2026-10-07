@@ -1,0 +1,21 @@
+--- a/src/shared/decode.rs	2026-10-07 05:20:21.440674806 +0000
++++ b/src/shared/decode.rs	2026-10-07 05:20:21.440674806 +0000
+@@ -207,7 +207,17 @@
+         for (row, slot) in out.iter_mut().enumerate() {
+             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
+             let stored_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
+-            for (scale, stored) in row_scales.iter_mut().zip(stored_scales) {
++            let (scale_quads, scale_rest) = row_scales.as_chunks_mut::<4>();
++            let (stored_quads, stored_rest) = stored_scales.as_chunks::<4>();
++            for (quad, stored) in scale_quads.iter_mut().zip(stored_quads) {
++                *quad = [
++                    stored[0].to_f32(),
++                    stored[1].to_f32(),
++                    stored[2].to_f32(),
++                    stored[3].to_f32(),
++                ];
++            }
++            for (scale, stored) in scale_rest.iter_mut().zip(stored_rest) {
+                 *scale = stored.to_f32();
+             }
+             *slot = match codes.bits() {

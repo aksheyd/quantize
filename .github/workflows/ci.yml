@@ -48,14 +48,8 @@ jobs:
       - name: Throughput
         run: just throughput
 
-      - name: Kernel variants
-        run: cargo run --release -p benchmarks --example kernel_scratch
-
-      - name: SmolLM linears, one thread
-        run: CANDLE_NUM_THREADS=1 cargo run --release -p benchmarks --example decode_scratch
-
-      - name: SmolLM linears, candle on every performance core
-        run: WHICH=candle cargo run --release -p benchmarks --example decode_scratch
+      - name: Kernel variants, block known at run time
+        run: cargo run --release -p benchmarks --example kernel_scratch2
 
   minimum-rust:
     runs-on: ubuntu-latest

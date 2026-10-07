@@ -3,7 +3,7 @@
 use pyo3::prelude::*;
 
 use crate::error::{from_quantize, length_mismatch};
-use crate::gil::detach_if_large;
+use crate::gil::detach_unless_tiny;
 use crate::input::{as_f32_array, as_f32_values, as_i32_codes, check_shape};
 use crate::quantized::PyQuantized;
 
@@ -36,7 +36,7 @@ pub fn refine<'py>(
     let mut refined = quantized.get().snapshot();
     check_shape(values.py(), "values", &refined.shape(), &values_shape)?;
     let values = array.as_slice()?;
-    detach_if_large(quantized.py(), values.len(), || refined.refine(values))
+    detach_unless_tiny(quantized.py(), values.len(), || refined.refine(values))
         .map_err(from_quantize)?;
     quantized.get().store(refined);
     Ok(quantized)
@@ -62,7 +62,7 @@ pub fn alternate(quantized: Bound<'_, PyQuantized>, values: Bound<'_, PyAny>) ->
     check_shape(values.py(), "values", &alternated.shape(), &values_shape)?;
     let values = array.as_slice()?;
     let values_in_100_passes = values.len().saturating_mul(100);
-    let settled = detach_if_large(quantized.py(), values_in_100_passes, || {
+    let settled = detach_unless_tiny(quantized.py(), values_in_100_passes, || {
         alternated.alternate(values)
     })
     .map_err(from_quantize)?;

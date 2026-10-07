@@ -254,21 +254,27 @@ def test_other_threads_keep_running_while_alternate_refits():
     sysconfig.get_config_var("Py_GIL_DISABLED") and not sys._is_gil_enabled(),
     reason="the GIL is off, so there's no GIL to keep",
 )
-def test_calls_on_at_most_65536_values_keep_the_gil():
+def test_reads_keep_the_gil_up_to_65536_values_and_quantizing_up_to_4096():
     weights = np.random.default_rng(0).standard_normal((256, 256)).astype(np.float32)
     quantized = quantize(weights, bits=4)
     out = np.empty_like(weights)
-    # alternate can go through its values 100 times, so it keeps the GIL
-    # only for a hundredth as many.
-    few = weights[:2]
-    calls = [
-        lambda: quantize(weights, bits=4),
+    # Quantizing and refitting keep the GIL for 4,096 values, a 16 × 256
+    # slice, and alternate can go through its values 100 times, so it keeps
+    # the GIL only for a hundredth as many.
+    some, few = weights[:16], weights[0, :32]
+    some_quantized = quantize(some, bits=4)
+    keeping = [
         lambda: quantized.dequantize(),
         lambda: quantized.dequantize(out),
         lambda: quantized.dot(weights),
         lambda: quantized.matmul(weights[0], out=out[0]),
-        lambda: learned.refine(quantized, weights),
+        lambda: quantize(some, bits=4),
+        lambda: learned.refine(some_quantized, some),
         lambda: learned.alternate(quantize(few, bits=4), few),
+    ]
+    giving_up = [
+        lambda: quantize(weights, bits=4),
+        lambda: learned.refine(quantized, weights),
     ]
     turns = 0
     go, stop = threading.Event(), threading.Event()
@@ -278,6 +284,9 @@ def test_calls_on_at_most_65536_values_keep_the_gil():
         go.wait()
         while not stop.is_set():
             turns += 1
+            # Hands the GIL straight back, so a call that gave it up gets it
+            # back without waiting.
+            time.sleep(0)
 
     switch_interval = sys.getswitchinterval()
     # The other thread waits this long before it asks for the GIL, longer
@@ -287,10 +296,19 @@ def test_calls_on_at_most_65536_values_keep_the_gil():
     other.start()
     try:
         go.set()
-        for call in calls:
+        for call in keeping:
             before = turns
             call()
             assert turns == before
+        for call in giving_up:
+            before = turns
+            # A call can take the GIL back before the other thread wakes up,
+            # so try it up to 100 times.
+            for _ in range(100):
+                call()
+                if turns > before:
+                    break
+            assert turns > before
     finally:
         stop.set()
         other.join()

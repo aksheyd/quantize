@@ -43,8 +43,8 @@ jobs:
       - name: Hardware
         run: sysctl -n machdep.cpu.brand_string hw.ncpu || true
 
-      - name: main, the decode PR, and the fused branch, side by side
-        run: ab/run.sh
+      - name: WikiText tok/s, main against the fused branch
+        run: ab/wikitext.sh
 
   minimum-rust:
     runs-on: ubuntu-latest

@@ -435,6 +435,11 @@ impl<S: Scale> Quantized<S> {
     /// run from one row into the next read each code on its own, and take
     /// several times as long.
     ///
+    /// With those fastest layouts, a batch of more than 256 inputs goes
+    /// through the matrix in groups of 256, decoding it once for each group.
+    /// A group stays in the CPU's cache while every row passes over it, where
+    /// a whole large batch would be read from memory again for every row.
+    ///
     /// To reuse one buffer for the result, or to catch a shape recorded the
     /// wrong way round, use [`matmul_into`](Self::matmul_into).
     ///

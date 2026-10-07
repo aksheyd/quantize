@@ -11,37 +11,9 @@ use crate::tensor::Quantized;
 
 pub(crate) fn dequant_sym<S: Scale>(scales: &[S], codes: &Packed, block: usize, out: &mut [f32]) {
     match codes.bits() {
-        bits @ (4 | 8) => decode_blocks(scales, codes.as_bytes(), bits, block, out),
+        8 => dequant_i8_blocks(scales, codes.as_bytes(), block, out),
+        4 => dequant_i4_blocks(scales, codes.as_bytes(), block, out),
         _ => dequant_sym_into(scales, codes, block, out),
-    }
-}
-
-/// How many blocks [`decode_blocks`] hands to a kernel at a time.
-const BLOCKS_PER_RUN: usize = 64;
-
-/// Decode 4-bit or 8-bit `codes` with the packed kernels, 64 blocks at a time.
-///
-/// A generic function compiles in the crate that calls it, at that crate's
-/// optimization level, so a debug build runs it unoptimized, even one that
-/// sets `opt-level = 3` for its dependencies. The kernels take f32 scales
-/// instead of being generic over the scale type, so they compile in this
-/// crate. Each run's scales are converted on the stack, so decoding still
-/// doesn't allocate.
-fn decode_blocks<S: Scale>(scales: &[S], codes: &[u8], bits: u32, block: usize, out: &mut [f32]) {
-    let mut run_scales = [0.0; BLOCKS_PER_RUN];
-    for (run, stored_scales) in scales.chunks(BLOCKS_PER_RUN).enumerate() {
-        for (scale, stored) in run_scales.iter_mut().zip(stored_scales) {
-            *scale = stored.to_f32();
-        }
-        let run_scales = &run_scales[..stored_scales.len()];
-        let start = run * BLOCKS_PER_RUN * block;
-        let end = out.len().min(start + run_scales.len() * block);
-        // 64 blocks hold an even number of codes, so at 4 bits each run
-        // starts on a byte.
-        match bits {
-            8 => dequant_i8_blocks(run_scales, &codes[start..], block, &mut out[start..end]),
-            _ => dequant_i4_blocks(run_scales, &codes[start / 2..], block, &mut out[start..end]),
-        }
     }
 }
 
@@ -271,9 +243,7 @@ pub(crate) fn matmul_into<S: Scale>(
         for (row, slot) in out.iter_mut().enumerate() {
             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
             let stored_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
-            for (scale, stored) in row_scales.iter_mut().zip(stored_scales) {
-                *scale = stored.to_f32();
-            }
+            scales_to_f32(stored_scales, &mut row_scales);
             *slot = match codes.bits() {
                 4 => dot_i4_row(&row_scales, row_codes, *block, inputs),
                 _ => dot_i8_row(&row_scales, row_codes, *block, inputs),
@@ -300,6 +270,27 @@ pub(crate) fn matmul_into<S: Scale>(
         for (vector, input) in inputs.chunks_exact(columns).enumerate() {
             out[vector * rows + row] = dot(&row_weights, input);
         }
+    }
+}
+
+/// Convert `stored` into `out`, four scales at a time.
+///
+/// On Apple silicon, `half` converts each f16 with an instruction of its own,
+/// so a loop that converted one scale per step spent about as long on its
+/// steps as on the conversions.
+fn scales_to_f32<S: Scale>(stored: &[S], out: &mut [f32]) {
+    let (out_quads, out_rest) = out.as_chunks_mut::<4>();
+    let (stored_quads, stored_rest) = stored.as_chunks::<4>();
+    for (quad, stored) in out_quads.iter_mut().zip(stored_quads) {
+        *quad = [
+            stored[0].to_f32(),
+            stored[1].to_f32(),
+            stored[2].to_f32(),
+            stored[3].to_f32(),
+        ];
+    }
+    for (scale, stored) in out_rest.iter_mut().zip(stored_rest) {
+        *scale = stored.to_f32();
     }
 }
 
@@ -376,11 +367,24 @@ pub(crate) fn decode_row<S: Scale>(quantized: &Quantized<S>, row: usize, out: &m
     let scales_per_row = columns / block;
     let row_scales = &quantized.scales()[row * scales_per_row..(row + 1) * scales_per_row];
     match quantized {
-        Quantized::Symmetric { codes, .. } if matches!(codes.bits(), 4 | 8) => {
-            let bytes_per_row = columns * codes.bits() as usize / 8;
+        Quantized::Symmetric { codes, .. } if codes.bits() == 8 => {
+            let start = row * columns;
+            dequant_i8_blocks(
+                row_scales,
+                &codes.as_bytes()[start..start + columns],
+                block,
+                out,
+            )
+        }
+        Quantized::Symmetric { codes, .. } if codes.bits() == 4 => {
+            let bytes_per_row = columns / 2;
             let start = row * bytes_per_row;
-            let row_codes = &codes.as_bytes()[start..start + bytes_per_row];
-            decode_blocks(row_scales, row_codes, codes.bits(), block, out);
+            dequant_i4_blocks(
+                row_scales,
+                &codes.as_bytes()[start..start + bytes_per_row],
+                block,
+                out,
+            )
         }
         _ => decode_values(quantized, row * columns, out),
     }

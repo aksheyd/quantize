@@ -83,46 +83,68 @@ unsafe fn quant_16(src: *const f32, inv: f32, dst: *mut u8) {
     }
 }
 
-pub(crate) fn dequant_i4_blocks(scales: &[f32], bytes: &[u8], block: usize, out: &mut [f32]) {
+pub(crate) fn dequant_i4_blocks<S: Scale>(
+    scales: &[S],
+    bytes: &[u8],
+    block: usize,
+    out: &mut [f32],
+) {
     assert!(bytes.len() >= nbytes(out.len(), 4));
-    let mut i = 0usize;
+    let mut first = 0;
     for (bi, chunk) in out.chunks_mut(block).enumerate() {
-        let s = scales[bi];
-        let mut j = 0;
-        // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
-        // high nibble when `i` is odd. So after a block of odd length, the
-        // next block starts on a high nibble.
-        if !i.is_multiple_of(2) {
-            chunk[0] = high_code(bytes[i / 2]) as f32 * s;
-            i += 1;
-            j += 1;
-        }
-        #[cfg(target_arch = "aarch64")]
-        {
-            // SAFETY: 32 codes = 16 packed bytes, which the assert above
-            // guarantees are inside `bytes`.
-            unsafe {
-                while j + 32 <= chunk.len() {
-                    dequant_32(bytes.as_ptr().add(i / 2), s, chunk.as_mut_ptr().add(j));
-                    i += 32;
-                    j += 32;
-                }
+        // SAFETY: the assert above puts every block's codes inside `bytes`.
+        unsafe { dequant_i4_block(bytes, first, scales[bi].to_f32(), chunk) };
+        first += chunk.len();
+    }
+}
+
+/// Decode one block, whose first value is value `first`, times `s`.
+///
+/// `dequant_i4_blocks` is generic, so it compiles in each crate that calls
+/// it, at that crate's optimization level. Release builds always inline this
+/// into its loop. Builds with debug assertions, like debug builds, call it
+/// instead, so it stays in this crate, and runs optimized when a debug build
+/// sets `opt-level = 3` for its dependencies.
+///
+/// # Safety
+///
+/// `bytes` must hold the codes of values `first..first + out.len()`.
+#[cfg_attr(not(debug_assertions), inline(always))]
+unsafe fn dequant_i4_block(bytes: &[u8], first: usize, s: f32, out: &mut [f32]) {
+    let mut i = first;
+    let mut j = 0;
+    // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
+    // high nibble when `i` is odd. So after a block of odd length, the next
+    // block starts on a high nibble.
+    if !i.is_multiple_of(2) {
+        out[0] = high_code(bytes[i / 2]) as f32 * s;
+        i += 1;
+        j += 1;
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        // SAFETY: 32 codes = 16 packed bytes, which the caller guarantees
+        // are inside `bytes`.
+        unsafe {
+            while j + 32 <= out.len() {
+                dequant_32(bytes.as_ptr().add(i / 2), s, out.as_mut_ptr().add(j));
+                i += 32;
+                j += 32;
             }
         }
-        // Decode both of a byte's codes at once. With no branch on which
-        // nibble comes next, the compiler can decode many bytes side by side
-        // in SIMD registers.
-        let (pairs, _) = chunk[j..].as_chunks_mut::<2>();
-        for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
-            *pair = [low_code(byte) as f32 * s, high_code(byte) as f32 * s];
-        }
-        i += 2 * pairs.len();
-        j += 2 * pairs.len();
-        // And a block of odd length ends on a low nibble.
-        if j < chunk.len() {
-            chunk[j] = low_code(bytes[i / 2]) as f32 * s;
-            i += 1;
-        }
+    }
+    // Decode both of a byte's codes at once. With no branch on which nibble
+    // comes next, the compiler can decode many bytes side by side in SIMD
+    // registers.
+    let (pairs, _) = out[j..].as_chunks_mut::<2>();
+    for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
+        *pair = [low_code(byte) as f32 * s, high_code(byte) as f32 * s];
+    }
+    i += 2 * pairs.len();
+    j += 2 * pairs.len();
+    // And a block of odd length ends on a low nibble.
+    if j < out.len() {
+        out[j] = low_code(bytes[i / 2]) as f32 * s;
     }
 }
 
@@ -153,7 +175,11 @@ pub(crate) fn decode_i4_32(bytes: &[u8; 16], scale: f32) -> [f32; 32] {
     values
 }
 
+// Release builds compile `dequant_i4_block` into each crate that calls
+// `dequant_i4_blocks`. Without `#[inline]`, the code it compiles to there
+// calls these two functions in this crate every 32 codes.
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn dequant_32(src: *const u8, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;
@@ -169,6 +195,7 @@ unsafe fn dequant_32(src: *const u8, scale: f32, dst: *mut f32) {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn store_i8x16(q: core::arch::aarch64::int8x16_t, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;

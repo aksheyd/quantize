@@ -68,14 +68,26 @@ unsafe fn quant_16(src: *const f32, inv: f32, dst: *mut u8) {
     }
 }
 
-pub(crate) fn dequant_i8_blocks(scales: &[f32], bytes: &[u8], block: usize, out: &mut [f32]) {
+pub(crate) fn dequant_i8_blocks<S: Scale>(
+    scales: &[S],
+    bytes: &[u8],
+    block: usize,
+    out: &mut [f32],
+) {
     let mut off = 0;
     for (bi, chunk) in out.chunks_mut(block).enumerate() {
-        dequant_chunk(&bytes[off..off + chunk.len()], scales[bi], chunk);
+        dequant_chunk(&bytes[off..off + chunk.len()], scales[bi].to_f32(), chunk);
         off += chunk.len();
     }
 }
 
+// `dequant_i8_blocks` is generic, so it compiles in each crate that calls it,
+// at that crate's optimization level. Release builds always inline these two
+// functions into its loop, so it doesn't call into this crate for every
+// block. Builds with debug assertions, like debug builds, call
+// `dequant_chunk` instead, so it stays in this crate, and runs optimized when
+// a debug build sets `opt-level = 3` for its dependencies.
+#[cfg_attr(not(debug_assertions), inline(always))]
 fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
     let mut i = 0;
     #[cfg(target_arch = "aarch64")]
@@ -95,6 +107,7 @@ fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn dequant_16(src: *const u8, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;

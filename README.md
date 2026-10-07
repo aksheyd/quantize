@@ -96,8 +96,8 @@ quantize and dequantize with f16 scales. both libraries allocate their output on
 | --- | ---: | ---: | ---: | ---: |
 | quantize, aarch64 | 0.30 | 0.30 | 0.08 | 0.07 |
 | candle, aarch64 | 0.41 | 0.43 | 0.20 | 0.25 |
-| quantize, x86_64 | 3.90 | 3.74 | 0.37 | 0.36 |
-| candle, x86_64 | 2.22 | 4.29 | 0.45 | 0.45 |
+| quantize, x86_64 | 3.93 | 3.77 | 0.37 | 0.26 |
+| candle, x86_64 | 2.25 | 4.28 | 0.45 | 0.44 |
 
 <!-- speed:end -->
 

@@ -142,6 +142,22 @@ fn high_code(byte: u8) -> i8 {
     (byte as i8) >> 4
 }
 
+/// Decode 16 bytes into their 32 codes times `scale`, as
+/// [`dequant_i4_blocks`] would. With a fixed size, the compiler can keep all
+/// 32 values in SIMD registers, so a caller can multiply them without storing
+/// them first.
+#[inline]
+pub(crate) fn decode_32(bytes: &[u8; 16], scale: f32) -> [f32; 32] {
+    let mut values = [0.0; 32];
+    for (pair, &byte) in values.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
+        *pair = [
+            low_code(byte) as f32 * scale,
+            high_code(byte) as f32 * scale,
+        ];
+    }
+    values
+}
+
 // `dequant_i4_blocks` is generic, so it's compiled in each crate that calls
 // it. Without `#[inline]`, the code it compiles to there calls these two
 // functions in this crate every 32 codes.

@@ -1,7 +1,7 @@
 //! Reconstruct f32 from packed codes.
 
 use crate::kernels::{
-    dequant_asym_into, dequant_i4_blocks, dequant_i8_blocks, dequant_sym_into, dot_asym,
+    decode_32, dequant_asym_into, dequant_i4_blocks, dequant_i8_blocks, dequant_sym_into, dot_asym,
     dot_i4_blocks, dot_i8_blocks, dot_sym,
 };
 use crate::packed::{Packed, nbytes, read_code};
@@ -185,6 +185,31 @@ pub(crate) fn matmul_into<S: Scale>(
         return;
     }
 
+    // A single vector, as when a language model generates one token, leaves
+    // no batch to reuse a decoded row for, and storing each row only to read
+    // it straight back costs about as much as decoding it. So a 4-bit matrix
+    // whose blocks are whole groups of 32 codes multiplies each group as it
+    // decodes it instead.
+    if let Quantized::Symmetric {
+        scales,
+        codes,
+        block,
+        ..
+    } = quantized
+        && inputs.len() == columns
+        && codes.bits() == 4
+        && block.is_multiple_of(32)
+        && packed_rows_ok(quantized, columns)
+    {
+        let (bytes_per_row, scales_per_row) = (columns / 2, columns / block);
+        for (row, slot) in out.iter_mut().enumerate() {
+            let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
+            let row_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
+            *slot = dot_i4_row(row_scales, row_codes, *block, inputs);
+        }
+        return;
+    }
+
     // Decode each weight row once, then reuse it for every vector in the batch.
     // Finding an adaptive row on its own means adding up the widths of every
     // block before it, so here each adaptive row carries on from the byte
@@ -204,6 +229,28 @@ pub(crate) fn matmul_into<S: Scale>(
             out[vector * rows + row] = dot(&row_weights, input);
         }
     }
+}
+
+/// One row of a 4-bit matrix times `input`, for blocks of whole groups of 32
+/// codes, without storing the decoded row: each group is decoded into
+/// registers and multiplied right away. Its products go into the same totals
+/// as `dot`'s, in the same order, so the result is bit for bit what decoding
+/// the row and calling `dot` gives.
+fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
+    let mut totals = [0.0_f32; LANES];
+    let blocks = bytes.chunks_exact(block / 2).zip(input.chunks_exact(block));
+    for ((block_bytes, block_input), scale) in blocks.zip(scales) {
+        let scale = scale.to_f32();
+        let (groups, _) = block_bytes.as_chunks::<16>();
+        let (group_inputs, _) = block_input.as_chunks::<32>();
+        for (group, group_input) in groups.iter().zip(group_inputs) {
+            let weights = decode_32(group, scale);
+            let (weight_chunks, _) = weights.as_chunks();
+            let (input_chunks, _) = group_input.as_chunks();
+            add_products(&mut totals, weight_chunks, input_chunks);
+        }
+    }
+    totals.iter().sum()
 }
 
 fn packed_rows_ok<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
@@ -305,25 +352,32 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
     }
 }
 
+const LANES: usize = 16;
+
 /// Multiply two slices element by element and add up the products.
 ///
 /// Float addition is not associative, so with one running total the compiler
 /// must add the products in order, one at a time. Sixteen separate totals are
 /// independent, so it can add them side by side in SIMD registers.
 fn dot(left: &[f32], right: &[f32]) -> f32 {
-    const LANES: usize = 16;
     let (left_chunks, left_remainder) = left.as_chunks::<LANES>();
     let (right_chunks, right_remainder) = right.as_chunks::<LANES>();
     let remainder = left_remainder.iter().zip(right_remainder);
     let remainder_total: f32 = remainder.map(|(a, b)| a * b).sum();
 
     let mut totals = [0.0_f32; LANES];
-    for (left_chunk, right_chunk) in left_chunks.iter().zip(right_chunks) {
+    add_products(&mut totals, left_chunks, right_chunks);
+    totals.iter().sum::<f32>() + remainder_total
+}
+
+/// Add each product `left[i][lane] × right[i][lane]` to `totals[lane]`.
+#[inline]
+fn add_products(totals: &mut [f32; LANES], left: &[[f32; LANES]], right: &[[f32; LANES]]) {
+    for (left_chunk, right_chunk) in left.iter().zip(right) {
         for ((total, a), b) in totals.iter_mut().zip(left_chunk).zip(right_chunk) {
             *total += a * b;
         }
     }
-    totals.iter().sum::<f32>() + remainder_total
 }
 
 #[cfg(test)]
@@ -420,6 +474,38 @@ mod tests {
                     let got = fused[vector * rows + row];
                     assert!((naive - got).abs() < 1e-4, "{naive} vs {got}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn one_vector_gives_bit_for_bit_what_it_gives_in_a_batch() {
+        // 4-bit blocks of 32 and 64 multiply a single vector as they decode
+        // it. Every other layout decodes each row first, whatever the batch.
+        let values: Vec<f32> = (0..6 * 128).map(|i| (i as f32 * 0.37).sin()).collect();
+        let mut wide_rows = [
+            symmetric::quantize_with(&values, 4, 32).unwrap(),
+            symmetric::quantize_with(&values, 4, 64).unwrap(),
+        ];
+        for matrix in &mut wide_rows {
+            matrix.set_shape(6, 128).unwrap();
+        }
+        let bits = |values: &[f32]| {
+            values
+                .iter()
+                .map(|value| value.to_bits())
+                .collect::<Vec<_>>()
+        };
+        for quantized in wide_rows.into_iter().chain(matrices_in_every_layout()) {
+            let (rows, columns) = quantized.shape().unwrap();
+            let inputs: Vec<f32> = (0..2 * columns).map(|i| (i as f32 * 0.11).cos()).collect();
+            let batch = quantized.matmul(&inputs).unwrap();
+            for (vector, input) in inputs.chunks_exact(columns).enumerate() {
+                let alone = quantized.matmul(input).unwrap();
+                assert_eq!(
+                    bits(&alone),
+                    bits(&batch[vector * rows..(vector + 1) * rows])
+                );
             }
         }
     }

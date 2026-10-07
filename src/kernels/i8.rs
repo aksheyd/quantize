@@ -81,10 +81,13 @@ pub(crate) fn dequant_i8_blocks<S: Scale>(
     }
 }
 
-// `dequant_i8_blocks` is generic, so it's compiled in each crate that calls
-// it. Without `#[inline]` on these two functions, the code it compiles to
-// there calls into this crate for every block.
-#[inline]
+// `dequant_i8_blocks` is generic, so it compiles in each crate that calls it,
+// at that crate's optimization level. Release builds always inline these two
+// functions into its loop, so it doesn't call into this crate for every
+// block. Builds with debug assertions, like debug builds, call
+// `dequant_chunk` instead, so it stays in this crate, and runs optimized when
+// a debug build sets `opt-level = 3` for its dependencies.
+#[cfg_attr(not(debug_assertions), inline(always))]
 fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
     let mut i = 0;
     #[cfg(target_arch = "aarch64")]

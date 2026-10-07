@@ -53,17 +53,17 @@ impl PyQuantized {
         out: Option<Bound<'py, PyAny>>,
     ) -> PyResult<Bound<'py, PyAny>> {
         let py = slf.py();
-        let shape = slf.borrow().inner.shape();
+        let inner = slf.borrow().inner.clone();
+        let shape = inner.shape();
         match out {
             Some(out) => {
-                let mut output = as_writable_f32_out(&out, &shape)?;
-                slf.borrow()
-                    .dequantize_into(output.as_slice_mut()?)
+                let mut writable = as_writable_f32_out(&out, &shape)?;
+                let output = writable.as_slice_mut()?;
+                py.detach(|| with_inner!(&inner, |quantized| quantized.dequantize_into(output)))
                     .map_err(from_quantize)?;
                 Ok(out)
             }
             None => {
-                let inner = slf.borrow().inner.clone();
                 let values = py.detach(|| with_inner!(&inner, |quantized| quantized.dequantize()));
                 Ok(values.into_pyarray(py).reshape(shape)?.into_any())
             }

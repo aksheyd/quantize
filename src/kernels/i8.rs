@@ -81,6 +81,10 @@ pub(crate) fn dequant_i8_blocks<S: Scale>(
     }
 }
 
+// `dequant_i8_blocks` is generic, so it's compiled in each crate that calls
+// it. Without `#[inline]` on these two functions, the code it compiles to
+// there calls into this crate for every block.
+#[inline]
 fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
     let mut i = 0;
     #[cfg(target_arch = "aarch64")]
@@ -100,6 +104,7 @@ fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn dequant_16(src: *const u8, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;

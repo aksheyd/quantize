@@ -164,14 +164,18 @@ def test_refine_and_alternate_work_while_another_thread_uses_the_tensor():
 def test_other_threads_keep_running_while_alternate_refits():
     weights = np.random.default_rng(0).standard_normal((1024, 1024)).astype(np.float32)
     quantized = quantize(weights, bits=4)
-    wakeups = 0
-    start = time.perf_counter()
+    longest_pause = 0.0
+    start = last_check = time.perf_counter()
     with ThreadPoolExecutor() as pool:
         refitting = pool.submit(learned.alternate, quantized, weights)
         while not refitting.done():
-            wakeups += 1
-            time.sleep(0.001)
+            now = time.perf_counter()
+            longest_pause = max(longest_pause, now - last_check)
+            last_check = now
     refitting.result()
-    # This loop wakes every millisecond or so while the GIL is free, but only
-    # about once in all if alternate holds it.
-    assert wakeups > (time.perf_counter() - start) / 0.010
+    # While the GIL is free, this loop goes around every microsecond or so,
+    # but if alternate held the GIL, the loop would stop for almost the whole
+    # refit. Half the refit falls between the two on fast and slow machines
+    # alike. The loop doesn't sleep, since a 1 ms sleep can last 10 ms on
+    # some machines.
+    assert longest_pause < (last_check - start) / 2

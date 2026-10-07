@@ -229,7 +229,9 @@ def test_an_array_that_another_call_is_writing_gets_an_error_that_says_so():
     reason="the GIL is off, so alternate can't hold it",
 )
 def test_other_threads_keep_running_while_alternate_refits():
-    weights = np.random.default_rng(0).standard_normal((1024, 1024)).astype(np.float32)
+    # A busy machine can pause a thread for a tenth of a second or more, so
+    # the matrix is large enough that the refit takes several times that.
+    weights = np.random.default_rng(0).standard_normal((2048, 2048)).astype(np.float32)
     quantized = quantize(weights, bits=4)
     longest_pause = 0.0
     start = last_check = time.perf_counter()

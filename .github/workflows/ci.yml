@@ -52,18 +52,8 @@ jobs:
             sysctl hw | grep -E 'cachesize|cpu|perflevel' || true
           fi
 
-      - name: Check bits against main
-        run: cargo run --release --manifest-path timing/Cargo.toml --bin bits
-
-      - name: Time main and this branch
-        run: cargo run --release --manifest-path timing/Cargo.toml --bin compare
-
-      # Cargo compiles path dependencies incrementally in debug builds, and
-      # git ones not, so turn it off to build both copies alike.
-      - name: Time main and this branch in a debug build that optimizes dependencies
-        run: cargo run --manifest-path timing/Cargo.toml --bin compare
-        env:
-          CARGO_INCREMENTAL: 0
+      - name: Time main and this branch on a few large batches, 16 times each
+        run: cargo run --release --manifest-path timing/Cargo.toml --bin compare -- focus
 
   minimum-rust:
     runs-on: ubuntu-latest

@@ -22,6 +22,11 @@ const ADAPTIVE: Layout = Layout::Adaptive {
     tolerance: 0.1,
 };
 
+/// Whether to time only a few large cases, each at least 16 times.
+fn focus() -> bool {
+    std::env::args().any(|argument| argument == "focus")
+}
+
 fn compare<S: BothScales>(label: &str, layout: Layout, rows: usize, columns: usize, batch: usize) {
     let weights = values(rows * columns, 1);
     let mut branch = layout.branch::<S>(&weights).unwrap();
@@ -50,7 +55,9 @@ fn compare<S: BothScales>(label: &str, layout: Layout, rows: usize, columns: usi
     } else {
         Duration::from_secs(9)
     };
-    let rounds = (budget.as_secs_f64() / per_round.as_secs_f64()).clamp(6.0, 3000.0) as usize;
+    let fewest_rounds = if focus() { 16.0 } else { 6.0 };
+    let rounds =
+        (budget.as_secs_f64() / per_round.as_secs_f64()).clamp(fewest_rounds, 3000.0) as usize;
     // Best seconds of main, main again, and this branch, called in turn,
     // starting with a different one each round.
     let mut best = [f64::INFINITY; 3];
@@ -100,6 +107,14 @@ fn main() {
         "{:<36}{:>10}{:>11}{:>10}{:>8}{:>9}",
         "case", "main", "main again", "branch", "spread", "speedup"
     );
+    if focus() {
+        compare::<f16>("ViT qkv", ASYM4, 2304, 768, 6304);
+        compare::<f16>("ViT qkv", Q4_32, 2304, 768, 6304);
+        compare::<f16>("SmolLM lm_head", Q4_32, 49152, 576, 512);
+        compare::<f16>("4096²", Q4_32, 4096, 4096, 512);
+        compare::<f16>("ViT qkv", ASYM4, 2304, 768, 6304);
+        return;
+    }
     if cfg!(debug_assertions) {
         compare::<f16>("1024²", Q4_32, 1024, 1024, 1);
         compare::<f16>("1024²", Q8_32, 1024, 1024, 1);

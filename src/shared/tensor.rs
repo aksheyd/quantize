@@ -4,7 +4,7 @@ use crate::decode::{
     decode_row, dequant_adaptive, dequant_asym, dequant_sym, dot_of, unpack_codes,
 };
 use crate::error::{Error, Result, check_bits, check_block, check_len, malformed};
-use crate::packed::Packed;
+use crate::packed::{Packed, nbytes};
 use crate::scale::Scale;
 
 /// Packed codes and the scheme that produced them.
@@ -66,6 +66,15 @@ pub enum Quantized<S: Scale> {
         len: usize,
         /// Each row's length for a matrix, or `None` for a flat vector.
         columns: Option<usize>,
+        /// For a matrix, the byte in `codes` where each row's first block
+        /// starts. Blocks have different widths, so without it, finding a row
+        /// means adding up the widths of every block before it.
+        /// [`set_shape`](Self::set_shape) fills it in: to build a tensor by
+        /// hand, leave `columns` as `None` and `row_starts` empty, then call
+        /// [`validate`](Self::validate) and `set_shape`.
+        /// [`to_bytes`](Self::to_bytes) doesn't save it, and
+        /// [`nbytes`](Self::nbytes) doesn't count it.
+        row_starts: Vec<usize>,
     },
 }
 
@@ -101,6 +110,11 @@ impl<S: Scale> Quantized<S> {
     /// layer's weights, `rows` is the number of outputs and `columns` the
     /// number of inputs, as in PyTorch's `Linear.weight`.
     ///
+    /// An adaptive tensor also records where each row starts, adding up every
+    /// block's width once here, so that
+    /// [`dequantize_row_into`](Self::dequantize_row_into) finds any row
+    /// equally fast.
+    ///
     /// # Errors
     ///
     /// [`Error::ShapeMismatch`] if `columns` is 0, and
@@ -120,10 +134,17 @@ impl<S: Scale> Quantized<S> {
             }
             | Self::Asymmetric {
                 columns: recorded, ..
-            }
-            | Self::Adaptive {
-                columns: recorded, ..
             } => *recorded = Some(columns),
+            Self::Adaptive {
+                block_bits,
+                block,
+                columns: recorded,
+                row_starts,
+                ..
+            } => {
+                *row_starts = find_row_starts(block_bits, *block, rows, columns);
+                *recorded = Some(columns);
+            }
         }
         Ok(())
     }
@@ -216,7 +237,8 @@ impl<S: Scale> Quantized<S> {
     }
 
     /// Check that the buffers are exactly as long as `block`, `len`, the bit
-    /// widths, and the shape say, since decoding relies on it.
+    /// widths, and the shape say, and that an adaptive matrix's `row_starts`
+    /// are where its rows start, since decoding relies on it.
     /// [`from_bytes`](Self::from_bytes) runs this; so should code that builds
     /// a variant by hand.
     ///
@@ -224,7 +246,8 @@ impl<S: Scale> Quantized<S> {
     ///
     /// [`Error::InvalidBlock`], [`Error::InvalidBits`], or
     /// [`Error::ShapeMismatch`] for a field out of range, and
-    /// [`Error::Malformed`] for a buffer of the wrong length.
+    /// [`Error::Malformed`] for a buffer of the wrong length or wrong row
+    /// starts.
     pub fn validate(&self) -> Result<()> {
         let (len, block) = (self.len(), self.block());
         check_block(block)?;
@@ -266,6 +289,24 @@ impl<S: Scale> Quantized<S> {
             return Err(malformed(
                 "the codes must fill exactly the bytes that len and the bit widths need",
             ));
+        }
+        // Checked last, since finding the row starts relies on every check
+        // above.
+        if let Self::Adaptive {
+            block_bits,
+            row_starts,
+            ..
+        } = self
+        {
+            let expected = match columns {
+                Some(columns) => find_row_starts(block_bits, block, len / columns, columns),
+                None => Vec::new(),
+            };
+            if *row_starts != expected {
+                return Err(malformed(
+                    "row_starts must say where each row's first block starts, as set_shape records",
+                ));
+            }
         }
         Ok(())
     }
@@ -329,9 +370,7 @@ impl<S: Scale> Quantized<S> {
                 block,
                 ..
             } => dequant_asym(scales, zero_points, codes, *block, out),
-            Self::Adaptive { .. } => {
-                dequant_adaptive(self, 0, 0, out);
-            }
+            Self::Adaptive { .. } => dequant_adaptive(self, 0, 0, out),
         }
         Ok(())
     }
@@ -354,10 +393,10 @@ impl<S: Scale> Quantized<S> {
     /// assert_eq!(embedding, [0.5, 0.6, 0.7, 0.8]);
     /// ```
     ///
-    /// It reads the codes in place, so it doesn't allocate. An adaptive tensor
-    /// packs each block at its own width, so finding a row means adding up the
-    /// widths of every block before it, and rows further down take longer to
-    /// find. Other tensors find any row equally fast.
+    /// It reads the codes in place, so it doesn't allocate, and finds any row
+    /// equally fast. An adaptive tensor packs each block at its own width, so
+    /// it looks up where the row starts in the `row_starts` that
+    /// [`set_shape`](Self::set_shape) recorded.
     ///
     /// # Errors
     ///
@@ -541,6 +580,32 @@ impl<S: Scale> core::fmt::Debug for Quantized<S> {
     }
 }
 
+/// Where each row's first block starts in an adaptive tensor's codes: the
+/// bytes that every block before it fills, added up one row after another.
+/// Those blocks are all full, since only the tensor's last block can be short.
+///
+/// It reads a width for every block before the last row, so a tensor built by
+/// hand should pass [`Quantized::validate`] first.
+pub(crate) fn find_row_starts(
+    block_bits: &[u8],
+    block: usize,
+    rows: usize,
+    columns: usize,
+) -> Vec<usize> {
+    let mut row_starts = Vec::with_capacity(rows);
+    let mut first_byte = 0;
+    let mut blocks_before = 0;
+    for row in 0..rows {
+        let first_block = row * columns / block;
+        for &bit_width in &block_bits[blocks_before..first_block] {
+            first_byte += nbytes(block, bit_width.into());
+        }
+        blocks_before = first_block;
+        row_starts.push(first_byte);
+    }
+    row_starts
+}
+
 /// Bytes that `count` codes of `bits` each fill.
 fn packed_size(count: usize, bits: u32) -> Result<usize> {
     check_bits(bits)?;
@@ -554,7 +619,7 @@ fn too_large() -> Error {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Packed, Quantized, adaptive, symmetric};
+    use crate::{Error, Packed, Quantized, adaptive, symmetric};
 
     #[test]
     fn unpacked_adaptive_codes_repack_to_the_original_bytes() {
@@ -575,6 +640,41 @@ mod tests {
             repacked.extend_from_slice(Packed::from_i32s(block_codes, bit_width.into()).as_bytes());
         }
         assert_eq!(&repacked, codes);
+    }
+
+    #[test]
+    fn set_shape_records_where_each_adaptive_row_starts() {
+        // Blocks of 8 widen from 2 to 6 bits, and rows of 30 values start
+        // partway through a block, so each row starts after a mix of widths.
+        let values: Vec<f32> = (0..120)
+            .map(|i| (i as f32 * 0.37).sin() * i as f32 / 120.0)
+            .collect();
+        let mut quantized = adaptive::quantize_with::<f32>(&values, 8, 0.01).unwrap();
+        quantized.set_shape(4, 30).unwrap();
+        let Quantized::Adaptive {
+            block_bits,
+            row_starts,
+            ..
+        } = &quantized
+        else {
+            unreachable!()
+        };
+        let bytes_before = |block_count: usize| -> usize {
+            let widths = &block_bits[..block_count];
+            widths.iter().map(|&bit_width| bit_width as usize).sum()
+        };
+        // Row r starts in block r × 30 / 8, and 8 codes of b bits fill b bytes.
+        assert_eq!(
+            *row_starts,
+            [0, 3, 7, 11].map(bytes_before),
+            "{block_bits:?}"
+        );
+
+        let mut wrong = quantized.clone();
+        if let Quantized::Adaptive { row_starts, .. } = &mut wrong {
+            row_starts[2] += 1;
+        }
+        assert!(matches!(wrong.validate(), Err(Error::Malformed { .. })));
     }
 
     #[test]

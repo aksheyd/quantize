@@ -59,6 +59,7 @@ pub fn quantize_with<S: Scale>(
             block,
             len: 0,
             columns: None,
+            row_starts: Vec::new(),
         });
     }
 
@@ -102,6 +103,7 @@ pub fn quantize_with<S: Scale>(
         block,
         len: values.len(),
         columns: None,
+        row_starts: Vec::new(),
     })
 }
 

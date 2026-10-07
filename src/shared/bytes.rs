@@ -113,7 +113,10 @@ impl<S: Scale> Quantized<S> {
 
         check_block(block)?;
         let blocks = len.div_ceil(block);
-        let quantized = match kind {
+        // Every kind loads as a flat vector first. The shape goes on last,
+        // through `set_shape`, since it finds where each adaptive row starts
+        // by reading widths that must be checked first.
+        let mut quantized = match kind {
             SYMMETRIC => {
                 let scales = reader.scales(blocks)?;
                 let codes = reader.codes(code_bits, len)?;
@@ -122,7 +125,7 @@ impl<S: Scale> Quantized<S> {
                     codes,
                     block,
                     len,
-                    columns,
+                    columns: None,
                 }
             }
             ASYMMETRIC => {
@@ -135,7 +138,7 @@ impl<S: Scale> Quantized<S> {
                     codes,
                     block,
                     len,
-                    columns,
+                    columns: None,
                 }
             }
             ADAPTIVE => {
@@ -150,7 +153,8 @@ impl<S: Scale> Quantized<S> {
                     block_bits,
                     block,
                     len,
-                    columns,
+                    columns: None,
+                    row_starts: Vec::new(),
                 }
             }
             _ => return Err(malformed("unknown kind")),
@@ -164,6 +168,12 @@ impl<S: Scale> Quantized<S> {
             Ordering::Equal => {}
         }
         quantized.validate()?;
+        if let Some(columns) = columns {
+            if !len.is_multiple_of(columns) {
+                return Err(Error::ShapeMismatch { len, columns });
+            }
+            quantized.set_shape(len / columns, columns)?;
+        }
         Ok(quantized)
     }
 }
@@ -233,11 +243,15 @@ mod tests {
         five_by_sixteen.set_shape(5, 16).unwrap();
         let mut two_by_forty = asymmetric::quantize_with(&values, 8, 32).unwrap();
         two_by_forty.set_shape(2, 40).unwrap();
-        let tensors: [Quantized<S>; 5] = [
+        // Its second row starts partway through a block.
+        let mut adaptive_two_by_forty = adaptive::quantize_with(&values, 32, 0.01).unwrap();
+        adaptive_two_by_forty.set_shape(2, 40).unwrap();
+        let tensors: [Quantized<S>; 6] = [
             symmetric::quantize_with(&values, 4, 32).unwrap(),
             five_by_sixteen,
             two_by_forty,
             adaptive::quantize_with(&values, 32, 0.01).unwrap(),
+            adaptive_two_by_forty,
             symmetric::quantize_with(&[], 8, 32).unwrap(),
         ];
         for quantized in tensors {

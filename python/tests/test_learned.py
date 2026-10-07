@@ -177,6 +177,53 @@ def test_refine_and_alternate_work_while_other_threads_use_the_tensor():
     assert products <= {Quantized(version).matmul(weights[0]).tobytes() for version in versions}
 
 
+def test_an_array_that_another_call_is_writing_gets_an_error_that_says_so():
+    weights = np.random.default_rng(0).standard_normal((2048, 2048)).astype(np.float32)
+    quantized = quantize(weights, bits=4)
+    out = np.empty_like(weights)
+    first_row = quantize(weights[:1], bits=4)
+    in_use = "out is in use by another call, like one on another thread; give each call its own out"
+    being_written = (
+        "values is being written by another call, like a matmul or dequantize with out= "
+        "on another thread; read it once that call returns"
+    )
+    messages = set()
+    started, stop = threading.Event(), threading.Event()
+
+    def keep_writing():
+        started.set()
+        while not stop.is_set():
+            try:
+                quantized.dequantize(out)
+            except ValueError as error:
+                # Without a GIL, a read below can start first.
+                messages.add(str(error))
+
+    with ThreadPoolExecutor(1) as pool:
+        # Starting a thread can take longer than a write.
+        pool.submit(lambda: None).result()
+        writing = pool.submit(keep_writing)
+        started.wait()
+        deadline = time.perf_counter() + 10
+        try:
+            while messages != {in_use, being_written} and time.perf_counter() < deadline:
+                try:
+                    # This keeps the GIL, so no write starts while it reads.
+                    learned.fit_scale_and_zero_point(out[0], first_row.unpacked_codes)
+                    continue
+                except ValueError as error:
+                    messages.add(str(error))
+                # A write is running, so this fails too.
+                try:
+                    first_row.dequantize(out[:1])
+                except ValueError as error:
+                    messages.add(str(error))
+        finally:
+            stop.set()
+        writing.result()
+    assert messages == {in_use, being_written}
+
+
 @pytest.mark.skipif(
     sysconfig.get_config_var("Py_GIL_DISABLED") and not sys._is_gil_enabled(),
     reason="the GIL is off, so alternate can't hold it",

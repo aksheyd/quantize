@@ -9,9 +9,9 @@
 //! **Fix**: parameterize the bit width with a const generic `BITS`. The
 //! algorithm is identical — only the smallest and largest code change, and the
 //! scale now divides by the new largest code. Keep `BITS` between 2 and 16,
-//! like the library does: at 1 bit the largest code is 0, so there is nothing
-//! to scale to. The codes sit in `i32`s to keep things simple; a real format
-//! packs them tightly, two 4-bit codes to a byte.
+//! like the library does: at 1 bit the largest code is 0, so every value comes
+//! back as NaN (not a number). The codes sit in `i32`s to keep things simple;
+//! a real format packs them tightly, two 4-bit codes to a byte.
 //!
 //! **Still wrong**: one outlier in a million-element tensor wrecks the scale.
 //!
@@ -19,6 +19,7 @@
 
 // `1 << n` is 2 to the power n: 4 bits give codes -8..=7, 8 bits -128..=127.
 const fn largest_code<const BITS: u32>() -> i32 {
+    assert!(1 <= BITS && BITS <= 31, "BITS must be from 1 to 31");
     (1_i32 << (BITS - 1)) - 1
 }
 const fn smallest_code<const BITS: u32>() -> i32 {

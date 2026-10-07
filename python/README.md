@@ -56,15 +56,20 @@ q = Quantized.from_parts(**np.load("layer.npz"))
 
 to keep quantized values in a `torch.save` checkpoint, store `torch.frombuffer(bytearray(q.to_bytes()), dtype=torch.uint8)`, and load each back with `Quantized(t)`. the checkpoint is then as small as the bytes, and `torch.load` reads it without `add_safe_globals`. pickling `q` itself makes the checkpoint about 1.5 times larger, since `torch.save` stores bytes as text, and needs `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
 
-`q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 7 ms instead of 39 ms, with the same result, bit for bit:
+`q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 6 ms instead of 39 ms, with the same result, bit for bit:
 
 ```python
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-with ThreadPoolExecutor() as pool:
-    pieces = np.array_split(x, os.cpu_count())  # x has shape (batch, columns)
-    out = np.concatenate(list(pool.map(q.matmul, pieces)))
+pool = ThreadPoolExecutor()  # make it once, and reuse it for every layer
+
+def linear(q, x):  # x has shape (batch, columns)
+    # a piece per core, or pieces of 64 rows for a big batch, which stay in a core's cache
+    pieces = np.array_split(x, max(os.cpu_count(), len(x) // 64))
+    return np.concatenate(list(pool.map(q.matmul, pieces)))
+
+out = linear(q, x)
 ```
 
 with a gil, while another thread keeps running python, each piece can wait up to `sys.getswitchinterval()`, 5 ms by default, to get the gil back, so splitting pays off only while your other threads are idle or in native code, or on free-threaded python. calls on 65,536 values or fewer, like one vector times a 256 × 256 matrix, keep the gil, so they don't wait.

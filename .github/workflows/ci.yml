@@ -48,8 +48,11 @@ jobs:
       - name: Throughput
         run: just throughput
 
-      - name: Kernel variants, block known at run time
-        run: cargo run --release -p benchmarks --example kernel_scratch2
+      - name: Kernel variants, 32-code groups, interleaved
+        run: cargo run --release -p benchmarks --example kernel_scratch3
+
+      - name: Kernel variants, again
+        run: ./target/release/examples/kernel_scratch3
 
   minimum-rust:
     runs-on: ubuntu-latest

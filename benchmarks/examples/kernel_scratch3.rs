@@ -312,6 +312,148 @@ mod neon {
     }
 }
 
+// ---------- fixed 32-code groups (block % 32 == 0) ----------
+
+/// Portable: decode 32 codes, weight = code × scale, add into the 16 lanes `dot16` uses.
+/// Bit-exact with decode + dot16.
+#[inline(always)]
+fn dot_row_groups_portable(scales: &[f16], bytes: &[u8], block: usize, x: &[f32]) -> f32 {
+    let mut totals = [0.0_f32; 16];
+    for ((block_bytes, block_x), scale) in bytes
+        .chunks_exact(block / 2)
+        .zip(x.chunks_exact(block))
+        .zip(scales)
+    {
+        let scale = scale.to_f32();
+        let (groups, _) = block_bytes.as_chunks::<16>();
+        let (x_groups, _) = block_x.as_chunks::<32>();
+        for (group, x_group) in groups.iter().zip(x_groups) {
+            let mut weights = [0.0_f32; 32];
+            for (pair, &byte) in weights.as_chunks_mut::<2>().0.iter_mut().zip(group) {
+                *pair = [
+                    low_code(byte) as f32 * scale,
+                    high_code(byte) as f32 * scale,
+                ];
+            }
+            for (sixteen_weights, sixteen_x) in weights
+                .as_chunks::<16>()
+                .0
+                .iter()
+                .zip(x_group.as_chunks::<16>().0)
+            {
+                for ((total, weight), input) in
+                    totals.iter_mut().zip(sixteen_weights).zip(sixteen_x)
+                {
+                    *total += weight * input;
+                }
+            }
+        }
+    }
+    totals.iter().sum::<f32>() + 0.0
+}
+
+#[cfg(target_arch = "aarch64")]
+mod neon_groups {
+    use core::arch::aarch64::*;
+
+    #[inline(always)]
+    unsafe fn codes_32(src: *const u8) -> (int8x16_t, int8x16_t) {
+        unsafe {
+            let raw = vld1q_u8(src);
+            let lo = vshrq_n_s8(
+                vshlq_n_s8(vreinterpretq_s8_u8(vandq_u8(raw, vdupq_n_u8(0x0F))), 4),
+                4,
+            );
+            let hi = vshrq_n_s8(vshlq_n_s8(vreinterpretq_s8_u8(vshrq_n_u8(raw, 4)), 4), 4);
+            (vzip1q_s8(lo, hi), vzip2q_s8(lo, hi))
+        }
+    }
+
+    #[inline(always)]
+    unsafe fn floats_16(q: int8x16_t) -> [float32x4_t; 4] {
+        let lo = vmovl_s8(vget_low_s8(q));
+        let hi = vmovl_s8(vget_high_s8(q));
+        [
+            vcvtq_f32_s32(vmovl_s16(vget_low_s16(lo))),
+            vcvtq_f32_s32(vmovl_s16(vget_high_s16(lo))),
+            vcvtq_f32_s32(vmovl_s16(vget_low_s16(hi))),
+            vcvtq_f32_s32(vmovl_s16(vget_high_s16(hi))),
+        ]
+    }
+
+    /// Bit-exact with decode + dot16: weight = code × scale, totals += weight × x, mul then add.
+    pub fn dot_row_bitexact(scales: &[half::f16], bytes: &[u8], block: usize, x: &[f32]) -> f32 {
+        unsafe {
+            let mut totals = [vdupq_n_f32(0.0); 4];
+            for ((block_bytes, block_x), scale) in bytes
+                .chunks_exact(block / 2)
+                .zip(x.chunks_exact(block))
+                .zip(scales)
+            {
+                let vs = vdupq_n_f32(scale.to_f32());
+                for (group, x_group) in block_bytes.chunks_exact(16).zip(block_x.chunks_exact(32)) {
+                    let (first, second) = codes_32(group.as_ptr());
+                    for (half, codes) in [first, second].into_iter().enumerate() {
+                        let xs = x_group.as_ptr().add(16 * half);
+                        let codes = floats_16(codes);
+                        for k in 0..4 {
+                            let weight = vmulq_f32(codes[k], vs);
+                            totals[k] =
+                                vaddq_f32(totals[k], vmulq_f32(weight, vld1q_f32(xs.add(4 * k))));
+                        }
+                    }
+                }
+            }
+            let mut lanes = [0.0f32; 16];
+            for k in 0..4 {
+                vst1q_f32(lanes.as_mut_ptr().add(4 * k), totals[k]);
+            }
+            lanes.iter().sum::<f32>() + 0.0
+        }
+    }
+
+    /// Σ code·x per block in 4 lanes, then the row's 4 lanes += scale × that. With or without FMA.
+    pub fn dot_row_vector<const FMA: bool>(
+        scales: &[half::f16],
+        bytes: &[u8],
+        block: usize,
+        x: &[f32],
+    ) -> f32 {
+        unsafe {
+            let mut row = vdupq_n_f32(0.0);
+            for ((block_bytes, block_x), scale) in bytes
+                .chunks_exact(block / 2)
+                .zip(x.chunks_exact(block))
+                .zip(scales)
+            {
+                let mut sums = [vdupq_n_f32(0.0); 2];
+                for (group, x_group) in block_bytes.chunks_exact(16).zip(block_x.chunks_exact(32)) {
+                    let (first, second) = codes_32(group.as_ptr());
+                    for (half, codes) in [first, second].into_iter().enumerate() {
+                        let xs = x_group.as_ptr().add(16 * half);
+                        let codes = floats_16(codes);
+                        for k in 0..4 {
+                            let product_input = vld1q_f32(xs.add(4 * k));
+                            sums[k % 2] = if FMA {
+                                vfmaq_f32(sums[k % 2], codes[k], product_input)
+                            } else {
+                                vaddq_f32(sums[k % 2], vmulq_f32(codes[k], product_input))
+                            };
+                        }
+                    }
+                }
+                let block_sum = vaddq_f32(sums[0], sums[1]);
+                row = if FMA {
+                    vfmaq_n_f32(row, block_sum, scale.to_f32())
+                } else {
+                    vaddq_f32(row, vmulq_n_f32(block_sum, scale.to_f32()))
+                };
+            }
+            vaddvq_f32(row)
+        }
+    }
+}
+
 // ---------- variants over the whole matrix ----------
 
 type Kernel = fn(&Quantized<f16>, &[f32], &mut [f32]);
@@ -448,6 +590,37 @@ fn fused_neon_vector(q: &Quantized<f16>, input: &[f32], out: &mut [f32]) {
     }
 }
 
+fn groups_portable(q: &Quantized<f16>, input: &[f32], out: &mut [f32]) {
+    let (_, block, rows) = rows_of(q);
+    for ((bytes, scales), slot) in rows.zip(out) {
+        *slot = dot_row_groups_portable(scales, bytes, block, input);
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn groups_neon_bitexact(q: &Quantized<f16>, input: &[f32], out: &mut [f32]) {
+    let (_, block, rows) = rows_of(q);
+    for ((bytes, scales), slot) in rows.zip(out) {
+        *slot = neon_groups::dot_row_bitexact(scales, bytes, block, input);
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn groups_neon_vector_fma(q: &Quantized<f16>, input: &[f32], out: &mut [f32]) {
+    let (_, block, rows) = rows_of(q);
+    for ((bytes, scales), slot) in rows.zip(out) {
+        *slot = neon_groups::dot_row_vector::<true>(scales, bytes, block, input);
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+fn groups_neon_vector_mul_add(q: &Quantized<f16>, input: &[f32], out: &mut [f32]) {
+    let (_, block, rows) = rows_of(q);
+    for ((bytes, scales), slot) in rows.zip(out) {
+        *slot = neon_groups::dot_row_vector::<false>(scales, bytes, block, input);
+    }
+}
+
 fn main() {
     let shapes = [
         (HIDDEN, HIDDEN),
@@ -495,17 +668,18 @@ fn main() {
 
     #[allow(unused_mut)]
     let mut variants: Vec<(&str, Kernel)> = vec![
-        ("crate matmul (now)", crate_matmul),
+        ("crate matmul", crate_matmul),
         ("crate-like, decode now", crate_like_now),
         ("crate-like, decode new", crate_like_new),
-        ("decode now, hoisted", decode_now_hoisted),
-        ("decode new, hoisted", decode_new_hoisted),
-        ("decode portable, hoist", decode_portable_hoisted),
-        ("fused fact. neon+pairs", fused_factored_neon),
-        ("fused fact. pairs only", fused_factored_portable),
+        ("groups portable bitex.", groups_portable),
     ];
     #[cfg(target_arch = "aarch64")]
-    variants.push(("fused neon vector acc", fused_neon_vector));
+    {
+        variants.push(("groups neon bitexact", groups_neon_bitexact));
+        variants.push(("groups neon vec fma", groups_neon_vector_fma));
+        variants.push(("groups neon vec mul+add", groups_neon_vector_mul_add));
+        variants.push(("fused neon vector acc", fused_neon_vector));
+    }
 
     let mut reference: Vec<Vec<f32>> = Vec::new();
     for q in &layers {
@@ -515,19 +689,21 @@ fn main() {
         reference.push(out);
     }
 
-    let repeats: usize = std::env::var("REPEATS")
+    let rounds: usize = std::env::var("ROUNDS")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(25);
+        .unwrap_or(15);
     println!(
         "batch-1 linears of one SmolLM-135M token (4-bit, block 32 known at run time, f16 scales)"
     );
+    println!("{rounds} interleaved rounds; min and median ms per token");
     println!(
-        "{:<24}{:>10}{:>10}{:>14}{:>10}",
-        "variant", "ms/token", "ns/value", "max rel diff", "bitexact"
+        "{:<24}{:>9}{:>9}{:>10}{:>14}{:>10}",
+        "variant", "min", "median", "ns/value", "max rel diff", "bitexact"
     );
     let total_values: usize = layers.iter().map(|q| q.len()).sum();
-    for (name, kernel) in &variants {
+    let mut checks = Vec::new();
+    for (_, kernel) in &variants {
         let mut max_relative = 0.0f32;
         let mut bitexact = true;
         for ((q, out), expected) in layers.iter().zip(outs.iter_mut()).zip(&reference) {
@@ -537,29 +713,35 @@ fn main() {
                 if got.to_bits() != want.to_bits() {
                     bitexact = false;
                 }
-                let relative = (got - want).abs() / want.abs().max(1e-3);
-                max_relative = max_relative.max(relative);
+                max_relative = max_relative.max((got - want).abs() / want.abs().max(1e-3));
             }
         }
-        let mut run = || {
+        checks.push((max_relative, bitexact));
+    }
+    let mut samples: Vec<Vec<f64>> = vec![Vec::new(); variants.len()];
+    for round in 0..rounds + 2 {
+        for (index, (_, kernel)) in variants.iter().enumerate() {
             let start = Instant::now();
             for (q, out) in layers.iter().zip(outs.iter_mut()) {
                 let (_, columns) = q.shape().unwrap();
                 kernel(q, input_for(columns), out);
                 black_box(&out);
             }
-            start.elapsed().as_secs_f64()
-        };
-        for _ in 0..3 {
-            run();
+            if round >= 2 {
+                samples[index].push(start.elapsed().as_secs_f64());
+            }
         }
-        let mut samples: Vec<f64> = (0..repeats).map(|_| run()).collect();
-        samples.sort_by(f64::total_cmp);
-        let seconds = samples[repeats / 2];
+    }
+    for (((name, _), mut times), (max_relative, bitexact)) in
+        variants.iter().zip(samples).zip(checks)
+    {
+        times.sort_by(f64::total_cmp);
+        let (min, median) = (times[0], times[times.len() / 2]);
         println!(
-            "{name:<24}{:>10.2}{:>10.3}{:>14.2e}{:>10}",
-            seconds * 1e3,
-            seconds * 1e9 / total_values as f64,
+            "{name:<24}{:>9.2}{:>9.2}{:>10.3}{:>14.2e}{:>10}",
+            min * 1e3,
+            median * 1e3,
+            min * 1e9 / total_values as f64,
             max_relative,
             bitexact
         );

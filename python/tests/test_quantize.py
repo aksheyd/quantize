@@ -419,10 +419,24 @@ def test_scheme_reads_text_written_like_its_class_methods():
     assert Scheme("symmetric(bits=4, block=32)") == Scheme("Q4_32") == Scheme.Q4_32
     assert Scheme("asymmetric(bits=3, block=7)") == Scheme.asymmetric(bits=3, block=7)
     assert Scheme("adaptive(block=32, tolerance=0.002)") == Scheme.adaptive(tolerance=0.002)
+    assert Scheme("symmetric(bits=4)") == Scheme.symmetric(bits=4)
+    assert Scheme("adaptive(tolerance=0.002)") == Scheme.adaptive(tolerance=0.002)
     with pytest.raises(QuantizeError, match=r"isn't a scheme; write one like symmetric\(bits=4"):
         Scheme("symmetric:4:32")
     with pytest.raises(InvalidBitsError):
         Scheme("symmetric(bits=99, block=32)")
+
+
+def test_str_writes_the_text_that_scheme_reads():
+    assert str(Scheme.Q4_32) == "symmetric(bits=4, block=32)"
+    assert f"{Scheme.adaptive(tolerance=0.002)}" == "adaptive(block=32, tolerance=0.002)"
+    for scheme in [
+        Scheme.Q8_32,
+        Scheme.asymmetric(bits=3, block=7),
+        Scheme.adaptive(block=32, tolerance=0.1 * 0.0173),
+    ]:
+        assert Scheme(str(scheme)) == scheme
+    assert repr(Scheme.Q4_32) == "Scheme(kind='symmetric', bits=4, block=32)"
 
 
 def test_quantize_rejects_other_dimensions():

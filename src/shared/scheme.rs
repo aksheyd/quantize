@@ -92,6 +92,8 @@ impl fmt::Display for Scheme {
 
 /// Reads what [`Display`](fmt::Display) prints, with or without the spaces
 /// and with the arguments in any order, or the name `Q8_32` or `Q4_32`.
+/// `block` can be left out, for blocks of 32, so `symmetric(bits=4)` reads as
+/// [`Scheme::Q4_32`].
 ///
 /// A value that [`quantize`](Scheme::quantize) would reject, like `bits=99`,
 /// gets the same error here, so a bad config fails where it's read:
@@ -143,16 +145,18 @@ fn parse_scheme(text: &str) -> Option<Scheme> {
             return None;
         }
     }
-    Some(match (kind.trim(), bits, block, tolerance) {
-        ("symmetric", Some(bits), Some(block), None) => Scheme::Symmetric {
+    // Leaving `block` out means blocks of 32, the size of Q8_32 and Q4_32.
+    let block = block.unwrap_or("32");
+    Some(match (kind.trim(), bits, tolerance) {
+        ("symmetric", Some(bits), None) => Scheme::Symmetric {
             bits: bits.parse().ok()?,
             block: block.parse().ok()?,
         },
-        ("asymmetric", Some(bits), Some(block), None) => Scheme::Asymmetric {
+        ("asymmetric", Some(bits), None) => Scheme::Asymmetric {
             bits: bits.parse().ok()?,
             block: block.parse().ok()?,
         },
-        ("adaptive", None, Some(block), Some(tolerance)) => Scheme::Adaptive {
+        ("adaptive", None, Some(tolerance)) => Scheme::Adaptive {
             block: block.parse().ok()?,
             tolerance: tolerance.parse().ok()?,
         },
@@ -212,12 +216,28 @@ mod tests {
     }
 
     #[test]
+    fn parse_reads_a_missing_block_as_32() {
+        assert_eq!("symmetric(bits=4)".parse(), Ok(Scheme::Q4_32));
+        assert_eq!(
+            "asymmetric(bits=8)".parse(),
+            Ok(Scheme::Asymmetric { bits: 8, block: 32 })
+        );
+        assert_eq!(
+            "adaptive(tolerance=0.002)".parse(),
+            Ok(Scheme::Adaptive {
+                block: 32,
+                tolerance: 0.002
+            })
+        );
+    }
+
+    #[test]
     fn parse_rejects_text_that_is_not_a_scheme() {
         for text in [
             "",
             "q4_32",
             "symetric(bits=4, block=32)",
-            "symmetric(bits=4)",
+            "symmetric(block=32)",
             "symmetric(bits=4, block=32, bits=8)",
             "symmetric(bits=4, block=32, tolerance=0.1)",
             "symmetric(bits=4, size=32)",

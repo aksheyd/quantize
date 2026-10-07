@@ -2,7 +2,7 @@
 
 a simple, fast quantization library usable as a [rust crate](https://crates.io/crates/quantize) or [python package](https://pypi.org/project/quantize-py/).
 
-quantization stores numbers in fewer bits, trading a little accuracy for a lot less memory.
+quantization stores numbers in fewer bits, trading some accuracy for a lot less memory.
 
 ## learn
 
@@ -74,7 +74,7 @@ quantize two random matrices, reconstruct them, then matmul. mse is the mean squ
 
 <!-- comparison:end -->
 
-on WikiText-2 with SmolLM-135M, 4-bit perplexity is 26.44 against candle `Q4_0`'s 26.46, and fp32 is 18.93. perplexity is roughly how many tokens the model is choosing between when it guesses the next one, so lower is better. reproducing these numbers downloads the model and dataset from hugging face, then scores the whole test set, which takes hours:
+on WikiText-2, a set of wikipedia articles, the small language model SmolLM-135M has a 4-bit perplexity of 26.44 against candle `Q4_0`'s 26.46, and 18.93 in fp32. perplexity is roughly how many tokens the model is choosing between when it guesses the next one, so lower is better. reproducing these numbers downloads the model and dataset from hugging face, then scores the whole test set, which takes hours:
 
 ```
 cargo run --release -p benchmarks --example wikitext --features workload
@@ -88,7 +88,7 @@ add `-- --max-tokens 512` to score only the first 512 tokens. that takes about a
 cargo run --release -p benchmarks --example throughput
 ```
 
-quantize and dequantize with f16 scales. both libraries allocate their output on every call. aarch64 is an apple M5 Max and x86_64 an intel xeon. the hand-written simd only targets aarch64, so x86_64 runs plain loops and is slower. the run also times this crate's `dot`, `matmul` on 16 inputs and on one, and row-by-row decoding of an adaptive matrix, which aren't compared with candle.
+quantize and dequantize with f16 scales. both libraries allocate their output on every call. aarch64 is an apple M5 Max and x86_64 an intel xeon. the hand-written simd only targets aarch64, so x86_64 runs plain loops and is slower than aarch64. the run also times this crate's `dot`, `matmul` on 16 inputs and on one, and row-by-row decoding of an adaptive matrix, which aren't compared with candle.
 
 <!-- speed:start -->
 

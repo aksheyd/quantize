@@ -16,6 +16,8 @@ const BYTES_TYPE: &str = "data must be bytes, like to_bytes returns, or a 1-D ui
 const OUT_TYPE: &str = "out must be a float32 numpy array or pytorch tensor";
 const OUT_CONTIG: &str = "out must be writable and C-contiguous";
 const OUT_OVERLAPS_INPUTS: &str = "out can't share memory with inputs";
+const OUT_IN_USE: &str =
+    "out is in use by another call, like one on another thread; give each call its own out";
 
 fn is_native_dtype(arr: &Bound<'_, PyUntypedArray>) -> PyResult<bool> {
     arr.dtype().getattr("isnative")?.extract()
@@ -76,7 +78,13 @@ fn read_f32<'py>(
     let float32 = numpy.getattr("float32")?;
     let contiguous = numpy.call_method1("ascontiguousarray", (array, float32))?;
     let typed = contiguous.cast::<PyArrayDyn<f32>>()?;
-    Ok((typed.try_readonly()?, array.shape().to_vec()))
+    // Reading fails only while another call writes into the array.
+    let readonly = typed.try_readonly().map_err(|_| {
+        PyValueError::new_err(format!(
+            "{argument} is being written by another call, like a matmul or dequantize with out= on another thread; read it once that call returns"
+        ))
+    })?;
+    Ok((readonly, array.shape().to_vec()))
 }
 
 /// `obj`, or if it's a PyTorch tensor, a tensor that `numpy.asarray` reads:
@@ -262,8 +270,10 @@ pub fn as_writable_f32_out<'py>(
         return Err(PyValueError::new_err(OUT_CONTIG));
     }
     check_shape(obj.py(), "out", shape, arr.shape())?;
+    // Its flags are checked above, so this fails only while another call
+    // reads or writes it.
     arr.try_readwrite()
-        .map_err(|_| PyValueError::new_err(OUT_CONTIG))
+        .map_err(|_| PyValueError::new_err(OUT_IN_USE))
 }
 
 /// Check that `out` shares no memory with `inputs`, which `matmul` reads

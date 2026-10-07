@@ -3,13 +3,14 @@
 use pyo3::prelude::*;
 
 use crate::error::{from_quantize, length_mismatch};
+use crate::gil::detach_if_large;
 use crate::input::{as_f32_array, as_f32_values, as_i32_codes, check_shape};
 use crate::quantized::PyQuantized;
 
-// `refine` and `alternate` refit a snapshot of the tensor with the GIL
-// released, then store it. `Arc::make_mut` copies the shared tensor before
-// the refit changes it, so until it's stored, other threads read the tensor
-// as it was.
+// `refine` and `alternate` refit a snapshot of the tensor, with the GIL
+// released unless it's small, then store it. `Arc::make_mut` copies the
+// shared tensor before the refit changes it, so until it's stored, other
+// threads read the tensor as it was.
 
 /// Refit each block's scale, and its zero-point if it has one, to lower the
 /// mean squared error against `values`, the numbers `quantized` was
@@ -22,10 +23,10 @@ use crate::quantized::PyQuantized;
 /// This changes `quantized` in place and returns it. Call
 /// `quantized.copy()` first to keep the original.
 ///
-/// Other threads keep running while it refits, and see `quantized` as it was
-/// until it returns. If two threads refit the same tensor at once, both start
-/// from the tensor as it was, and it keeps the result of whichever finishes
-/// last.
+/// Other threads keep running while it refits, unless the tensor is small,
+/// and see `quantized` as it was until it returns. If two threads refit the
+/// same tensor at once, both start from the tensor as it was, and it keeps
+/// the result of whichever finishes last.
 #[pyfunction]
 pub fn refine<'py>(
     quantized: Bound<'py, PyQuantized>,
@@ -35,9 +36,7 @@ pub fn refine<'py>(
     let mut refined = quantized.get().snapshot();
     check_shape(values.py(), "values", &refined.shape(), &values_shape)?;
     let values = array.as_slice()?;
-    quantized
-        .py()
-        .detach(|| refined.refine(values))
+    detach_if_large(quantized.py(), values.len(), || refined.refine(values))
         .map_err(from_quantize)?;
     quantized.get().store(refined);
     Ok(quantized)
@@ -62,10 +61,11 @@ pub fn alternate(quantized: Bound<'_, PyQuantized>, values: Bound<'_, PyAny>) ->
     let mut alternated = quantized.get().snapshot();
     check_shape(values.py(), "values", &alternated.shape(), &values_shape)?;
     let values = array.as_slice()?;
-    let settled = quantized
-        .py()
-        .detach(|| alternated.alternate(values))
-        .map_err(from_quantize)?;
+    let values_in_100_passes = values.len().saturating_mul(100);
+    let settled = detach_if_large(quantized.py(), values_in_100_passes, || {
+        alternated.alternate(values)
+    })
+    .map_err(from_quantize)?;
     quantized.get().store(alternated);
     Ok(settled)
 }

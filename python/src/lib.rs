@@ -1,6 +1,7 @@
 //! Native Python bindings.
 
 mod error;
+mod gil;
 mod input;
 mod learned;
 mod quantized;
@@ -15,6 +16,7 @@ use crate::error::{
     NotAMatrixError, QuantizeError, ScaleOutOfRangeError, ShapeMismatchError,
     ToleranceTooTightError,
 };
+use crate::gil::detach_if_large;
 use crate::input::as_f32_array;
 use crate::learned::{alternate, fit_scale_and_zero_point, refine};
 use crate::quantized::PyQuantized;
@@ -30,7 +32,9 @@ fn quantize_values(
     let (array, shape) = as_f32_array(&values)?;
     let values = array.as_slice()?;
     let scheme = scheme(values.len());
-    py.detach(|| PyQuantized::from_scheme(scheme, values, &shape, scale))
+    detach_if_large(py, values.len(), || {
+        PyQuantized::from_scheme(scheme, values, &shape, scale)
+    })
 }
 
 // Each `text_signature` repeats its `signature` so that `help()` shows the

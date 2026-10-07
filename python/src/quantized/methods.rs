@@ -8,6 +8,7 @@ use quantize::{Error, Quantized, Scale};
 use super::inner::{PyQuantized, QuantizedInner, with_inner};
 use super::parts::Parts;
 use crate::error::from_quantize;
+use crate::gil::detach_if_large;
 use crate::input::{
     as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
     as_writable_f32_out, check_no_overlap, check_shape,
@@ -58,12 +59,16 @@ impl PyQuantized {
             Some(out) => {
                 let mut writable = as_writable_f32_out(&out, &shape)?;
                 let output = writable.as_slice_mut()?;
-                py.detach(|| with_inner!(&inner, |quantized| quantized.dequantize_into(output)))
-                    .map_err(from_quantize)?;
+                detach_if_large(py, inner.len(), || {
+                    with_inner!(&inner, |quantized| quantized.dequantize_into(output))
+                })
+                .map_err(from_quantize)?;
                 Ok(out)
             }
             None => {
-                let values = py.detach(|| with_inner!(&inner, |quantized| quantized.dequantize()));
+                let values = detach_if_large(py, inner.len(), || {
+                    with_inner!(&inner, |quantized| quantized.dequantize())
+                });
                 Ok(values.into_pyarray(py).reshape(shape)?.into_any())
             }
         }
@@ -79,7 +84,7 @@ impl PyQuantized {
         let values = array.as_slice()?;
         let inner = self.snapshot();
         check_shape(py, "values", &inner.shape(), &values_shape)?;
-        py.detach(|| {
+        detach_if_large(py, values.len(), || {
             with_inner!(&inner, |quantized| quantized
                 .dot(values)
                 .map_err(from_quantize))
@@ -111,6 +116,7 @@ impl PyQuantized {
         };
         let (array, batch) = as_f32_matmul_values(&inputs, columns)?;
         let inputs = array.as_slice()?;
+        let products = inputs.len().saturating_mul(rows);
         if let Some(out) = out {
             let shape = match batch {
                 Some(batch) => vec![batch, rows],
@@ -119,11 +125,13 @@ impl PyQuantized {
             check_no_overlap(&out, array.as_any())?;
             let mut writable = as_writable_f32_out(&out, &shape)?;
             let output = writable.as_slice_mut()?;
-            py.detach(|| with_inner!(&inner, |quantized| quantized.matmul_into(inputs, output)))
-                .map_err(from_quantize)?;
+            detach_if_large(py, products, || {
+                with_inner!(&inner, |quantized| quantized.matmul_into(inputs, output))
+            })
+            .map_err(from_quantize)?;
             return Ok(out);
         }
-        let output = py.detach(|| {
+        let output = detach_if_large(py, products, || {
             with_inner!(&inner, |quantized| quantized
                 .matmul(inputs)
                 .map_err(from_quantize))

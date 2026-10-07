@@ -88,7 +88,7 @@ add `-- --max-tokens 512` to score only the first 512 tokens. that takes about a
 cargo run --release -p benchmarks --example throughput
 ```
 
-quantize and dequantize with f16 scales. both libraries allocate their output on every call. aarch64 is an apple M5 Max and x86_64 an intel xeon. the hand-written simd only targets aarch64, so x86_64 runs plain loops and is slower. the run also times this crate's `dot`, `matmul` on 16 inputs, and row-by-row decoding of an adaptive matrix, which aren't compared with candle.
+quantize and dequantize with f16 scales. both libraries allocate their output on every call. aarch64 is an apple M5 Max and x86_64 an intel xeon. the hand-written simd only targets aarch64, so x86_64 runs plain loops and is slower. the run also times this crate's `dot`, `matmul` on 16 inputs and on one, and row-by-row decoding of an adaptive matrix, which aren't compared with candle.
 
 <!-- speed:start -->
 

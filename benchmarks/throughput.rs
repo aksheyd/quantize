@@ -1,6 +1,7 @@
 //! Quantize and dequantize speed against candle, timed the same way in both
 //! libraries by `speed.rs`, plus this crate's fused `dot` and `matmul`.
-//! `matmul` multiplies the weights by 16 vectors, so its time covers all 16.
+//! `matmul` multiplies the weights by 16 vectors, so its time covers all 16,
+//! and then by one, as a language model does for each token it generates.
 //!
 //! Run: `cargo run --release -p benchmarks --example throughput`
 
@@ -49,6 +50,9 @@ fn main() -> candle_core::Result<()> {
     let sixteen_vectors = &values[..16 * SIDE];
     let matmul = time_per_value(|| quantized_4bit.matmul(sixteen_vectors).unwrap());
     println!("{:<18}{matmul:>10.3}", "4-bit matmul ×16");
+    let one_vector = &values[..SIDE];
+    let matmul = time_per_value(|| quantized_4bit.matmul(one_vector).unwrap());
+    println!("{:<18}{matmul:>10.3}", "4-bit matmul ×1");
 
     // Decode an adaptive matrix one row at a time, the way an embedding table
     // is read.

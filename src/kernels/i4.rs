@@ -138,7 +138,10 @@ unsafe fn dequant_i4_block(bytes: &[u8], first: usize, scale: f32, out: &mut [f3
     // registers.
     let (pairs, _) = out[j..].as_chunks_mut::<2>();
     for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
-        *pair = [low_code(byte) as f32 * scale, high_code(byte) as f32 * scale];
+        *pair = [
+            low_code(byte) as f32 * scale,
+            high_code(byte) as f32 * scale,
+        ];
     }
     i += 2 * pairs.len();
     j += 2 * pairs.len();

@@ -1,0 +1,12 @@
+[package]
+name = "abbench"
+version = "0.0.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+half = "2"
+quantize = { path = "/tmp/quantize" }
+quantize_b = { path = "/tmp/quantize_b" }
+quantize_old = { path = "/tmp/quantize_old" }

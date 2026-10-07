@@ -40,19 +40,11 @@ jobs:
       - name: Install Rust from rust-toolchain.toml
         run: rustup toolchain install
 
-      - uses: extractions/setup-just@v4
-
       - name: Hardware
-        run: sysctl -n machdep.cpu.brand_string hw.ncpu hw.perflevel0.logicalcpu || true
+        run: sysctl -n machdep.cpu.brand_string hw.ncpu || true
 
-      - name: Throughput
-        run: just throughput
-
-      - name: Kernel variants, 32-code groups, interleaved
-        run: cargo run --release -p benchmarks --example kernel_scratch3
-
-      - name: Kernel variants, again
-        run: ./target/release/examples/kernel_scratch3
+      - name: main, the decode PR, and the fused branch, side by side
+        run: ab/run.sh
 
   minimum-rust:
     runs-on: ubuntu-latest

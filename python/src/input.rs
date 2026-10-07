@@ -13,7 +13,7 @@ use crate::error::{InvalidBitsError, InvalidBlockError, length_mismatch};
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
 const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
 const BYTES_TYPE: &str = "data must be bytes, like to_bytes returns, or a 1-D uint8 array";
-const OUT_TYPE: &str = "out must be a writable C-contiguous native-endian float32 array";
+const OUT_TYPE: &str = "out must be a float32 numpy array or pytorch tensor";
 const OUT_CONTIG: &str = "out must be writable and C-contiguous";
 const OUT_OVERLAPS_INPUTS: &str = "out can't share memory with inputs";
 
@@ -206,16 +206,54 @@ fn read_uint8(obj: &Bound<'_, PyAny>, message: &'static str) -> PyResult<Vec<u8>
     Ok(bytes.try_readonly()?.as_array().to_vec())
 }
 
-/// Borrow `out` for writing, after checking it has exactly `shape`.
+/// `out` as a NumPy array to write into: itself, or for a PyTorch tensor,
+/// the array that `out.numpy()` gives, which shares the tensor's memory. A
+/// tensor must be float32 and on the CPU, and can't require grad, since
+/// writing into it would go around autograd.
+fn out_array<'py>(out: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+    if !is_torch_tensor(out)? {
+        return Ok(out.clone());
+    }
+    let device = out.getattr("device")?.str()?;
+    if device.to_cow()? != "cpu" {
+        return Err(PyTypeError::new_err(format!(
+            "out must be a tensor on the cpu, got one on {device}"
+        )));
+    }
+    if out.getattr("requires_grad")?.is_truthy()? {
+        return Err(PyTypeError::new_err(
+            "out can't be a tensor that requires grad",
+        ));
+    }
+    if out.getattr("dtype")?.str()?.to_cow()? != "torch.float32" {
+        return Err(out_type_error(out)?);
+    }
+    out.call_method0("numpy")
+}
+
+/// A `TypeError` that says what `out` must be, and what it is: its type,
+/// and its dtype if it has one, like `numpy.ndarray with dtype float64`.
+fn out_type_error(out: &Bound<'_, PyAny>) -> PyResult<PyErr> {
+    let mut description = out.get_type().fully_qualified_name()?.to_string();
+    if let Ok(dtype) = out.getattr("dtype") {
+        description += &format!(" with dtype {}", dtype.str()?);
+    }
+    let message = format!("{OUT_TYPE}, got {description}");
+    Ok(PyTypeError::new_err(message))
+}
+
+/// Borrow `out`, a NumPy array or PyTorch tensor, for writing, after
+/// checking it has exactly `shape`.
 pub fn as_writable_f32_out<'py>(
     obj: &Bound<'py, PyAny>,
     shape: &[usize],
 ) -> PyResult<numpy::PyReadwriteArrayDyn<'py, f32>> {
-    let arr = obj
-        .cast::<PyArrayDyn<f32>>()
-        .map_err(|_| PyTypeError::new_err(OUT_TYPE))?;
+    let array = out_array(obj)?;
+    let Ok(arr) = array.cast::<PyArrayDyn<f32>>() else {
+        return Err(out_type_error(obj)?);
+    };
     if !is_native_dtype(arr.as_untyped())? {
-        return Err(PyTypeError::new_err(OUT_TYPE));
+        return Err(out_type_error(obj)?);
     }
     let flags = arr.getattr("flags")?;
     let c_contiguous: bool = flags.getattr("c_contiguous")?.extract()?;
@@ -231,15 +269,16 @@ pub fn as_writable_f32_out<'py>(
 /// Check that `out` shares no memory with `inputs`, which `matmul` reads
 /// while it writes `out`. The arrays' memory is compared, not the arrays,
 /// since two arrays over one buffer, like `t.numpy()` and the array read
-/// from a tensor `t`, are separate objects. An `out` that isn't an array is
-/// left for `as_writable_f32_out` to reject.
+/// from a tensor `t`, are separate objects. An `out` that isn't an array or
+/// a tensor is left for `as_writable_f32_out` to reject.
 pub fn check_no_overlap(out: &Bound<'_, PyAny>, inputs: &Bound<'_, PyAny>) -> PyResult<()> {
+    let out = out_array(out)?;
     if !out.is_instance_of::<PyUntypedArray>() {
         return Ok(());
     }
     let numpy = out.py().import("numpy")?;
     if numpy
-        .call_method1("may_share_memory", (out, inputs))?
+        .call_method1("may_share_memory", (&out, inputs))?
         .is_truthy()?
     {
         return Err(PyValueError::new_err(OUT_OVERLAPS_INPUTS));

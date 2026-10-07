@@ -207,9 +207,7 @@ pub(crate) fn matmul_into<S: Scale>(
         for (row, slot) in out.iter_mut().enumerate() {
             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
             let stored_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
-            for (scale, stored) in row_scales.iter_mut().zip(stored_scales) {
-                *scale = stored.to_f32();
-            }
+            scales_to_f32(stored_scales, &mut row_scales);
             *slot = match codes.bits() {
                 4 => dot_i4_row(&row_scales, row_codes, *block, inputs),
                 _ => dot_i8_row(&row_scales, row_codes, *block, inputs),
@@ -236,6 +234,27 @@ pub(crate) fn matmul_into<S: Scale>(
         for (vector, input) in inputs.chunks_exact(columns).enumerate() {
             out[vector * rows + row] = dot(&row_weights, input);
         }
+    }
+}
+
+/// Convert `stored` into `out`, four scales at a time.
+///
+/// On Apple silicon, `half` converts each f16 with an instruction of its own,
+/// so a loop that converted one scale per step spent about as long on its
+/// steps as on the conversions.
+fn scales_to_f32<S: Scale>(stored: &[S], out: &mut [f32]) {
+    let (out_quads, out_rest) = out.as_chunks_mut::<4>();
+    let (stored_quads, stored_rest) = stored.as_chunks::<4>();
+    for (quad, stored) in out_quads.iter_mut().zip(stored_quads) {
+        *quad = [
+            stored[0].to_f32(),
+            stored[1].to_f32(),
+            stored[2].to_f32(),
+            stored[3].to_f32(),
+        ];
+    }
+    for (scale, stored) in out_rest.iter_mut().zip(stored_rest) {
+        *scale = stored.to_f32();
     }
 }
 

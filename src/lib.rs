@@ -61,12 +61,6 @@
 //! measures its range and is stored as code 0, so the other values in that
 //! block are unaffected. An infinity is kept, which stretches its block's
 //! range to infinity, so every finite value in that block decodes to NaN.
-//!
-//! ## Features
-//!
-//! The crate needs the standard library. Its `std` feature, on by default,
-//! does nothing, and is kept so that a `Cargo.toml` that names it still
-//! builds.
 
 #![warn(missing_docs)]
 

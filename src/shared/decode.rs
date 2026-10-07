@@ -246,8 +246,8 @@ fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32])
         let (group_inputs, _) = block_input.as_chunks::<32>();
         for (group, group_input) in groups.iter().zip(group_inputs) {
             let weights = decode_32(group, scale);
-            let (weight_chunks, _) = weights.as_chunks();
-            let (input_chunks, _) = group_input.as_chunks();
+            let (weight_chunks, _) = weights.as_chunks::<LANES>();
+            let (input_chunks, _) = group_input.as_chunks::<LANES>();
             add_products(&mut totals, weight_chunks, input_chunks);
         }
     }

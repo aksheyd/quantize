@@ -211,6 +211,13 @@ pub(crate) fn unpack_codes<S: Scale>(quantized: &Quantized<S>, out: &mut [i32]) 
     }
 }
 
+/// How many vectors of a batch [`matmul_into`] multiplies by each decoded row
+/// of a [`whole_groups_of_32`] matrix before decoding the next row. 256
+/// vectors of 768 values fill 768 KiB, which stays in an L2 cache of 1 MiB or
+/// more while the rows pass over it. Smaller groups would fit smaller caches,
+/// but decode the matrix more often.
+const VECTORS_PER_GROUP: usize = 256;
+
 pub(crate) fn matmul_into<S: Scale>(
     quantized: &Quantized<S>,
     inputs: &[f32],
@@ -234,9 +241,7 @@ pub(crate) fn matmul_into<S: Scale>(
         ..
     } = quantized
         && inputs.len() == columns
-        && matches!(codes.bits(), 4 | 8)
-        && block.is_multiple_of(32)
-        && packed_rows_ok(quantized, columns)
+        && whole_groups_of_32(quantized, columns)
     {
         let bytes_per_row = columns * codes.bits() as usize / 8;
         let scales_per_row = columns / block;
@@ -253,23 +258,44 @@ pub(crate) fn matmul_into<S: Scale>(
         return;
     }
 
-    // Decode each weight row once, then reuse it for every vector in the batch.
-    // Finding an adaptive row on its own means adding up the widths of every
-    // block before it, so here each adaptive row carries on from the byte
-    // where the row before it stopped.
+    // Decode each weight row once, then reuse it for every vector in a group
+    // of the batch. Every row reads the whole group, so a group small enough
+    // to stay in the CPU's cache is read from there, where a large batch
+    // would be read from memory again for each row.
+    //
+    // Each group decodes the matrix again. For the layouts above, decoding a
+    // row takes about as long as a few of its dot products, so decoding it
+    // once per group of 256 costs 1 to 3% where the whole batch would have
+    // stayed in cache anyway. Rows that read each code on its own, or have
+    // shorter blocks, take up to 20, and up to 180 in a debug build, so those
+    // layouts take the whole batch as one group.
+    let batch = inputs.len() / columns;
+    let vectors_per_group = if whole_groups_of_32(quantized, columns) {
+        VECTORS_PER_GROUP.min(batch)
+    } else {
+        batch
+    };
     let mut row_weights = vec![0.0; columns];
-    let mut row_first_byte = 0;
-    for row in 0..rows {
-        match quantized {
-            Quantized::Adaptive { .. } => {
-                let start = row * columns;
-                row_first_byte =
-                    dequant_adaptive(quantized, start, row_first_byte, &mut row_weights);
+    let groups = inputs
+        .chunks(vectors_per_group * columns)
+        .zip(out.chunks_mut(vectors_per_group * rows));
+    for (group_inputs, group_out) in groups {
+        // Finding an adaptive row on its own means adding up the widths of
+        // every block before it, so here each adaptive row carries on from
+        // the byte where the row before it stopped.
+        let mut row_first_byte = 0;
+        for row in 0..rows {
+            match quantized {
+                Quantized::Adaptive { .. } => {
+                    let start = row * columns;
+                    row_first_byte =
+                        dequant_adaptive(quantized, start, row_first_byte, &mut row_weights);
+                }
+                _ => decode_row(quantized, row, &mut row_weights),
             }
-            _ => decode_row(quantized, row, &mut row_weights),
-        }
-        for (vector, input) in inputs.chunks_exact(columns).enumerate() {
-            out[vector * rows + row] = dot(&row_weights, input);
+            for (vector, input) in group_inputs.chunks_exact(columns).enumerate() {
+                group_out[vector * rows + row] = dot(&row_weights, input);
+            }
         }
     }
 }
@@ -340,6 +366,17 @@ fn dot_i8_row(scales: &[f32], bytes: &[u8], block: usize, input: &[f32]) -> f32 
     totals.iter().sum()
 }
 
+/// Whether `quantized` holds symmetric 4-bit or 8-bit codes in blocks of
+/// whole groups of 32 codes that split each row of `columns` values evenly:
+/// the layouts whose rows decode fastest.
+fn whole_groups_of_32<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
+    matches!(
+        quantized,
+        Quantized::Symmetric { codes, block, .. }
+            if matches!(codes.bits(), 4 | 8) && block.is_multiple_of(32)
+    ) && packed_rows_ok(quantized, columns)
+}
+
 fn packed_rows_ok<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
     let block = quantized.block();
     if block == 0 || !columns.is_multiple_of(block) {
@@ -394,6 +431,10 @@ pub(crate) fn decode_row<S: Scale>(quantized: &Quantized<S>, row: usize, out: &m
 /// Decode values `start..start + out.len()`, reading only the blocks they fall
 /// in. Unlike the packed kernels, this works for a range that starts anywhere,
 /// even partway through a block or a byte.
+///
+/// Inlined into the nested loops of [`matmul_into`], its loop over the codes
+/// compiles to code up to 8% slower on x86-64, so it stays a call.
+#[inline(never)]
 fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f32]) {
     let block = quantized.block();
     match quantized {
@@ -469,6 +510,7 @@ fn add_products(totals: &mut [f32; LANES], left: &[[f32; LANES]], right: &[[f32;
 
 #[cfg(test)]
 mod tests {
+    use super::VECTORS_PER_GROUP;
     use crate::{Quantized, adaptive, asymmetric, symmetric};
 
     #[test]
@@ -570,8 +612,9 @@ mod tests {
     #[test]
     fn one_vector_gives_bit_for_bit_what_it_gives_in_a_batch() {
         // 4-bit and 8-bit blocks of 32 and 64 multiply a single vector as
-        // they decode it. Every other layout decodes each row first, whatever
-        // the batch.
+        // they decode it, and take a large batch in groups: the larger batch
+        // here leaves one vector for its last group. Every other layout
+        // decodes each row first, whatever the batch.
         let values: Vec<f32> = (0..6 * 128).map(|i| (i as f32 * 0.37).sin()).collect();
         let mut wide_rows = [
             symmetric::quantize_with(&values, 4, 32).unwrap(),
@@ -590,14 +633,18 @@ mod tests {
         };
         for quantized in wide_rows.into_iter().chain(matrices_in_every_layout()) {
             let (rows, columns) = quantized.shape().unwrap();
-            let inputs: Vec<f32> = (0..2 * columns).map(|i| (i as f32 * 0.11).cos()).collect();
-            let batch = quantized.matmul(&inputs).unwrap();
-            for (vector, input) in inputs.chunks_exact(columns).enumerate() {
-                let alone = quantized.matmul(input).unwrap();
-                assert_eq!(
-                    bits(&alone),
-                    bits(&batch[vector * rows..(vector + 1) * rows])
-                );
+            for batch_size in [2, 2 * VECTORS_PER_GROUP + 1] {
+                let inputs: Vec<f32> = (0..batch_size * columns)
+                    .map(|i| (i as f32 * 0.11).cos())
+                    .collect();
+                let batch = quantized.matmul(&inputs).unwrap();
+                for (vector, input) in inputs.chunks_exact(columns).enumerate() {
+                    let alone = quantized.matmul(input).unwrap();
+                    assert_eq!(
+                        bits(&alone),
+                        bits(&batch[vector * rows..(vector + 1) * rows])
+                    );
+                }
             }
         }
     }

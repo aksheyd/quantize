@@ -56,7 +56,7 @@ q = Quantized.from_parts(**np.load("layer.npz"))
 
 to keep quantized values in a `torch.save` checkpoint, store `torch.frombuffer(bytearray(q.to_bytes()), dtype=torch.uint8)`, and load each back with `Quantized(t)`. the checkpoint is then as small as the bytes, and `torch.load` reads it without `add_safe_globals`. pickling `q` itself makes the checkpoint about 1.5 times larger, since `torch.save` stores bytes as text, and needs `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
 
-`q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 6 ms instead of 39 ms, with the same result, bit for bit:
+`q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 6 ms instead of 33 ms, with the same result, bit for bit:
 
 ```python
 import os

@@ -1,0 +1,65 @@
+diff -ru src.orig/shared/decode.rs src/shared/decode.rs
+--- a/src/shared/decode.rs	2026-10-07 05:56:45.816674806 +0000
++++ b/src/shared/decode.rs	2026-10-07 05:56:45.824674806 +0000
+@@ -113,6 +113,17 @@
+             codes,
+             block,
+             ..
++        } if matches!(codes.bits(), 4 | 8)
++            && block.is_multiple_of(32)
++            && rhs.len().is_multiple_of(*block) =>
++        {
++            dot_blocks(scales, codes.as_bytes(), codes.bits(), *block, rhs)
++        }
++        Quantized::Symmetric {
++            scales,
++            codes,
++            block,
++            ..
+         } if codes.bits() == 8 => dot_i8_blocks(scales, codes.as_bytes(), *block, rhs),
+         Quantized::Symmetric {
+             scales,
+@@ -144,6 +155,32 @@
+     }
+ }
+ 
++/// How many blocks [`dot_blocks`] adds into one set of 16 totals.
++const BLOCKS_PER_RUN: usize = 64;
++
++/// The dot product of 4-bit or 8-bit `codes` with `rhs`, for whole blocks of
++/// groups of 32 codes, with the kernels that multiply a single vector by a
++/// matrix, 64 blocks at a time.
++///
++/// Each run's products go into 16 totals, as one row's do, and then the runs'
++/// sums are added up. Over millions of values, 16 totals alone would each
++/// grow until f32 rounds away much of each new product; a run's stay small.
++fn dot_blocks<S: Scale>(scales: &[S], codes: &[u8], bits: u32, block: usize, rhs: &[f32]) -> f32 {
++    let mut converted = [0.0; BLOCKS_PER_RUN];
++    let mut total = 0.0;
++    for (run, stored_scales) in scales.chunks(BLOCKS_PER_RUN).enumerate() {
++        let run_scales = &mut converted[..stored_scales.len()];
++        scales_to_f32(stored_scales, run_scales);
++        let start = run * BLOCKS_PER_RUN * block;
++        let run_rhs = &rhs[start..start + run_scales.len() * block];
++        total += match bits {
++            8 => dot_i8_row(run_scales, &codes[start..], block, run_rhs),
++            _ => dot_i4_row(run_scales, &codes[start / 2..], block, run_rhs),
++        };
++    }
++    total
++}
++
+ pub(crate) fn unpack_codes<S: Scale>(quantized: &Quantized<S>, out: &mut [i32]) {
+     match quantized {
+         Quantized::Symmetric { codes, .. } | Quantized::Asymmetric { codes, .. } => {
+@@ -443,7 +480,9 @@
+             .map(|i| (i as f32 * 0.37).sin().abs())
+             .collect();
+         let ones = vec![1.0; values.len()];
+-        let tensors: [Quantized<f32>; 4] = [
++        let tensors: [Quantized<f32>; 6] = [
++            symmetric::quantize_with(&values, 4, 32).unwrap(),
++            symmetric::quantize_with(&values, 8, 32).unwrap(),
+             symmetric::quantize_with(&values, 3, 32).unwrap(),
+             symmetric::quantize_with(&values, 5, 32).unwrap(),
+             asymmetric::quantize_with(&values, 4, 32).unwrap(),

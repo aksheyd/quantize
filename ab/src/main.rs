@@ -136,20 +136,18 @@ version!(vmain, qmain);
 version!(vfix, qfix);
 version!(vsame, qsame);
 version!(vh1, qh1);
-version!(vh3dot, qh3dot);
-version!(va4, qa4);
+version!(vdot, qdot);
 
 type Builder = fn(&Spec, &[f32], usize, usize) -> Result<Box<dyn Ops>, String>;
 type Loader = fn(ScaleKind, &[u8]) -> Result<Box<dyn Ops>, String>;
 
-const VERSIONS: [(&str, Builder, Loader); 7] = [
+const VERSIONS: [(&str, Builder, Loader); 6] = [
     ("0.3.1", v031::build, v031::load),
     ("main", vmain::build, vmain::load),
     ("fix", vfix::build, vfix::load),
     ("main again", vsame::build, vsame::load),
-    ("H1", vh1::build, vh1::load),
-    ("H3+dot", vh3dot::build, vh3dot::load),
-    ("A4", va4::build, va4::load),
+    ("check per block", vh1::build, vh1::load),
+    ("fix+dot", vdot::build, vdot::load),
 ];
 
 struct Random(u64);

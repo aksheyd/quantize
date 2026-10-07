@@ -161,7 +161,7 @@ def test_refine_and_alternate_work_while_other_threads_use_the_tensor():
         try:
             # Refitting to the weights and to their negation in turn changes
             # every scale each time.
-            for target in [weights, -weights] * 5:
+            for target in [weights, -weights] * 20:
                 learned.refine(quantized, target)
                 versions.add(quantized.to_bytes())
                 learned.alternate(quantized, target)

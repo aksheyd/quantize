@@ -6,7 +6,7 @@ python bindings for [quantize](https://github.com/aksheyd/quantize), a simple, f
 pip install quantize-py
 ```
 
-requires python 3.12 or newer. numpy is installed with it. where no wheel fits, like free-threaded python or alpine linux, pip builds it from source, which needs rust 1.88 or newer.
+requires python 3.12 or newer, or 3.14 or newer for free-threaded python. numpy is installed with it. where no wheel fits, like alpine linux, pip builds it from source, which needs rust 1.88 or newer.
 
 ```python
 from quantize import Scale, quantize

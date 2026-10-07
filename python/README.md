@@ -18,7 +18,7 @@ back = q.dequantize()  # [0.421, -0.098, 0.700, -0.498]
 dot = q.dot(weights)  # 0.926
 ```
 
-`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.BF16`. values can be a list, a numpy array, or anything else `np.asarray` reads, like a pytorch tensor. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer. `q.shape` gives its rows and columns, and `len(q)` the number of values, as in rust.
+`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.BF16`. values can be a list, a numpy array, or anything else `np.asarray` reads, like a pytorch tensor. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer. both can write into a float32 numpy array or pytorch tensor you pass, like `q.matmul(x, out=y)`, so a loop can reuse it. `q.shape` gives its rows and columns, and `len(q)` the number of values, as in rust.
 
 the scales count toward the size: 4-bit codes with one f16 scale per 32 values cost 4.5 bits per value, or 5 with the default f32 scale. `q.bits_per_element` reports it. above about 10 bits, use f32 scales with `asymmetric.quantize`, since f16 and bf16 zero-points cap its accuracy.
 

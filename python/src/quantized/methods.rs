@@ -45,7 +45,8 @@ fn bits<S: Scale>(quantized: &Quantized<S>) -> Option<u32> {
 #[pymethods]
 impl PyQuantized {
     /// Decode the values into an array of the tensor's `shape`. `out`, if
-    /// given, must be a float32 array of that shape, and is returned.
+    /// given, must be a float32 NumPy array or CPU PyTorch tensor of that
+    /// shape, and is returned.
     #[pyo3(signature = (out = None))]
     fn dequantize<'py>(
         &self,
@@ -95,9 +96,9 @@ impl PyQuantized {
     ///
     /// `inputs` is one vector of shape `(columns,)` or a batch of shape
     /// `(batch, columns)`. The result is `inputs @ W.T`, of shape `(rows,)`
-    /// or `(batch, rows)`. `out`, if given, must be a float32 array of that
-    /// shape that shares no memory with `inputs`, and is returned, so a loop
-    /// can reuse one array.
+    /// or `(batch, rows)`. `out`, if given, must be a float32 NumPy array or
+    /// CPU PyTorch tensor of that shape that shares no memory with `inputs`,
+    /// and is returned, so a loop can reuse one.
     ///
     /// Each call decodes the matrix one row at a time, straight from the
     /// packed codes, and multiplies each row by every input before moving

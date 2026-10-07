@@ -198,12 +198,26 @@ impl fmt::Display for Error {
                     "{text:?} isn't a scheme; write one like symmetric(bits=4, block=32), asymmetric(bits=8, block=32), adaptive(block=32, tolerance=0.002), Q8_32, or Q4_32"
                 )
             }
-            Self::OutputMismatch { batch, rows, got } => {
+            Self::OutputMismatch {
+                batch: 0,
+                rows,
+                got,
+            } => {
                 write!(
                     f,
-                    "out should hold batch x rows = {batch} x {rows} values, but holds {got}; if your batch isn't {batch}, set_shape may have rows and columns swapped"
+                    "out should hold batch x rows = 0 x {rows} = 0 values, but holds {got}; inputs is empty"
                 )
             }
+            Self::OutputMismatch { batch, rows, got } => match batch.checked_mul(*rows) {
+                Some(size) => write!(
+                    f,
+                    "out should hold batch x rows = {batch} x {rows} = {size} values, but holds {got}; if your batch isn't {batch}, set_shape may have rows and columns swapped"
+                ),
+                None => write!(
+                    f,
+                    "out should hold batch x rows = {batch} x {rows} values, too many to count, but holds {got}"
+                ),
+            },
         }
     }
 }
@@ -307,7 +321,29 @@ mod tests {
         };
         assert_eq!(
             err.to_string(),
-            "out should hold batch x rows = 43 x 11008 values, but holds 65536; if your batch isn't 43, set_shape may have rows and columns swapped"
+            "out should hold batch x rows = 43 x 11008 = 473344 values, but holds 65536; if your batch isn't 43, set_shape may have rows and columns swapped"
+        );
+        // Empty inputs hold no vectors, whatever the shape.
+        let err = Error::OutputMismatch {
+            batch: 0,
+            rows: 1536,
+            got: 1536,
+        };
+        assert_eq!(
+            err.to_string(),
+            "out should hold batch x rows = 0 x 1536 = 0 values, but holds 1536; inputs is empty"
+        );
+        let err = Error::OutputMismatch {
+            batch: usize::MAX,
+            rows: 2,
+            got: 4,
+        };
+        assert_eq!(
+            err.to_string(),
+            format!(
+                "out should hold batch x rows = {} x 2 values, too many to count, but holds 4",
+                usize::MAX
+            )
         );
     }
 

@@ -26,7 +26,7 @@ the other schemes return the same `Quantized` type:
 
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive.quantize(weights, tolerance=0.1 * weights.std())` gives each block the fewest bits, from 2 to 8, that round every weight within `tolerance`, in the weights' own units. a tenth of their standard deviation gives about 5 bits a block. for a list, use `np.std(weights)`
-- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the mean squared error. it changes `q` in place, so call `q.copy()` first to keep the original, and lets other threads run while it works, so threads can refit several layers at once
+- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the mean squared error. it changes `q` in place, so call `q.copy()` first to keep the original. it lets other threads run while it works, so threads can refit several layers at once
 - `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place and lets other threads run. both can raise the worst error past an adaptive tensor's tolerance, and lowering the error of the weights doesn't always lower the error of a model's outputs, so check those too
 - `Scheme.Q4_32.quantize(weights)` picks a scheme at run time, and `Scheme("symmetric(bits=4)")` reads one from text, like a config value, which `str(scheme)` writes
 

@@ -83,11 +83,16 @@ unsafe fn quant_16(src: *const f32, inv: f32, dst: *mut u8) {
     }
 }
 
-pub(crate) fn dequant_i4_blocks(scales: &[f32], bytes: &[u8], block: usize, out: &mut [f32]) {
+pub(crate) fn dequant_i4_blocks<S: Scale>(
+    scales: &[S],
+    bytes: &[u8],
+    block: usize,
+    out: &mut [f32],
+) {
     assert!(bytes.len() >= nbytes(out.len(), 4));
     let mut i = 0usize;
     for (bi, chunk) in out.chunks_mut(block).enumerate() {
-        let s = scales[bi];
+        let s = scales[bi].to_f32();
         let mut j = 0;
         // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
         // high nibble when `i` is odd. So after a block of odd length, the
@@ -153,7 +158,11 @@ pub(crate) fn decode_i4_32(bytes: &[u8; 16], scale: f32) -> [f32; 32] {
     values
 }
 
+// `dequant_i4_blocks` is generic, so it's compiled in each crate that calls
+// it. Without `#[inline]`, the code it compiles to there calls these two
+// functions in this crate every 32 codes.
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn dequant_32(src: *const u8, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;
@@ -169,6 +178,7 @@ unsafe fn dequant_32(src: *const u8, scale: f32, dst: *mut f32) {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn store_i8x16(q: core::arch::aarch64::int8x16_t, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;

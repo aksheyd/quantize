@@ -92,7 +92,8 @@ fn main() {
         mse(&fitted_back, &values)
     );
     println!("\nDequant is a line. Fit the line; keep the codes. On this block the fit");
-    println!("cuts the MSE by about a third, but it can't move a value to a better code.");
+    println!("cuts the MSE by about a third, and on typical blocks of 32 weights by");
+    println!("about 6%, but it can't move a value to a better code.");
     println!("The library does this in `quantize::learned::refine`. Chapter 8");
     println!("(`ch08_alternating`) lets the codes move too.");
 }

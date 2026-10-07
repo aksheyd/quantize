@@ -11,7 +11,7 @@ use crate::scale::PyScale;
 /// The tensor, with one of three scale types, behind an `Arc` so that a
 /// clone shares its codes and scales instead of copying them. `refine` and
 /// `alternate` change it through `Arc::make_mut`, which copies a shared
-/// tensor first, so a `copy()`, or a `dot`, `matmul`, or `dequantize()` still
+/// tensor first, so a `copy()`, or a `dot`, `matmul`, or `dequantize` still
 /// running, keeps the values it had.
 #[derive(Clone, PartialEq)]
 pub(crate) enum QuantizedInner {

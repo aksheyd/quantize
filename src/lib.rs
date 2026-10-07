@@ -69,8 +69,9 @@
 //! and [`matmul_into`](Quantized::matmul_into) on every core with the
 //! [rayon](https://docs.rs/rayon) crate: each core multiplies its own group of
 //! the batch, and the results are the same, bit for bit. A single input still
-//! runs on one core. Turn it on with `cargo add quantize --features rayon`.
-//! Without it, the crate's only dependency is `half`.
+//! runs on one core, and to use fewer cores, set `RAYON_NUM_THREADS`. Turn it
+//! on with `cargo add quantize --features rayon`. Without it, the crate's only
+//! dependency is `half`.
 
 #![warn(missing_docs)]
 

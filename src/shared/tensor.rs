@@ -425,6 +425,16 @@ impl<S: Scale> Quantized<S> {
     /// packed codes, and multiplies each row by every input before moving on,
     /// so the whole matrix is never decoded at once.
     ///
+    /// A single input, as when a language model generates a token, is
+    /// fastest with symmetric 4-bit or 8-bit codes whose blocks hold a
+    /// multiple of 32 values and split each row evenly, like
+    /// [`Scheme::Q4_32`](crate::Scheme::Q4_32) and
+    /// [`Scheme::Q8_32`](crate::Scheme::Q8_32): each row is multiplied as its
+    /// codes are decoded. Other block lengths decode each row into a buffer
+    /// first. Zero-points, other bit widths, adaptive tensors, and blocks that
+    /// run from one row into the next read each code on its own, and take
+    /// several times as long.
+    ///
     /// To reuse one buffer for the result, or to catch a shape recorded the
     /// wrong way round, use [`matmul_into`](Self::matmul_into).
     ///

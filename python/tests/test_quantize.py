@@ -219,6 +219,45 @@ def test_torch_tensors_are_read_even_if_they_require_grad_or_hold_bfloat16(monke
     assert quantize(weights.tolist()) == expected
 
 
+class TorchOut:
+    """Stands in for a PyTorch tensor passed as out, whose numpy() gives a
+    new array over the tensor's memory."""
+
+    def __init__(self, values, device="cpu", dtype="torch.float32", requires_grad=False):
+        self.values = values
+        self.device = device
+        self.dtype = dtype
+        self.requires_grad = requires_grad
+
+    def numpy(self):
+        return self.values.view()
+
+
+def test_out_can_be_a_float32_pytorch_tensor_on_the_cpu(monkeypatch):
+    monkeypatch.setitem(sys.modules, "torch", types.SimpleNamespace(Tensor=TorchOut))
+    quantized = quantize(weight_matrix(4, 32), bits=8)
+    batch = weight_matrix(3, 32)
+    out = TorchOut(np.full((3, 4), np.nan, np.float32))
+    assert quantized.matmul(batch, out=out) is out
+    np.testing.assert_array_equal(out.values, quantized.matmul(batch))
+    decoded = TorchOut(np.full((4, 32), np.nan, np.float32))
+    assert quantized.dequantize(decoded) is decoded
+    np.testing.assert_array_equal(decoded.values, quantized.dequantize())
+    empty = np.empty((3, 4), np.float32)
+    for wrong, error, message in [
+        (TorchOut(empty, device="cuda:0"), TypeError, "out must be a tensor on the cpu, got one on cuda:0"),
+        (TorchOut(empty, requires_grad=True), TypeError, "out can't be a tensor that requires grad"),
+        (TorchOut(empty, dtype="torch.bfloat16"), TypeError, "pytorch tensor, got .*TorchOut with dtype torch.bfloat16"),
+        (TorchOut(np.empty((4, 3), np.float32).T), ValueError, "C-contiguous"),
+        (TorchOut(np.empty((4, 3), np.float32)), ValueError, r"out must have shape \(3, 4\), got \(4, 3\)"),
+    ]:
+        with pytest.raises(error, match=message):
+            quantized.matmul(batch, out=wrong)
+    square = quantize(weight_matrix(32, 32), bits=8)
+    with pytest.raises(ValueError, match="out can't share memory with inputs"):
+        square.matmul(batch, out=TorchOut(batch))
+
+
 def test_bytes_and_codes_can_be_any_uint8_array_that_numpy_asarray_reads():
     quantized = quantize(weight_matrix(4, 32), bits=4)
     data = Tensor(np.frombuffer(quantized.to_bytes(), np.uint8))
@@ -324,8 +363,9 @@ def test_matmul_out_must_have_the_result_shape_and_its_own_memory():
         quantized.matmul(batch, out=np.empty((2, 4), np.float32))
     with pytest.raises(ValueError, match=r"out must have shape \(3, 4\), got \(4, 3\)"):
         quantized.matmul(batch, out=np.empty((4, 3), np.float32))
-    with pytest.raises(TypeError, match="float32"):
-        quantized.matmul(batch, out=np.empty((3, 4)))
+    for wrong, description in [(np.empty((3, 4)), "numpy.ndarray with dtype float64"), ([0.0] * 12, "list")]:
+        with pytest.raises(TypeError, match=f"float32 numpy array or pytorch tensor, got {description}"):
+            quantized.matmul(batch, out=wrong)
     square = quantize(weight_matrix(32, 32), bits=8)
     # Separate arrays over one buffer, like t.numpy() and the array read from a tensor t.
     buffer = bytearray(batch.tobytes())

@@ -1,7 +1,8 @@
 //! WikiText-2: fp32 vs packed Q4_32 vs packed Candle Q4_0.
 //!
-//! `just wikitext`, or `just wikitext --max-tokens 64` for a quick run on the
-//! first 64 tokens.
+//! Run: `cargo run --release -p benchmarks --example wikitext --features workload`,
+//! which takes hours. Add `-- --max-tokens 512` for a check that takes about a
+//! minute.
 
 #[path = "wikitext/mod.rs"]
 mod wikitext;
@@ -14,7 +15,7 @@ use wikitext::net::LlamaNet;
 use wikitext::{CONTEXT, DECODE_NEW, DECODE_PROMPT, STRIDE};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let max_tokens = args::max_tokens();
+    let max_tokens = args::max_tokens()?;
     let device = Device::Cpu;
 
     println!("loading HuggingFaceTB/SmolLM-135M and WikiText-2 test");

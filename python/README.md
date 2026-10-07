@@ -18,7 +18,7 @@ back = q.dequantize()  # [0.421, -0.098, 0.700, -0.498]
 dot = q.dot(weights)  # 0.926
 ```
 
-`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.BF16`. values can be a list, a numpy array, or anything else `np.asarray` reads, like a pytorch tensor. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer. `q.shape` gives its rows and columns, and `len(q)` the number of values, as in rust.
+`bits` is the width of each code, from 2 to 16. `block` is how many values share one scale, and `scale` is how that scale is stored: `Scale.F32` (the default), `Scale.F16`, or `Scale.BF16`. values can be a list, a numpy array, or anything else `np.asarray` reads, like a pytorch tensor. a 2-d array keeps its shape, so `q.dequantize()` gives back a matrix and `q.matmul(x)` computes `x @ W.T`, like a linear layer. both can write into a float32 numpy array or pytorch tensor you pass, like `q.matmul(x, out=y)`, so a loop can reuse it. `q.shape` gives its rows and columns, and `len(q)` the number of values, as in rust.
 
 the scales count toward the size: 4-bit codes with one f16 scale per 32 values cost 4.5 bits per value, or 5 with the default f32 scale. `q.bits_per_element` reports it. above about 10 bits, use f32 scales with `asymmetric.quantize`, since f16 and bf16 zero-points cap its accuracy.
 
@@ -26,9 +26,9 @@ the other schemes return the same `Quantized` type:
 
 - `asymmetric.quantize(weights, bits=8, block=32)` adds a zero-point per block, for values that aren't centered on zero
 - `adaptive.quantize(weights, tolerance=0.1 * weights.std())` gives each block the fewest bits, from 2 to 8, that round every weight within `tolerance`, in the weights' own units. a tenth of their standard deviation gives about 5 bits a block. for a list, use `np.std(weights)`
-- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the mean squared error. it changes `q` in place, so call `q.copy()` first to keep the original
-- `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place. both can raise the worst error past an adaptive tensor's tolerance, and lowering the error of the weights doesn't always lower the error of a model's outputs, so check those too
-- `Scheme.Q4_32.quantize(weights)` picks a scheme at run time
+- `learned.refine(q, weights)` refits each block's scale, and its zero-point if it has one, to lower the mean squared error. it changes `q` in place, so call `q.copy()` first to keep the original. it lets other threads run while it works, so threads can refit several layers at once
+- `learned.alternate(q, weights)` refits too, then rounds each value to the nearest code on its block's new line, and repeats until no code moves. it also changes `q` in place and lets other threads run. both can raise the worst error past an adaptive tensor's tolerance, and lowering the error of the weights doesn't always lower the error of a model's outputs, so check those too
+- `Scheme.Q4_32.quantize(weights)` picks a scheme at run time, and `Scheme("symmetric(bits=4)")` reads one from text, like a config value, which `str(scheme)` writes
 
 a block with outliers can need more than 8 bits, which raises `ToleranceTooTightError`. retrying with its `smallest_tolerance` works, but loosens every block, not just that one:
 
@@ -56,16 +56,23 @@ q = Quantized.from_parts(**np.load("layer.npz"))
 
 to keep quantized values in a `torch.save` checkpoint, store `torch.frombuffer(bytearray(q.to_bytes()), dtype=torch.uint8)`, and load each back with `Quantized(t)`. the checkpoint is then as small as the bytes, and `torch.load` reads it without `add_safe_globals`. pickling `q` itself makes the checkpoint about 1.5 times larger, since `torch.save` stores bytes as text, and needs `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
 
-`q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 7 ms instead of 39 ms, with the same result, bit for bit:
+`q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 6 ms instead of 39 ms, with the same result, bit for bit:
 
 ```python
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-with ThreadPoolExecutor() as pool:
-    pieces = np.array_split(x, os.cpu_count())  # x has shape (batch, columns)
-    out = np.concatenate(list(pool.map(q.matmul, pieces)))
+pool = ThreadPoolExecutor()  # make it once, and reuse it for every layer
+
+def linear(q, x):  # x has shape (batch, columns)
+    # a piece per core, or pieces of 64 rows for a big batch, which stay in a core's cache
+    pieces = np.array_split(x, max(os.cpu_count(), len(x) // 64))
+    return np.concatenate(list(pool.map(q.matmul, pieces)))
+
+out = linear(q, x)
 ```
+
+with a gil, while another thread keeps running python, each piece can wait up to `sys.getswitchinterval()`, 5 ms by default, to get the gil back, so splitting pays off only while your other threads are idle or in native code, or on free-threaded python. calls on 65,536 values or fewer, like one vector times a 256 × 256 matrix, keep the gil, so they don't wait.
 
 each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
 

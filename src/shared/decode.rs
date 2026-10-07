@@ -203,12 +203,14 @@ pub(crate) fn matmul_into<S: Scale>(
     {
         let bytes_per_row = columns * codes.bits() as usize / 8;
         let scales_per_row = columns / block;
+        let mut row_scales = vec![0.0; scales_per_row];
         for (row, slot) in out.iter_mut().enumerate() {
             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
-            let row_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
+            let stored_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
+            scales_to_f32(stored_scales, &mut row_scales);
             *slot = match codes.bits() {
-                4 => dot_i4_row(row_scales, row_codes, *block, inputs),
-                _ => dot_i8_row(row_scales, row_codes, *block, inputs),
+                4 => dot_i4_row(&row_scales, row_codes, *block, inputs),
+                _ => dot_i8_row(&row_scales, row_codes, *block, inputs),
             };
         }
         return;
@@ -235,17 +237,42 @@ pub(crate) fn matmul_into<S: Scale>(
     }
 }
 
+/// Convert `stored` into `out`, four scales at a time.
+///
+/// On Apple silicon, `half` converts each f16 with an instruction of its own,
+/// so a loop that converted one scale per step spent about as long on its
+/// steps as on the conversions.
+fn scales_to_f32<S: Scale>(stored: &[S], out: &mut [f32]) {
+    let (out_quads, out_rest) = out.as_chunks_mut::<4>();
+    let (stored_quads, stored_rest) = stored.as_chunks::<4>();
+    for (quad, stored) in out_quads.iter_mut().zip(stored_quads) {
+        *quad = [
+            stored[0].to_f32(),
+            stored[1].to_f32(),
+            stored[2].to_f32(),
+            stored[3].to_f32(),
+        ];
+    }
+    for (scale, stored) in out_rest.iter_mut().zip(stored_rest) {
+        *scale = stored.to_f32();
+    }
+}
+
 /// One row of a 4-bit matrix times `input`, for blocks of whole groups of 32
 /// codes, without storing the decoded row: each group is decoded into
 /// registers and multiplied right away. Its products go into the same totals
 /// as `dot`'s, in the same order, and a row of whole groups of 32 leaves `dot`
 /// no remainder, so the result is bit for bit what decoding the row and
 /// calling `dot` gives.
-fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
+///
+/// It takes the row's scales as f32 instead of being generic over the scale
+/// type. A generic function compiles in the crate that calls it, at that
+/// crate's optimization level, so this loop would run unoptimized in a debug
+/// build, even one that sets `opt-level = 3` for its dependencies.
+fn dot_i4_row(scales: &[f32], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
     let mut totals = [0.0_f32; LANES];
     let blocks = bytes.chunks_exact(block / 2).zip(input.chunks_exact(block));
-    for ((block_bytes, block_input), scale) in blocks.zip(scales) {
-        let scale = scale.to_f32();
+    for ((block_bytes, block_input), &scale) in blocks.zip(scales) {
         let (groups, _) = block_bytes.as_chunks::<16>();
         let (group_inputs, _) = block_input.as_chunks::<32>();
         for (group, group_input) in groups.iter().zip(group_inputs) {
@@ -260,11 +287,10 @@ fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32])
 
 /// Like [`dot_i4_row`], for an 8-bit matrix, where each group of 32 codes
 /// takes 32 bytes instead of 16.
-fn dot_i8_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
+fn dot_i8_row(scales: &[f32], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
     let mut totals = [0.0_f32; LANES];
     let blocks = bytes.chunks_exact(block).zip(input.chunks_exact(block));
-    for ((block_bytes, block_input), scale) in blocks.zip(scales) {
-        let scale = scale.to_f32();
+    for ((block_bytes, block_input), &scale) in blocks.zip(scales) {
         let (groups, _) = block_bytes.as_chunks::<32>();
         let (group_inputs, _) = block_input.as_chunks::<32>();
         for (group, group_input) in groups.iter().zip(group_inputs) {

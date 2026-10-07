@@ -32,6 +32,29 @@ jobs:
       - name: Chapters
         run: just chapters
 
+  # Temporary: times matmul with the batch in groups of vectors.
+  group-sizes:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust from rust-toolchain.toml
+        run: rustup toolchain install
+
+      - name: Describe the CPU
+        run: |
+          if command -v lscpu; then lscpu; else
+            sysctl -n machdep.cpu.brand_string
+            sysctl hw | grep -E 'cachesize|cpu|perflevel' || true
+          fi
+
+      - name: Time group sizes
+        run: cargo run --release --manifest-path timing/Cargo.toml -- quick
+
   minimum-rust:
     runs-on: ubuntu-latest
     steps:

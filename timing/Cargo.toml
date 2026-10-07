@@ -1,0 +1,14 @@
+[package]
+name = "timing"
+edition = "2024"
+publish = false
+
+# Its own workspace, so the repository's lint and test runs leave it out.
+[workspace]
+
+[dependencies]
+quantize = { path = ".." }
+
+[[bin]]
+name = "group_sizes"
+path = "group_sizes.rs"

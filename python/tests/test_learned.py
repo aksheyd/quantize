@@ -175,6 +175,10 @@ def test_refine_and_alternate_work_while_other_threads_use_the_tensor():
     assert products <= {Quantized(version).matmul(weights[0]).tobytes() for version in versions}
 
 
+@pytest.mark.skipif(
+    sysconfig.get_config_var("Py_GIL_DISABLED") and not sys._is_gil_enabled(),
+    reason="the GIL is off, so alternate can't hold it",
+)
 def test_other_threads_keep_running_while_alternate_refits():
     weights = np.random.default_rng(0).standard_normal((1024, 1024)).astype(np.float32)
     quantized = quantize(weights, bits=4)

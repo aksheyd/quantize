@@ -58,8 +58,12 @@ jobs:
       - name: Time main and this branch
         run: cargo run --release --manifest-path timing/Cargo.toml --bin compare
 
+      # Cargo compiles path dependencies incrementally in debug builds, and
+      # git ones not, so turn it off to build both copies alike.
       - name: Time main and this branch in a debug build that optimizes dependencies
         run: cargo run --manifest-path timing/Cargo.toml --bin compare
+        env:
+          CARGO_INCREMENTAL: 0
 
   minimum-rust:
     runs-on: ubuntu-latest

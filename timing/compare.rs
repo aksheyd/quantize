@@ -1,5 +1,6 @@
-//! Times `matmul` with `main` and with this branch, alternating calls, and
-//! checks that both give the same bits.
+//! Times `matmul` with `main`, a second copy of `main`, and this branch,
+//! called in turn, and checks that `main` and this branch give the same bits.
+//! The two copies of `main` show how far apart identical code can land.
 //!
 //! Run: `cargo run --release --manifest-path timing/Cargo.toml --bin compare`
 
@@ -25,8 +26,10 @@ fn compare<S: BothScales>(label: &str, layout: Layout, rows: usize, columns: usi
     let weights = values(rows * columns, 1);
     let mut branch = layout.branch::<S>(&weights).unwrap();
     let mut main = layout.main::<S>(&weights).unwrap();
+    let mut main_again = layout.main_again::<S>(&weights).unwrap();
     branch.set_shape(rows, columns).unwrap();
     main.set_shape(rows, columns).unwrap();
+    main_again.set_shape(rows, columns).unwrap();
     let inputs = values(batch * columns, 2);
     let mut branch_out = vec![0.0; batch * rows];
     let mut main_out = vec![0.0; batch * rows];
@@ -34,6 +37,7 @@ fn compare<S: BothScales>(label: &str, layout: Layout, rows: usize, columns: usi
     let start = Instant::now();
     main.matmul_into(&inputs, &mut main_out).unwrap();
     branch.matmul_into(&inputs, &mut branch_out).unwrap();
+    main_again.matmul_into(&inputs, &mut main_out).unwrap();
     let per_round = start.elapsed();
     let same = main_out
         .iter()
@@ -44,32 +48,42 @@ fn compare<S: BothScales>(label: &str, layout: Layout, rows: usize, columns: usi
     let budget = if cfg!(debug_assertions) {
         Duration::from_secs(6)
     } else {
-        Duration::from_secs(8)
+        Duration::from_secs(9)
     };
-    let rounds = (budget.as_secs_f64() / per_round.as_secs_f64()).clamp(5.0, 2000.0) as usize;
-    let (mut main_best, mut branch_best) = (f64::INFINITY, f64::INFINITY);
-    for _ in 0..rounds {
-        let start = Instant::now();
-        main.matmul_into(black_box(&inputs), &mut main_out).unwrap();
-        main_best = main_best.min(start.elapsed().as_secs_f64());
-        black_box(&main_out);
-        let start = Instant::now();
-        branch
-            .matmul_into(black_box(&inputs), &mut branch_out)
-            .unwrap();
-        branch_best = branch_best.min(start.elapsed().as_secs_f64());
-        black_box(&branch_out);
+    let rounds = (budget.as_secs_f64() / per_round.as_secs_f64()).clamp(6.0, 3000.0) as usize;
+    // Best seconds of main, main again, and this branch, called in turn,
+    // starting with a different one each round.
+    let mut best = [f64::INFINITY; 3];
+    for round in 0..rounds {
+        for turn in 0..3 {
+            let which = (round + turn) % 3;
+            let start = Instant::now();
+            match which {
+                0 => main.matmul_into(black_box(&inputs), &mut main_out).unwrap(),
+                1 => main_again
+                    .matmul_into(black_box(&inputs), &mut main_out)
+                    .unwrap(),
+                _ => branch
+                    .matmul_into(black_box(&inputs), &mut branch_out)
+                    .unwrap(),
+            }
+            best[which] = best[which].min(start.elapsed().as_secs_f64());
+            black_box((&main_out, &branch_out));
+        }
     }
     let case = format!(
         "{label} {} {} @{batch}",
         layout.name(),
         <S as quantize::Scale>::NAME
     );
+    let main_best = best[0].min(best[1]);
     println!(
-        "{case:<40}{:>11.3}{:>11.3}{:>9.2}x   ({rounds} rounds)",
-        main_best * 1e3,
-        branch_best * 1e3,
-        main_best / branch_best
+        "{case:<36}{:>10.3}{:>11.3}{:>10.3}{:>8.3}{:>8.2}x   ({rounds} rounds)",
+        best[0] * 1e3,
+        best[1] * 1e3,
+        best[2] * 1e3,
+        best[0].max(best[1]) / main_best,
+        main_best / best[2],
     );
 }
 
@@ -79,10 +93,12 @@ fn main() {
     } else {
         "release"
     };
-    println!("{build}: best ms of alternating calls, and how many times faster this branch is");
+    println!("{build}: best ms of calls in turn. main again is the same commit as main;");
+    println!("spread is how many times slower the slower copy of main is, and speedup");
+    println!("is how many times faster this branch is than the faster copy");
     println!(
-        "{:<40}{:>11}{:>11}{:>10}",
-        "case", "main", "branch", "speedup"
+        "{:<36}{:>10}{:>11}{:>10}{:>8}{:>9}",
+        "case", "main", "main again", "branch", "spread", "speedup"
     );
     if cfg!(debug_assertions) {
         compare::<f16>("1024²", Q4_32, 1024, 1024, 1);
@@ -94,6 +110,8 @@ fn main() {
         compare::<f16>("1024²", Q8_32, 1024, 1024, 512);
         compare::<f32>("1024²", Q4_32, 1024, 1024, 512);
         compare::<f16>("768²", Q8_32, 768, 768, 394);
+        compare::<f16>("1024²", ASYM4, 1024, 1024, 2);
+        compare::<f16>("1024²", FIVE_BIT, 1024, 1024, 2);
         compare::<f16>("1024²", ASYM4, 1024, 1024, 384);
         compare::<f16>("SmolLM down", Q4_32, 576, 1536, 512);
         compare::<f16>("4096²", Q4_32, 4096, 4096, 512);
@@ -127,6 +145,7 @@ fn main() {
     compare::<f16>("SmolLM q", Q4_32, 576, 576, 512);
     compare::<f16>("SmolLM up", Q4_32, 1536, 576, 512);
     compare::<f16>("SmolLM down", Q4_32, 576, 1536, 512);
+    compare::<f16>("SmolLM down", Q4_32, 576, 1536, 512);
     compare::<f16>("SmolLM lm_head", Q4_32, 49152, 576, 512);
     compare::<f16>("4096²", Q4_32, 4096, 4096, 512);
     compare::<f16>("4096²", Q4_32, 4096, 4096, 2048);
@@ -136,6 +155,9 @@ fn main() {
     compare::<f16>("ViT MLP in", Q4_32, 3072, 768, 6304);
     compare::<f16>("ViT MLP out", Q4_32, 768, 3072, 6304);
     // Layouts that keep the whole batch as one group.
+    compare::<f16>("1024²", ASYM4, 1024, 1024, 2);
+    compare::<f16>("1024²", FIVE_BIT, 1024, 1024, 2);
+    compare::<f16>("1024²", ADAPTIVE, 1024, 1024, 2);
     compare::<f16>("1024²", ASYM4, 1024, 1024, 384);
     compare::<f16>("1024²", ADAPTIVE, 1024, 1024, 384);
     compare::<f16>("1024²", FIVE_BIT, 1024, 1024, 384);

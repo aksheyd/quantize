@@ -1,7 +1,7 @@
 //! One layout, built the same way with `main` and with this branch.
 
-pub trait BothScales: quantize::Scale + quantize_main::Scale {}
-impl<S: quantize::Scale + quantize_main::Scale> BothScales for S {}
+pub trait BothScales: quantize::Scale + quantize_main::Scale + quantize_main_again::Scale {}
+impl<S: quantize::Scale + quantize_main::Scale + quantize_main_again::Scale> BothScales for S {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum Layout {
@@ -34,6 +34,20 @@ impl Layout {
 
     pub fn main<S: BothScales>(self, values: &[f32]) -> Option<quantize_main::Quantized<S>> {
         use quantize_main::Scheme;
+        let scheme = match self {
+            Layout::Symmetric { bits, block } => Scheme::Symmetric { bits, block },
+            Layout::Asymmetric { bits, block } => Scheme::Asymmetric { bits, block },
+            Layout::Adaptive { block, tolerance } => Scheme::Adaptive { block, tolerance },
+        };
+        scheme.quantize(values).ok()
+    }
+
+    #[allow(dead_code)]
+    pub fn main_again<S: BothScales>(
+        self,
+        values: &[f32],
+    ) -> Option<quantize_main_again::Quantized<S>> {
+        use quantize_main_again::Scheme;
         let scheme = match self {
             Layout::Symmetric { bits, block } => Scheme::Symmetric { bits, block },
             Layout::Asymmetric { bits, block } => Scheme::Asymmetric { bits, block },

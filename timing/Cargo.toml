@@ -9,6 +9,8 @@ publish = false
 [dependencies]
 quantize = { path = ".." }
 quantize_main = { package = "quantize", git = "https://github.com/aksheyd/quantize", rev = "872dd65fb1ce6feba6d186d6f26e8355c31a2e7b" }
+# The same commit again, so the timings show how much two identical copies differ.
+quantize_main_again = { package = "quantize", git = "https://github.com/aksheyd/quantize", rev = "872dd65" }
 
 [[bin]]
 name = "compare"

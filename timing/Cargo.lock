@@ -44,6 +44,14 @@ dependencies = [
 [[package]]
 name = "quantize"
 version = "0.3.2-dev"
+source = "git+https://github.com/aksheyd/quantize?rev=872dd65#872dd65fb1ce6feba6d186d6f26e8355c31a2e7b"
+dependencies = [
+ "half",
+]
+
+[[package]]
+name = "quantize"
+version = "0.3.2-dev"
 source = "git+https://github.com/aksheyd/quantize?rev=872dd65fb1ce6feba6d186d6f26e8355c31a2e7b#872dd65fb1ce6feba6d186d6f26e8355c31a2e7b"
 dependencies = [
  "half",
@@ -74,6 +82,7 @@ name = "timing"
 version = "0.0.0"
 dependencies = [
  "quantize 0.3.2-dev",
+ "quantize 0.3.2-dev (git+https://github.com/aksheyd/quantize?rev=872dd65)",
  "quantize 0.3.2-dev (git+https://github.com/aksheyd/quantize?rev=872dd65fb1ce6feba6d186d6f26e8355c31a2e7b)",
 ]
 

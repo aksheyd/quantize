@@ -234,8 +234,9 @@ pub(crate) fn matmul_into<S: Scale>(
 /// One row of a 4-bit matrix times `input`, for blocks of whole groups of 32
 /// codes, without storing the decoded row: each group is decoded into
 /// registers and multiplied right away. Its products go into the same totals
-/// as `dot`'s, in the same order, so the result is bit for bit what decoding
-/// the row and calling `dot` gives.
+/// as `dot`'s, in the same order, and a row of whole groups of 32 leaves `dot`
+/// no remainder, so the result is bit for bit what decoding the row and
+/// calling `dot` gives.
 fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
     let mut totals = [0.0_f32; LANES];
     let blocks = bytes.chunks_exact(block / 2).zip(input.chunks_exact(block));

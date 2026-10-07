@@ -143,9 +143,9 @@ fn high_code(byte: u8) -> i8 {
 }
 
 /// Decode 16 bytes into their 32 codes times `scale`, as
-/// [`dequant_i4_blocks`] would. With a fixed size, the compiler can keep all
-/// 32 values in SIMD registers, so a caller can multiply them without storing
-/// them first.
+/// [`dequant_i4_blocks`] would. Inlined into its caller, and with a fixed
+/// size, the 32 values stay in SIMD registers, so the caller can multiply
+/// them without storing them first.
 #[inline]
 pub(crate) fn decode_32(bytes: &[u8; 16], scale: f32) -> [f32; 32] {
     let mut values = [0.0; 32];

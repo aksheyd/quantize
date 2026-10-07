@@ -102,9 +102,11 @@ pub(crate) fn dequant_i4_blocks<S: Scale>(
 ///
 /// `dequant_i4_blocks` is generic, so it compiles in each crate that calls
 /// it, at that crate's optimization level. Release builds always inline this
-/// into its loop. Builds with debug assertions, like debug builds, call it
-/// instead, so it stays in this crate, and runs optimized when a debug build
-/// sets `opt-level = 3` for its dependencies.
+/// into its loop, saving a call per block. Builds with debug assertions, like
+/// debug builds, call it instead, so it stays in this crate, and runs
+/// optimized when a debug build sets `opt-level = 3` for its dependencies.
+/// Rust can't check the optimization level, so debug assertions stand in
+/// for it.
 ///
 /// # Safety
 ///

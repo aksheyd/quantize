@@ -1,5 +1,44 @@
 # changelog
 
+## 0.3.2
+
+0.3.2 is a patch release of the rust crate `quantize` and the python package `quantize-py`. it multiplies one vector up to 3 times as fast and big batches up to 2.7 times, and adds wheels for free-threaded python.
+
+### faster
+
+- `matmul` on one vector, as when a model generates a token, multiplies `Q4_32`, `Q8_32`, and similar matrices as it decodes them. with 4-bit weights, one token through SmolLM-135M's linear layers takes 45 ms instead of 140 on an intel xeon, and 19 instead of 27 on an M1. 8-bit weights gain about 1.4 times.
+- `dot` takes the same path: 2 to 3 times as fast on the xeon, and 5 on the M1.
+- batches of more than 256 vectors go through those matrices in groups of 256 that stay in cache, so 32 images through ViT-B/16's qkv layer run 2.2 to 2.7 times as fast on the xeon, and 1.3 on the M1.
+- on x86, symmetric 4-bit codes decode 2.8 times as fast, and 8-bit codes 1.4 times.
+- python: `dot`, `matmul`, and `dequantize` on 65,536 values or fewer keep the gil, so while another thread keeps running python, a 256 × 256 `dot` takes under 0.1 ms instead of 5. quantizing and refitting more than 4,096 values let other threads run, so four threads refit 3.2 to 3.5 times as fast as one.
+
+### new
+
+- free-threaded python 3.14 gets its own wheels and keeps the gil off, where 0.3.1 turned it back on, so threads call `quantize` in parallel.
+- python: `matmul` takes `out=`, like `matmul_into`, and `out=` can be a float32 pytorch tensor on the cpu.
+- `Scheme` text can leave out `block`, for blocks of 32, so `symmetric(bits=4)` reads as `Q4_32`.
+
+### fixes
+
+- `Error::OutputMismatch` says how many values `out` should hold, and when `inputs` is empty, instead of blaming `set_shape`.
+- python: an `out` that another call is using says so, instead of claiming it isn't writable.
+
+### changes you might notice
+
+- python: two threads refitting one tensor at once both start from it as it was, and it keeps the last result. the gil used to run them one after the other.
+- python: `print(scheme)` shows the text `Scheme(text)` reads, instead of the repr.
+- `Scheme` text without `block` and with a value out of range, like `symmetric(bits=1)`, gets `InvalidBits` or `InvalidTolerance` instead of `InvalidScheme`.
+- `dot` results can change in the last bits, and are more precise on long tensors.
+- on x86, each f16 scale converts through a function call, costing one-vector `matmul` 3 to 6%. f32 or bf16 scales, or a build for f16c, like `-C target-cpu=x86-64-v3`, avoid it.
+- an amd epyc runs batches of more than 256 vectors 1 to 3% slower while they fit in its L3 cache, and up to 2 times faster beyond it.
+- python: while another thread keeps running python, `refine` on more than 4,096 values and `alternate` on more than 40 wait about 5 ms a call for the gil, where 0.3.1 kept it.
+- python: with a gil, `dequantize()` calls on 65,536 values or fewer take turns across threads, so 64 of them on 256 × 256 over 8 threads take 6.8 ms against 0.3.1's 2.7, though on one thread they run 3 times as fast.
+
+### chapters and contributors
+
+- chapter 3 stops on 0 or more than 31 bits and says why 1 bit gives nan, and chapter 7 gives a typical block's gain.
+- the WikiText run stops on an argument it doesn't know, instead of quietly scoring the whole set for hours.
+
 ## 0.3.1
 
 0.3.1 is a patch release of the rust crate `quantize` and the python package `quantize-py`. it decodes with less memory, and adds `matmul_into` and `Scheme` text.

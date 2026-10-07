@@ -26,7 +26,7 @@ resolver = "3"
 
 [workspace.package]
 # Shared with the Python package. Between releases it ends in -dev.
-version = "0.3.2-dev"
+version = "0.3.2"
 
 [workspace.dependencies]
 half = "2"

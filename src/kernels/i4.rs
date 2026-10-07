@@ -147,7 +147,7 @@ fn high_code(byte: u8) -> i8 {
 /// size, the 32 values stay in SIMD registers, so the caller can multiply
 /// them without storing them first.
 #[inline]
-pub(crate) fn decode_32(bytes: &[u8; 16], scale: f32) -> [f32; 32] {
+pub(crate) fn decode_i4_32(bytes: &[u8; 16], scale: f32) -> [f32; 32] {
     let mut values = [0.0; 32];
     for (pair, &byte) in values.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
         *pair = [

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use half::{bf16, f16};
 use pyo3::prelude::*;
@@ -160,10 +160,15 @@ impl QuantizedInner {
 /// `Quantized(data)` loads a tensor that `to_bytes` saved, like `from_bytes`.
 /// Pickles load through it, so `torch.load` accepts them once
 /// `torch.serialization.add_safe_globals([Quantized])` allows the class.
-#[pyclass(name = "Quantized", module = "quantize", eq)]
-#[derive(PartialEq)]
+#[pyclass(name = "Quantized", module = "quantize", eq, frozen)]
 pub struct PyQuantized {
-    pub(crate) inner: QuantizedInner,
+    // `frozen` drops PyO3's borrow flag, which makes a refit and another
+    // thread's read fail when they overlap without the GIL. Threads share the
+    // tensor through this lock instead, held only to clone the `Arc` or to put
+    // a refit in its place, never while computing or calling Python. Each
+    // store replaces the tensor in one step, so even a lock that a panic
+    // poisoned holds a whole tensor.
+    inner: Mutex<QuantizedInner>,
 }
 
 impl PyQuantized {
@@ -173,12 +178,38 @@ impl PyQuantized {
         shape: &[usize],
         scale: PyScale,
     ) -> PyResult<Self> {
-        Ok(Self {
-            inner: QuantizedInner::from_scheme(scheme, values, shape, scale)?,
-        })
+        QuantizedInner::from_scheme(scheme, values, shape, scale).map(Self::from)
     }
 
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.snapshot().len()
+    }
+
+    /// The tensor as it is now, sharing its codes and scales. A refit stored
+    /// later puts a new tensor in its place, so this one keeps its values.
+    pub(crate) fn snapshot(&self) -> QuantizedInner {
+        self.inner
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Put `inner`, such as a refit of a snapshot, in place of the tensor.
+    pub(crate) fn store(&self, inner: QuantizedInner) {
+        *self.inner.lock().unwrap_or_else(PoisonError::into_inner) = inner;
+    }
+}
+
+impl From<QuantizedInner> for PyQuantized {
+    fn from(inner: QuantizedInner) -> Self {
+        Self {
+            inner: Mutex::new(inner),
+        }
+    }
+}
+
+impl PartialEq for PyQuantized {
+    fn eq(&self, other: &Self) -> bool {
+        self.snapshot() == other.snapshot()
     }
 }

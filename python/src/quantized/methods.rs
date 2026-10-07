@@ -11,7 +11,7 @@ use crate::error::from_quantize;
 use crate::gil::detach_if_large;
 use crate::input::{
     as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
-    as_writable_f32_out, check_no_overlap, check_shape,
+    as_writable_f32_out, check_shape,
 };
 use crate::scale::PyScale;
 
@@ -57,7 +57,7 @@ impl PyQuantized {
         let shape = inner.shape();
         match out {
             Some(out) => {
-                let mut writable = as_writable_f32_out(&out, &shape)?;
+                let mut writable = as_writable_f32_out(&out, &shape, &[])?;
                 let output = writable.as_slice_mut()?;
                 detach_if_large(py, inner.len(), || {
                     with_inner!(&inner, |quantized| quantized.dequantize_into(output))
@@ -122,8 +122,7 @@ impl PyQuantized {
                 Some(batch) => vec![batch, rows],
                 None => vec![rows],
             };
-            check_no_overlap(&out, array.as_any())?;
-            let mut writable = as_writable_f32_out(&out, &shape)?;
+            let mut writable = as_writable_f32_out(&out, &shape, inputs)?;
             let output = writable.as_slice_mut()?;
             detach_if_large(py, products, || {
                 with_inner!(&inner, |quantized| quantized.matmul_into(inputs, output))

@@ -1,8 +1,8 @@
 //! Reconstruct f32 from packed codes.
 
 use crate::kernels::{
-    decode_32, dequant_asym_into, dequant_i4_blocks, dequant_i8_blocks, dequant_sym_into, dot_asym,
-    dot_i4_blocks, dot_i8_blocks, dot_sym,
+    decode_i4_32, decode_i8_32, dequant_asym_into, dequant_i4_blocks, dequant_i8_blocks,
+    dequant_sym_into, dot_asym, dot_i4_blocks, dot_i8_blocks, dot_sym,
 };
 use crate::packed::{Packed, nbytes, read_code};
 use crate::params::assert_bits_in_range;
@@ -187,9 +187,9 @@ pub(crate) fn matmul_into<S: Scale>(
 
     // A single vector, as when a language model generates one token, leaves
     // no batch to reuse a decoded row for, and storing each row only to read
-    // it straight back costs about as much as decoding it. So a 4-bit matrix
-    // whose blocks are whole groups of 32 codes multiplies each group as it
-    // decodes it instead.
+    // it straight back costs about as much as decoding it. So a 4-bit or 8-bit
+    // matrix whose blocks are whole groups of 32 codes multiplies each group
+    // as it decodes it instead.
     if let Quantized::Symmetric {
         scales,
         codes,
@@ -197,15 +197,19 @@ pub(crate) fn matmul_into<S: Scale>(
         ..
     } = quantized
         && inputs.len() == columns
-        && codes.bits() == 4
+        && matches!(codes.bits(), 4 | 8)
         && block.is_multiple_of(32)
         && packed_rows_ok(quantized, columns)
     {
-        let (bytes_per_row, scales_per_row) = (columns / 2, columns / block);
+        let bytes_per_row = columns * codes.bits() as usize / 8;
+        let scales_per_row = columns / block;
         for (row, slot) in out.iter_mut().enumerate() {
             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
             let row_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
-            *slot = dot_i4_row(row_scales, row_codes, *block, inputs);
+            *slot = match codes.bits() {
+                4 => dot_i4_row(row_scales, row_codes, *block, inputs),
+                _ => dot_i8_row(row_scales, row_codes, *block, inputs),
+            };
         }
         return;
     }
@@ -245,7 +249,26 @@ fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32])
         let (groups, _) = block_bytes.as_chunks::<16>();
         let (group_inputs, _) = block_input.as_chunks::<32>();
         for (group, group_input) in groups.iter().zip(group_inputs) {
-            let weights = decode_32(group, scale);
+            let weights = decode_i4_32(group, scale);
+            let (weight_chunks, _) = weights.as_chunks::<LANES>();
+            let (input_chunks, _) = group_input.as_chunks::<LANES>();
+            add_products(&mut totals, weight_chunks, input_chunks);
+        }
+    }
+    totals.iter().sum()
+}
+
+/// Like [`dot_i4_row`], for an 8-bit matrix, where each group of 32 codes
+/// takes 32 bytes instead of 16.
+fn dot_i8_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
+    let mut totals = [0.0_f32; LANES];
+    let blocks = bytes.chunks_exact(block).zip(input.chunks_exact(block));
+    for ((block_bytes, block_input), scale) in blocks.zip(scales) {
+        let scale = scale.to_f32();
+        let (groups, _) = block_bytes.as_chunks::<32>();
+        let (group_inputs, _) = block_input.as_chunks::<32>();
+        for (group, group_input) in groups.iter().zip(group_inputs) {
+            let weights = decode_i8_32(group, scale);
             let (weight_chunks, _) = weights.as_chunks::<LANES>();
             let (input_chunks, _) = group_input.as_chunks::<LANES>();
             add_products(&mut totals, weight_chunks, input_chunks);
@@ -481,12 +504,15 @@ mod tests {
 
     #[test]
     fn one_vector_gives_bit_for_bit_what_it_gives_in_a_batch() {
-        // 4-bit blocks of 32 and 64 multiply a single vector as they decode
-        // it. Every other layout decodes each row first, whatever the batch.
+        // 4-bit and 8-bit blocks of 32 and 64 multiply a single vector as
+        // they decode it. Every other layout decodes each row first, whatever
+        // the batch.
         let values: Vec<f32> = (0..6 * 128).map(|i| (i as f32 * 0.37).sin()).collect();
         let mut wide_rows = [
             symmetric::quantize_with(&values, 4, 32).unwrap(),
             symmetric::quantize_with(&values, 4, 64).unwrap(),
+            symmetric::quantize_with(&values, 8, 32).unwrap(),
+            symmetric::quantize_with(&values, 8, 64).unwrap(),
         ];
         for matrix in &mut wide_rows {
             matrix.set_shape(6, 128).unwrap();

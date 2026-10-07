@@ -28,9 +28,7 @@ pub(crate) fn dequant_asym<S: Scale>(
 }
 
 /// Decode values `start..start + out.len()` of an adaptive tensor.
-/// `first_byte` is where the codes of the block holding `start` begin. Returns
-/// where the codes of the block holding `start + out.len()` begin, so the
-/// values after these can carry on from there.
+/// `first_byte` is where the codes of the block holding `start` begin.
 ///
 /// Like [`dot_adaptive`], it reads each code in place: each block's codes are
 /// packed at its own width, starting on the byte after the block before it.
@@ -39,7 +37,7 @@ pub(crate) fn dequant_adaptive<S: Scale>(
     start: usize,
     first_byte: usize,
     out: &mut [f32],
-) -> usize {
+) {
     let Quantized::Adaptive {
         scales,
         zero_points,
@@ -66,14 +64,9 @@ pub(crate) fn dequant_adaptive<S: Scale>(
             let code = read_code(block_codes, index - block_start, bit_width);
             *slot = (code as f32 - zero_point) * scale;
         }
-        // Step past only the blocks that end within the range: the values
-        // after these start in a block that runs past `end`. Those blocks are
-        // all full, since only the tensor's last block can be short.
-        if block_start + block <= end {
-            byte_offset += nbytes(*block, bit_width);
-        }
+        // Only the tensor's last block can be short, and no block follows it.
+        byte_offset += nbytes(*block, bit_width);
     }
-    byte_offset
 }
 
 /// Like [`dot_asym`], one block at a time: each block's codes are packed at
@@ -280,19 +273,8 @@ pub(crate) fn matmul_into<S: Scale>(
         .chunks(vectors_per_group * columns)
         .zip(out.chunks_mut(vectors_per_group * rows));
     for (group_inputs, group_out) in groups {
-        // Finding an adaptive row on its own means adding up the widths of
-        // every block before it, so here each adaptive row carries on from
-        // the byte where the row before it stopped.
-        let mut row_first_byte = 0;
         for row in 0..rows {
-            match quantized {
-                Quantized::Adaptive { .. } => {
-                    let start = row * columns;
-                    row_first_byte =
-                        dequant_adaptive(quantized, start, row_first_byte, &mut row_weights);
-                }
-                _ => decode_row(quantized, row, &mut row_weights),
-            }
+            decode_row(quantized, row, &mut row_weights);
             for (vector, input) in group_inputs.chunks_exact(columns).enumerate() {
                 group_out[vector * rows + row] = dot(&row_weights, input);
             }
@@ -398,7 +380,7 @@ fn packed_rows_ok<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
 pub(crate) fn decode_row<S: Scale>(quantized: &Quantized<S>, row: usize, out: &mut [f32]) {
     let columns = out.len();
     if !packed_rows_ok(quantized, columns) {
-        decode_values(quantized, row * columns, out);
+        decode_values(quantized, row, out);
         return;
     }
     let block = quantized.block();
@@ -424,19 +406,20 @@ pub(crate) fn decode_row<S: Scale>(quantized: &Quantized<S>, row: usize, out: &m
                 out,
             )
         }
-        _ => decode_values(quantized, row * columns, out),
+        _ => decode_values(quantized, row, out),
     }
 }
 
-/// Decode values `start..start + out.len()`, reading only the blocks they fall
-/// in. Unlike the packed kernels, this works for a range that starts anywhere,
-/// even partway through a block or a byte.
+/// Decode row `row` of a matrix with `out.len()` columns, reading only the
+/// blocks it falls in. Unlike the packed kernels, this works for a row that
+/// starts anywhere, even partway through a block or a byte.
 ///
 /// Inlined into the nested loops of [`matmul_into`], its loop over the codes
 /// compiles to code up to 8% slower on x86-64, so it stays a call.
 #[inline(never)]
-fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f32]) {
+fn decode_values<S: Scale>(quantized: &Quantized<S>, row: usize, out: &mut [f32]) {
     let block = quantized.block();
+    let start = row * out.len();
     match quantized {
         Quantized::Symmetric { codes, .. } | Quantized::Asymmetric { codes, .. } => {
             // A symmetric tensor has no zero-points: it decodes as if each were 0.
@@ -456,26 +439,8 @@ fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f3
                 }
             }
         }
-        Quantized::Adaptive { block_bits, .. } => {
-            // Each block is packed at its own width, so the first block's bytes
-            // start after those of every block before it. Only the last block
-            // can be short, so those blocks are full, and when `block` is a
-            // multiple of 8, `block` codes of `bit_width` bits fill exactly
-            // `block / 8 × bit_width` bytes: adding up the widths is enough.
-            let blocks_before = &block_bits[..start / block];
-            let first_byte: usize = if block.is_multiple_of(8) {
-                let width_total: usize = blocks_before
-                    .iter()
-                    .map(|&bit_width| usize::from(bit_width))
-                    .sum();
-                block / 8 * width_total
-            } else {
-                blocks_before
-                    .iter()
-                    .map(|&bit_width| nbytes(block, bit_width.into()))
-                    .sum()
-            };
-            dequant_adaptive(quantized, start, first_byte, out);
+        Quantized::Adaptive { row_starts, .. } => {
+            dequant_adaptive(quantized, start, row_starts[row], out);
         }
     }
 }

@@ -23,14 +23,19 @@ pub(crate) struct Parts {
 }
 
 impl Parts {
-    /// Build the variant that `kind` names, then [`Quantized::validate`] it,
-    /// so parts that don't fit together are an error instead of a tensor
-    /// that decodes out of bounds.
+    /// Build the variant that `kind` names as a flat vector, then
+    /// [`Quantized::validate`] it, so parts that don't fit together are an
+    /// error instead of a tensor that decodes out of bounds. A 2-D `shape`
+    /// goes on last, through `set_shape`, which finds where each adaptive row
+    /// starts.
     pub(crate) fn into_quantized<S: Scale>(self) -> PyResult<Quantized<S>> {
-        let (len, columns) = match self.shape[..] {
+        let (len, rows_and_columns) = match self.shape[..] {
             [len] => (len, None),
+            // Named here, since validating the empty tensor first would blame
+            // its scales instead.
+            [_, 0] => return Err(from_quantize(Error::ShapeMismatch { len: 0, columns: 0 })),
             [rows, columns] => match rows.checked_mul(columns) {
-                Some(len) => (len, Some(columns)),
+                Some(len) => (len, Some((rows, columns))),
                 None => return Err(PyErr::new::<QuantizeError, _>(SHAPE_TOO_LARGE)),
             },
             _ => return Err(PyErr::new::<QuantizeError, _>(SHAPE_DIMENSIONS)),
@@ -39,13 +44,13 @@ impl Parts {
         let scales: Vec<S> = self.scales.into_iter().map(S::from_f32).collect();
         let zero_points: Vec<S> = self.zero_points.into_iter().map(S::from_f32).collect();
 
-        let quantized = match (self.kind.as_str(), self.bits, self.block_bits) {
+        let mut quantized = match (self.kind.as_str(), self.bits, self.block_bits) {
             ("symmetric", Some(bits), None) if zero_points.is_empty() => Quantized::Symmetric {
                 scales,
                 codes: packed_codes(self.codes, bits, len)?,
                 block,
                 len,
-                columns,
+                columns: None,
             },
             ("asymmetric", Some(bits), None) => Quantized::Asymmetric {
                 scales,
@@ -53,7 +58,7 @@ impl Parts {
                 codes: packed_codes(self.codes, bits, len)?,
                 block,
                 len,
-                columns,
+                columns: None,
             },
             ("adaptive", None, Some(block_bits)) => Quantized::Adaptive {
                 scales,
@@ -62,11 +67,15 @@ impl Parts {
                 block_bits: block_widths(block_bits)?,
                 block,
                 len,
-                columns,
+                columns: None,
+                row_starts: Vec::new(),
             },
             _ => return Err(PyErr::new::<QuantizeError, _>(KIND_PARTS)),
         };
         quantized.validate().map_err(from_quantize)?;
+        if let Some((rows, columns)) = rows_and_columns {
+            quantized.set_shape(rows, columns).map_err(from_quantize)?;
+        }
         Ok(quantized)
     }
 }

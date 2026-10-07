@@ -82,8 +82,8 @@ pub(crate) fn dequant_i8_blocks<S: Scale>(
 }
 
 // `dequant_i8_blocks` is generic, so it's compiled in each crate that calls
-// it. Without `#[inline]`, the code it compiles to there calls these two
-// functions in this crate once per block.
+// it. Without `#[inline]` on these two functions, the code it compiles to
+// there calls into this crate for every block.
 #[inline]
 fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
     let mut i = 0;

@@ -53,7 +53,10 @@ jobs:
           fi
 
       - name: Time group sizes
-        run: cargo run --release --manifest-path timing/Cargo.toml -- quick
+        run: cargo run --release --manifest-path timing/Cargo.toml
+
+      - name: Time group sizes in a debug build that optimizes dependencies
+        run: cargo run --manifest-path timing/Cargo.toml
 
   minimum-rust:
     runs-on: ubuntu-latest

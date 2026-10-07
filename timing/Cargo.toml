@@ -12,3 +12,7 @@ quantize = { path = ".." }
 [[bin]]
 name = "group_sizes"
 path = "group_sizes.rs"
+
+# A debug build that optimizes its dependencies, as many projects set up.
+[profile.dev.package."*"]
+opt-level = 3

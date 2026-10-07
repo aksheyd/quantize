@@ -8,10 +8,15 @@ publish = false
 
 [dependencies]
 quantize = { path = ".." }
+quantize_main = { package = "quantize", git = "https://github.com/aksheyd/quantize", rev = "872dd65fb1ce6feba6d186d6f26e8355c31a2e7b" }
 
 [[bin]]
-name = "group_sizes"
-path = "group_sizes.rs"
+name = "compare"
+path = "compare.rs"
+
+[[bin]]
+name = "bits"
+path = "bits.rs"
 
 # A debug build that optimizes its dependencies, as many projects set up.
 [profile.dev.package."*"]

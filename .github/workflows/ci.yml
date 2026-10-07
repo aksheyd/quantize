@@ -52,11 +52,14 @@ jobs:
             sysctl hw | grep -E 'cachesize|cpu|perflevel' || true
           fi
 
-      - name: Time group sizes
-        run: cargo run --release --manifest-path timing/Cargo.toml
+      - name: Check bits against main
+        run: cargo run --release --manifest-path timing/Cargo.toml --bin bits
 
-      - name: Time group sizes in a debug build that optimizes dependencies
-        run: cargo run --manifest-path timing/Cargo.toml
+      - name: Time main and this branch
+        run: cargo run --release --manifest-path timing/Cargo.toml --bin compare
+
+      - name: Time main and this branch in a debug build that optimizes dependencies
+        run: cargo run --manifest-path timing/Cargo.toml --bin compare
 
   minimum-rust:
     runs-on: ubuntu-latest

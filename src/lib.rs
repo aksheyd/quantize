@@ -62,6 +62,15 @@
 //! measures its range and is stored as code 0, so the other values in that
 //! block are unaffected. An infinity is kept, which stretches its block's
 //! range to infinity, so every finite value in that block decodes to NaN.
+//!
+//! ## Features
+//!
+//! The `rayon` feature, off by default, runs [`matmul`](Quantized::matmul)
+//! and [`matmul_into`](Quantized::matmul_into) on every core with the
+//! [rayon](https://docs.rs/rayon) crate: each core multiplies its own group of
+//! the batch, and the results are the same, bit for bit. A single input still
+//! runs on one core. Turn it on with `cargo add quantize --features rayon`.
+//! Without it, the crate's only dependency is `half`.
 
 #![warn(missing_docs)]
 

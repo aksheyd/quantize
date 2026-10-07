@@ -36,8 +36,13 @@ numpy = "0.29"
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
 
+[features]
+# Splits matmul's batch across every core.
+rayon = ["dep:rayon"]
+
 [dependencies]
 half = { workspace = true }
+rayon = { version = "1", optional = true }
 
 [lints]
 workspace = true

@@ -251,10 +251,12 @@ fn out_type_error(out: &Bound<'_, PyAny>) -> PyResult<PyErr> {
 }
 
 /// Borrow `out`, a NumPy array or PyTorch tensor, for writing, after
-/// checking it has exactly `shape`.
+/// checking it has exactly `shape` and shares no memory with `inputs`, the
+/// values the call reads while it writes `out`.
 pub fn as_writable_f32_out<'py>(
     obj: &Bound<'py, PyAny>,
     shape: &[usize],
+    inputs: &[f32],
 ) -> PyResult<numpy::PyReadwriteArrayDyn<'py, f32>> {
     let array = out_array(obj)?;
     let Ok(arr) = array.cast::<PyArrayDyn<f32>>() else {
@@ -270,30 +272,30 @@ pub fn as_writable_f32_out<'py>(
         return Err(PyValueError::new_err(OUT_CONTIG));
     }
     check_shape(obj.py(), "out", shape, arr.shape())?;
+    // This comes before the borrow, which fails on an `out` that `inputs`
+    // was read from in place, as if another call held it.
+    if shares_memory(arr, inputs) {
+        return Err(PyValueError::new_err(OUT_OVERLAPS_INPUTS));
+    }
     // Its flags are checked above, so this fails only while another call
     // reads or writes it.
     arr.try_readwrite()
         .map_err(|_| PyValueError::new_err(OUT_IN_USE))
 }
 
-/// Check that `out` shares no memory with `inputs`, which `matmul` reads
-/// while it writes `out`. The arrays' memory is compared, not the arrays,
-/// since two arrays over one buffer, like `t.numpy()` and the array read
-/// from a tensor `t`, are separate objects. An `out` that isn't an array or
-/// a tensor is left for `as_writable_f32_out` to reject.
-pub fn check_no_overlap(out: &Bound<'_, PyAny>, inputs: &Bound<'_, PyAny>) -> PyResult<()> {
-    let out = out_array(out)?;
-    if !out.is_instance_of::<PyUntypedArray>() {
-        return Ok(());
-    }
-    let numpy = out.py().import("numpy")?;
-    if numpy
-        .call_method1("may_share_memory", (&out, inputs))?
-        .is_truthy()?
-    {
-        return Err(PyValueError::new_err(OUT_OVERLAPS_INPUTS));
-    }
-    Ok(())
+/// Whether `out` and `inputs`, both C-contiguous float32, share memory.
+/// Each fills one unbroken run of bytes, so they share memory exactly when
+/// the runs overlap. The memory is compared, not the arrays, since two
+/// arrays over one buffer, like `t.numpy()` and the array read from a
+/// tensor `t`, are separate objects. Comparing addresses keeps the GIL,
+/// which `numpy.may_share_memory` gives up.
+fn shares_memory(out: &Bound<'_, PyArrayDyn<f32>>, inputs: &[f32]) -> bool {
+    let out_start = out.data().addr();
+    let out_end = out_start + out.len() * size_of::<f32>();
+    let inputs_start = inputs.as_ptr().addr();
+    let inputs_end = inputs_start + size_of_val(inputs);
+    // The bytes both fill run from the later start to the earlier end.
+    out_start.max(inputs_start) < out_end.min(inputs_end)
 }
 
 /// Check that `argument`, which came in with shape `got`, has exactly the

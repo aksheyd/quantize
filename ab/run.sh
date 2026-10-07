@@ -17,5 +17,6 @@ make_crate q_fused refs/remotes/origin/fused
 cd "$(dirname "$0")"
 cargo build --release -q
 ./target/release/ab8
-./target/release/ab8
+BITS=4 ./target/release/ab8
+BITS=4 ./target/release/ab8
 BITS=4 ./target/release/ab8

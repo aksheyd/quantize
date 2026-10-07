@@ -32,25 +32,6 @@ jobs:
       - name: Chapters
         run: just chapters
 
-  apple-silicon-timing:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install Rust from rust-toolchain.toml
-        run: rustup toolchain install
-
-      - uses: extractions/setup-just@v4
-
-      - name: Hardware
-        run: sysctl -n machdep.cpu.brand_string hw.ncpu || true
-
-      - name: main, the inline branch, and the fused branch, side by side
-        run: ab/run.sh
-
-      - name: just throughput with each branch's src, in turn
-        run: ab/throughput.sh
-
   minimum-rust:
     runs-on: ubuntu-latest
     steps:

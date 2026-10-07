@@ -42,7 +42,11 @@ jobs:
       - name: Check
         run: just minimum-rust
 
+  # 3.14t is free-threaded Python, which runs the thread tests without the GIL.
   python:
+    strategy:
+      matrix:
+        python: ["3.12", "3.14t"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -52,7 +56,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
 
       - uses: extractions/setup-just@v4
 

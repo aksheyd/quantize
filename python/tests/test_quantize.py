@@ -306,6 +306,35 @@ def test_matmul_batch_returns_batch_by_rows():
     assert fused.shape == (2, rows)
 
 
+def test_matmul_writes_into_out_and_returns_it():
+    quantized = quantize(weight_matrix(4, 32), bits=8)
+    batch = np.linspace(-1, 1, 3 * 32, dtype=np.float32).reshape(3, 32)
+    out = np.full((3, 4), np.nan, np.float32)
+    assert quantized.matmul(batch, out=out) is out
+    np.testing.assert_array_equal(out, quantized.matmul(batch))
+    vector_out = np.full(4, np.nan, np.float32)
+    assert quantized.matmul(batch[0], vector_out) is vector_out
+    np.testing.assert_array_equal(vector_out, quantized.matmul(batch[0]))
+
+
+def test_matmul_out_must_have_the_result_shape_and_its_own_memory():
+    quantized = quantize(weight_matrix(4, 32), bits=8)
+    batch = np.zeros((3, 32), np.float32)
+    with pytest.raises(LengthMismatchError, match="out must have length 12, got 8"):
+        quantized.matmul(batch, out=np.empty((2, 4), np.float32))
+    with pytest.raises(ValueError, match=r"out must have shape \(3, 4\), got \(4, 3\)"):
+        quantized.matmul(batch, out=np.empty((4, 3), np.float32))
+    with pytest.raises(TypeError, match="float32"):
+        quantized.matmul(batch, out=np.empty((3, 4)))
+    square = quantize(weight_matrix(32, 32), bits=8)
+    # Separate arrays over one buffer, like t.numpy() and the array read from a tensor t.
+    buffer = bytearray(batch.tobytes())
+    first, second = (np.frombuffer(memoryview(buffer), np.float32).reshape(3, 32) for _ in range(2))
+    for inputs, out in [(batch, batch), (first, second)]:
+        with pytest.raises(ValueError, match="out can't share memory with inputs"):
+            square.matmul(inputs, out=out)
+
+
 def test_matmul_rejects_a_flat_tensor():
     quantized = quantize([0.1] * 64, bits=8, block=32)
     with pytest.raises(NotAMatrixError, match="flat vector of 64 values") as raised:
@@ -425,6 +454,18 @@ def test_scheme_reads_text_written_like_its_class_methods():
         Scheme("symmetric:4:32")
     with pytest.raises(InvalidBitsError):
         Scheme("symmetric(bits=99, block=32)")
+
+
+def test_str_writes_the_text_that_scheme_reads():
+    assert str(Scheme.Q4_32) == "symmetric(bits=4, block=32)"
+    assert f"{Scheme.adaptive(tolerance=0.002)}" == "adaptive(block=32, tolerance=0.002)"
+    for scheme in [
+        Scheme.Q8_32,
+        Scheme.asymmetric(bits=3, block=7),
+        Scheme.adaptive(block=32, tolerance=0.1 * 0.0173),
+    ]:
+        assert Scheme(str(scheme)) == scheme
+    assert repr(Scheme.Q4_32) == "Scheme(kind='symmetric', bits=4, block=32)"
 
 
 def test_quantize_rejects_other_dimensions():

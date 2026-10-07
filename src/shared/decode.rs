@@ -155,21 +155,22 @@ pub(crate) fn dot_of<S: Scale>(quantized: &Quantized<S>, rhs: &[f32]) -> f32 {
     }
 }
 
+/// How many blocks [`dot_blocks`] adds into one set of 16 totals.
+const BLOCKS_PER_RUN: usize = 64;
+
 /// The dot product of 4-bit or 8-bit `codes` with `rhs`, for whole blocks of
-/// groups of 32 codes. Like [`decode_blocks`], it hands its kernels 64 blocks
-/// at a time, here the ones that multiply a single vector by a matrix.
+/// groups of 32 codes, with the kernels that multiply a single vector by a
+/// matrix, 64 blocks at a time.
 ///
 /// Each run's products go into 16 totals, as one row's do, and then the runs'
 /// sums are added up. Over millions of values, 16 totals alone would each
 /// grow until f32 rounds away much of each new product; a run's stay small.
 fn dot_blocks<S: Scale>(scales: &[S], codes: &[u8], bits: u32, block: usize, rhs: &[f32]) -> f32 {
-    let mut run_scales = [0.0; BLOCKS_PER_RUN];
+    let mut converted = [0.0; BLOCKS_PER_RUN];
     let mut total = 0.0;
     for (run, stored_scales) in scales.chunks(BLOCKS_PER_RUN).enumerate() {
-        for (scale, stored) in run_scales.iter_mut().zip(stored_scales) {
-            *scale = stored.to_f32();
-        }
-        let run_scales = &run_scales[..stored_scales.len()];
+        let run_scales = &mut converted[..stored_scales.len()];
+        scales_to_f32(stored_scales, run_scales);
         let start = run * BLOCKS_PER_RUN * block;
         let run_rhs = &rhs[start..start + run_scales.len() * block];
         total += match bits {

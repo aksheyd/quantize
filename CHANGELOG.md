@@ -31,7 +31,8 @@
 - `dot` results can change in the last bits, and are more precise on long tensors.
 - on x86, each f16 scale converts through a function call, costing one-vector `matmul` 3 to 6%. f32 or bf16 scales, or a build for f16c, like `-C target-cpu=x86-64-v3`, avoid it.
 - an amd epyc runs batches of more than 256 vectors 1 to 3% slower while they fit in its L3 cache, and up to 2 times faster beyond it.
-- python: while another thread keeps running python, `refine` and `alternate` on 4,097 to 65,536 values wait about 5 ms a call for the gil, where 0.3.1 kept it.
+- python: while another thread keeps running python, `refine` on more than 4,096 values and `alternate` on more than 40 wait about 5 ms a call for the gil, where 0.3.1 kept it.
+- python: with a gil, `dequantize()` calls on 65,536 values or fewer take turns across threads, so 64 of them on 256 × 256 over 8 threads take 6.8 ms against 0.3.1's 2.7, though on one thread they run 3 times as fast.
 
 ### chapters and contributors
 

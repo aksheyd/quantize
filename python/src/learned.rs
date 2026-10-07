@@ -6,11 +6,10 @@ use crate::error::{from_quantize, length_mismatch};
 use crate::input::{as_f32_array, as_f32_values, as_i32_codes, check_shape};
 use crate::quantized::PyQuantized;
 
-// `refine` and `alternate` refit a clone of the tensor with the GIL released,
-// then store it under a short mutable borrow. `Arc::make_mut` copies the
-// shared tensor before the refit changes it, so until it's stored, other
-// threads read the tensor as it was. A mutable borrow held while the GIL is
-// released would make their borrows panic instead.
+// `refine` and `alternate` refit a snapshot of the tensor with the GIL
+// released, then store it. `Arc::make_mut` copies the shared tensor before
+// the refit changes it, so until it's stored, other threads read the tensor
+// as it was.
 
 /// Refit each block's scale, and its zero-point if it has one, to lower the
 /// mean squared error against `values`, the numbers `quantized` was
@@ -33,14 +32,14 @@ pub fn refine<'py>(
     values: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyQuantized>> {
     let (array, values_shape) = as_f32_array(&values)?;
-    let mut refined = quantized.borrow().inner.clone();
+    let mut refined = quantized.get().snapshot();
     check_shape(values.py(), "values", &refined.shape(), &values_shape)?;
     let values = array.as_slice()?;
     quantized
         .py()
         .detach(|| refined.refine(values))
         .map_err(from_quantize)?;
-    quantized.borrow_mut().inner = refined;
+    quantized.get().store(refined);
     Ok(quantized)
 }
 
@@ -60,14 +59,14 @@ pub fn refine<'py>(
 #[pyfunction]
 pub fn alternate(quantized: Bound<'_, PyQuantized>, values: Bound<'_, PyAny>) -> PyResult<bool> {
     let (array, values_shape) = as_f32_array(&values)?;
-    let mut alternated = quantized.borrow().inner.clone();
+    let mut alternated = quantized.get().snapshot();
     check_shape(values.py(), "values", &alternated.shape(), &values_shape)?;
     let values = array.as_slice()?;
     let settled = quantized
         .py()
         .detach(|| alternated.alternate(values))
         .map_err(from_quantize)?;
-    quantized.borrow_mut().inner = alternated;
+    quantized.get().store(alternated);
     Ok(settled)
 }
 

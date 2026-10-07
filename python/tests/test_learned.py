@@ -1,3 +1,5 @@
+import sys
+import sysconfig
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -7,6 +9,7 @@ import pytest
 
 from quantize import (
     LengthMismatchError,
+    Quantized,
     QuantizeError,
     adaptive,
     asymmetric,
@@ -138,27 +141,38 @@ def test_a_copy_keeps_the_original_through_refine_and_alternate():
         assert original == quantize(weights, bits=4)
 
 
-def test_refine_and_alternate_work_while_another_thread_uses_the_tensor():
+def test_refine_and_alternate_work_while_other_threads_use_the_tensor():
     weights = np.random.default_rng(0).standard_normal((256, 256)).astype(np.float32)
     quantized = quantize(weights, bits=4)
-    out = np.empty_like(weights)
+    versions = {quantized.to_bytes()}
+    saved, products = set(), set()
     stop = threading.Event()
 
     def read_until_stopped():
+        out = np.empty_like(weights)
         while not stop.is_set():
-            quantized.matmul(weights)
+            products.add(quantized.matmul(weights[0]).tobytes())
+            saved.add(quantized.to_bytes())
             quantized.dot(weights)
             quantized.dequantize(out)
 
-    with ThreadPoolExecutor() as pool:
-        reading = pool.submit(read_until_stopped)
+    with ThreadPoolExecutor(4) as pool:
+        readers = [pool.submit(read_until_stopped) for _ in range(4)]
         try:
-            for _ in range(10):
-                learned.refine(quantized, weights)
-                learned.alternate(quantized, weights)
+            # Refitting to the weights and to their negation in turn changes
+            # every scale each time.
+            for target in [weights, -weights] * 20:
+                learned.refine(quantized, target)
+                versions.add(quantized.to_bytes())
+                learned.alternate(quantized, target)
+                versions.add(quantized.to_bytes())
         finally:
             stop.set()
-        reading.result()
+        for reader in readers:
+            reader.result()
+    # Every read saw one whole version, even when a refit was stored mid-read.
+    assert saved <= versions
+    assert products <= {Quantized(version).matmul(weights[0]).tobytes() for version in versions}
 
 
 def test_other_threads_keep_running_while_alternate_refits():
@@ -175,3 +189,12 @@ def test_other_threads_keep_running_while_alternate_refits():
     # This loop wakes every millisecond or so while the GIL is free, but only
     # about once in all if alternate holds it.
     assert wakeups > (time.perf_counter() - start) / 0.010
+
+
+@pytest.mark.skipif(
+    not sysconfig.get_config_var("Py_GIL_DISABLED"), reason="needs free-threaded Python"
+)
+def test_free_threaded_python_keeps_the_gil_off():
+    # If importing turned the GIL back on, the thread tests above would pass
+    # without running in parallel.
+    assert not sys._is_gil_enabled()

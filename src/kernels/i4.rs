@@ -94,8 +94,16 @@ pub(crate) fn dequant_i4_blocks<S: Scale>(
     for (bi, chunk) in out.chunks_mut(block).enumerate() {
         let s = scales[bi].to_f32();
         let mut j = 0;
+        // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
+        // high nibble when `i` is odd. So after a block of odd length, the
+        // next block starts on a high nibble.
+        if !i.is_multiple_of(2) {
+            chunk[0] = high_code(bytes[i / 2]) as f32 * s;
+            i += 1;
+            j += 1;
+        }
         #[cfg(target_arch = "aarch64")]
-        if i.is_multiple_of(2) {
+        {
             // SAFETY: 32 codes = 16 packed bytes, which the assert above
             // guarantees are inside `bytes`.
             unsafe {
@@ -106,21 +114,39 @@ pub(crate) fn dequant_i4_blocks<S: Scale>(
                 }
             }
         }
-        while j < chunk.len() {
-            let byte = bytes[i / 2];
-            let nib = if i.is_multiple_of(2) {
-                byte & 0x0F
-            } else {
-                byte >> 4
-            };
-            chunk[j] = ((((nib as i8) << 4) >> 4) as i32 as f32) * s;
+        // Decode both of a byte's codes at once. With no branch on which
+        // nibble comes next, the compiler can decode many bytes side by side
+        // in SIMD registers.
+        let (pairs, _) = chunk[j..].as_chunks_mut::<2>();
+        for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
+            *pair = [low_code(byte) as f32 * s, high_code(byte) as f32 * s];
+        }
+        i += 2 * pairs.len();
+        j += 2 * pairs.len();
+        // And a block of odd length ends on a low nibble.
+        if j < chunk.len() {
+            chunk[j] = low_code(bytes[i / 2]) as f32 * s;
             i += 1;
-            j += 1;
         }
     }
 }
 
+/// The code in a byte's low nibble. Shifting it to the top of the byte and
+/// back with an arithmetic shift copies its sign bit into the upper four bits.
+fn low_code(byte: u8) -> i8 {
+    ((byte << 4) as i8) >> 4
+}
+
+/// The code in a byte's high nibble, sign-extended the same way.
+fn high_code(byte: u8) -> i8 {
+    (byte as i8) >> 4
+}
+
+// `dequant_i4_blocks` is generic, so it's compiled in each crate that calls
+// it. Without `#[inline]`, the code it compiles to there calls these two
+// functions in this crate every 32 codes.
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn dequant_32(src: *const u8, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;
@@ -136,6 +162,7 @@ unsafe fn dequant_32(src: *const u8, scale: f32, dst: *mut f32) {
 }
 
 #[cfg(target_arch = "aarch64")]
+#[inline]
 unsafe fn store_i8x16(q: core::arch::aarch64::int8x16_t, scale: f32, dst: *mut f32) {
     unsafe {
         use core::arch::aarch64::*;
@@ -173,12 +200,12 @@ pub(crate) fn dot_i4_blocks<S: Scale>(
         let mut inner = 0.0_f32;
         for &x in chunk {
             let byte = bytes[value_index / 2];
-            let nibble = if value_index.is_multiple_of(2) {
-                byte & 0x0F
+            let code = if value_index.is_multiple_of(2) {
+                low_code(byte)
             } else {
-                byte >> 4
+                high_code(byte)
             };
-            inner += (((nibble as i8) << 4) >> 4) as f32 * x;
+            inner += code as f32 * x;
             value_index += 1;
         }
         acc += scales[block_index].to_f32() * inner;

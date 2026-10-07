@@ -430,6 +430,10 @@ pub(crate) fn decode_row<S: Scale>(quantized: &Quantized<S>, row: usize, out: &m
 /// Decode values `start..start + out.len()`, reading only the blocks they fall
 /// in. Unlike the packed kernels, this works for a range that starts anywhere,
 /// even partway through a block or a byte.
+///
+/// Inlined into the nested loops of [`matmul_into`], its loop over the codes
+/// compiles to code about 8% slower on x86-64, so it stays a call.
+#[inline(never)]
 fn decode_values<S: Scale>(quantized: &Quantized<S>, start: usize, out: &mut [f32]) {
     let block = quantized.block();
     match quantized {

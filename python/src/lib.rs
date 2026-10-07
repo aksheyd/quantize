@@ -147,11 +147,10 @@ fn adaptive_quantize(
     quantize_values(py, values, scale, |_| Scheme::Adaptive { block, tolerance })
 }
 
-// `refine` and `alternate` borrow a tensor mutably while they change it, and
-// only the GIL keeps other threads from borrowing it at the same time, which
-// would panic. So free-threaded Python turns the GIL back on when it imports
-// this module.
-#[pymodule(gil_used = true)]
+// Threads share each tensor through a lock instead of relying on the GIL, so
+// free-threaded Python leaves the GIL off when it imports this module, and
+// its threads call into it in parallel.
+#[pymodule(gil_used = false)]
 #[pyo3(name = "_native")]
 fn native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

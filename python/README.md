@@ -6,7 +6,7 @@ python bindings for [quantize](https://github.com/aksheyd/quantize), a simple, f
 pip install quantize-py
 ```
 
-requires python 3.12 or newer. numpy is installed with it. where no wheel fits, like free-threaded python or alpine linux, pip builds it from source, which needs rust 1.88 or newer.
+requires python 3.12 or newer, or 3.14 or newer for free-threaded python. numpy is installed with it. where no wheel fits, like alpine linux, pip builds it from source, which needs rust 1.88 or newer.
 
 ```python
 from quantize import Scale, quantize
@@ -55,6 +55,17 @@ q = Quantized.from_parts(**np.load("layer.npz"))
 ```
 
 to keep quantized values in a `torch.save` checkpoint, store `torch.frombuffer(bytearray(q.to_bytes()), dtype=torch.uint8)`, and load each back with `Quantized(t)`. the checkpoint is then as small as the bytes, and `torch.load` reads it without `add_safe_globals`. pickling `q` itself makes the checkpoint about 1.5 times larger, since `torch.save` stores bytes as text, and needs `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
+
+`q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 7 ms instead of 39 ms, with the same result, bit for bit:
+
+```python
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+with ThreadPoolExecutor() as pool:
+    pieces = np.array_split(x, os.cpu_count())  # x has shape (batch, columns)
+    out = np.concatenate(list(pool.map(q.matmul, pieces)))
+```
 
 each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
 

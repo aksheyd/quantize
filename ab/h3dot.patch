@@ -1,0 +1,238 @@
+diff --git a/src/kernels/i4.rs b/src/kernels/i4.rs
+index abadfbb..ef9003c 100644
+--- a/src/kernels/i4.rs
++++ b/src/kernels/i4.rs
+@@ -89,45 +89,51 @@ pub(crate) fn dequant_i4_blocks<S: Scale>(
+     block: usize,
+     out: &mut [f32],
+ ) {
+-    assert!(bytes.len() >= nbytes(out.len(), 4));
+-    let mut i = 0usize;
++    let mut first = 0;
+     for (bi, chunk) in out.chunks_mut(block).enumerate() {
+-        let s = scales[bi].to_f32();
+-        let mut j = 0;
+-        // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
+-        // high nibble when `i` is odd. So after a block of odd length, the
+-        // next block starts on a high nibble.
+-        if !i.is_multiple_of(2) {
+-            chunk[0] = high_code(bytes[i / 2]) as f32 * s;
+-            i += 1;
+-            j += 1;
+-        }
+-        #[cfg(target_arch = "aarch64")]
+-        {
+-            // SAFETY: 32 codes = 16 packed bytes, which the assert above
+-            // guarantees are inside `bytes`.
+-            unsafe {
+-                while j + 32 <= chunk.len() {
+-                    dequant_32(bytes.as_ptr().add(i / 2), s, chunk.as_mut_ptr().add(j));
+-                    i += 32;
+-                    j += 32;
+-                }
++        dequant_i4_block(bytes, first, scales[bi].to_f32(), chunk);
++        first += chunk.len();
++    }
++}
++
++/// Decode the block whose first value is value `first`, times `s`.
++#[cfg_attr(not(debug_assertions), inline(always))]
++fn dequant_i4_block(bytes: &[u8], first: usize, s: f32, chunk: &mut [f32]) {
++    assert!(bytes.len() >= nbytes(first + chunk.len(), 4));
++    let mut i = first;
++    let mut j = 0;
++    // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
++    // high nibble when `i` is odd. So after a block of odd length, the
++    // next block starts on a high nibble.
++    if !i.is_multiple_of(2) {
++        chunk[0] = high_code(bytes[i / 2]) as f32 * s;
++        i += 1;
++        j += 1;
++    }
++    #[cfg(target_arch = "aarch64")]
++    {
++        // SAFETY: 32 codes = 16 packed bytes, which the assert above
++        // guarantees are inside `bytes`.
++        unsafe {
++            while j + 32 <= chunk.len() {
++                dequant_32(bytes.as_ptr().add(i / 2), s, chunk.as_mut_ptr().add(j));
++                i += 32;
++                j += 32;
+             }
+         }
+-        // Decode both of a byte's codes at once. With no branch on which
+-        // nibble comes next, the compiler can decode many bytes side by side
+-        // in SIMD registers.
+-        let (pairs, _) = chunk[j..].as_chunks_mut::<2>();
+-        for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
+-            *pair = [low_code(byte) as f32 * s, high_code(byte) as f32 * s];
+-        }
+-        i += 2 * pairs.len();
+-        j += 2 * pairs.len();
+-        // And a block of odd length ends on a low nibble.
+-        if j < chunk.len() {
+-            chunk[j] = low_code(bytes[i / 2]) as f32 * s;
+-            i += 1;
+-        }
++    }
++    // Decode both of a byte's codes at once. With no branch on which
++    // nibble comes next, the compiler can decode many bytes side by side
++    // in SIMD registers.
++    let (pairs, _) = chunk[j..].as_chunks_mut::<2>();
++    for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
++        *pair = [low_code(byte) as f32 * s, high_code(byte) as f32 * s];
++    }
++    i += 2 * pairs.len();
++    j += 2 * pairs.len();
++    // And a block of odd length ends on a low nibble.
++    if j < chunk.len() {
++        chunk[j] = low_code(bytes[i / 2]) as f32 * s;
+     }
+ }
+ 
+diff --git a/src/kernels/i8.rs b/src/kernels/i8.rs
+index 5ecff5f..afed5d5 100644
+--- a/src/kernels/i8.rs
++++ b/src/kernels/i8.rs
+@@ -81,10 +81,7 @@ pub(crate) fn dequant_i8_blocks<S: Scale>(
+     }
+ }
+ 
+-// `dequant_i8_blocks` is generic, so it's compiled in each crate that calls
+-// it. Without `#[inline]` on these two functions, the code it compiles to
+-// there calls into this crate for every block.
+-#[inline]
++#[cfg_attr(not(debug_assertions), inline(always))]
+ fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
+     let mut i = 0;
+     #[cfg(target_arch = "aarch64")]
+diff --git a/src/shared/decode.rs b/src/shared/decode.rs
+index f55c27c..f7822dc 100644
+--- a/src/shared/decode.rs
++++ b/src/shared/decode.rs
+@@ -108,6 +108,17 @@ pub(crate) fn dot_adaptive<S: Scale>(
+ 
+ pub(crate) fn dot_of<S: Scale>(quantized: &Quantized<S>, rhs: &[f32]) -> f32 {
+     match quantized {
++        Quantized::Symmetric {
++            scales,
++            codes,
++            block,
++            ..
++        } if matches!(codes.bits(), 4 | 8)
++            && block.is_multiple_of(32)
++            && rhs.len().is_multiple_of(*block) =>
++        {
++            dot_blocks(scales, codes.as_bytes(), codes.bits(), *block, rhs)
++        }
+         Quantized::Symmetric {
+             scales,
+             codes,
+@@ -144,6 +155,29 @@ pub(crate) fn dot_of<S: Scale>(quantized: &Quantized<S>, rhs: &[f32]) -> f32 {
+     }
+ }
+ 
++/// How many blocks [`dot_blocks`] adds into one set of 16 totals.
++const BLOCKS_PER_RUN: usize = 64;
++
++/// The dot product of 4-bit or 8-bit `codes` with `rhs`, for whole blocks of
++/// groups of 32 codes, with the kernels that multiply a single vector by a
++/// matrix, 64 blocks at a time.
++///
++/// Each run's products go into 16 totals, as one row's do, and then the runs'
++/// sums are added up. Over millions of values, 16 totals alone would each
++/// grow until f32 rounds away much of each new product; a run's stay small.
++fn dot_blocks<S: Scale>(scales: &[S], codes: &[u8], bits: u32, block: usize, rhs: &[f32]) -> f32 {
++    let mut total = 0.0;
++    for (run, run_scales) in scales.chunks(BLOCKS_PER_RUN).enumerate() {
++        let start = run * BLOCKS_PER_RUN * block;
++        let run_rhs = &rhs[start..start + run_scales.len() * block];
++        total += match bits {
++            8 => dot_i8_row(run_scales, &codes[start..], block, run_rhs),
++            _ => dot_i4_row(run_scales, &codes[start / 2..], block, run_rhs),
++        };
++    }
++    total
++}
++
+ pub(crate) fn unpack_codes<S: Scale>(quantized: &Quantized<S>, out: &mut [i32]) {
+     match quantized {
+         Quantized::Symmetric { codes, .. } | Quantized::Asymmetric { codes, .. } => {
+@@ -245,38 +279,48 @@ fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32])
+     let mut totals = [0.0_f32; LANES];
+     let blocks = bytes.chunks_exact(block / 2).zip(input.chunks_exact(block));
+     for ((block_bytes, block_input), scale) in blocks.zip(scales) {
+-        let scale = scale.to_f32();
+-        let (groups, _) = block_bytes.as_chunks::<16>();
+-        let (group_inputs, _) = block_input.as_chunks::<32>();
+-        for (group, group_input) in groups.iter().zip(group_inputs) {
+-            let weights = decode_i4_32(group, scale);
+-            let (weight_chunks, _) = weights.as_chunks::<LANES>();
+-            let (input_chunks, _) = group_input.as_chunks::<LANES>();
+-            add_products(&mut totals, weight_chunks, input_chunks);
+-        }
++        add_i4_block(&mut totals, block_bytes, scale.to_f32(), block_input);
+     }
+     totals.iter().sum()
+ }
+ 
++/// Add one block's products to `totals`, as [`dot_i4_row`] does.
++#[cfg_attr(not(debug_assertions), inline(always))]
++fn add_i4_block(totals: &mut [f32; LANES], bytes: &[u8], scale: f32, input: &[f32]) {
++    let (groups, _) = bytes.as_chunks::<16>();
++    let (group_inputs, _) = input.as_chunks::<32>();
++    for (group, group_input) in groups.iter().zip(group_inputs) {
++        let weights = decode_i4_32(group, scale);
++        let (weight_chunks, _) = weights.as_chunks::<LANES>();
++        let (input_chunks, _) = group_input.as_chunks::<LANES>();
++        add_products(totals, weight_chunks, input_chunks);
++    }
++}
++
+ /// Like [`dot_i4_row`], for an 8-bit matrix, where each group of 32 codes
+ /// takes 32 bytes instead of 16.
+ fn dot_i8_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
+     let mut totals = [0.0_f32; LANES];
+     let blocks = bytes.chunks_exact(block).zip(input.chunks_exact(block));
+     for ((block_bytes, block_input), scale) in blocks.zip(scales) {
+-        let scale = scale.to_f32();
+-        let (groups, _) = block_bytes.as_chunks::<32>();
+-        let (group_inputs, _) = block_input.as_chunks::<32>();
+-        for (group, group_input) in groups.iter().zip(group_inputs) {
+-            let weights = decode_i8_32(group, scale);
+-            let (weight_chunks, _) = weights.as_chunks::<LANES>();
+-            let (input_chunks, _) = group_input.as_chunks::<LANES>();
+-            add_products(&mut totals, weight_chunks, input_chunks);
+-        }
++        add_i8_block(&mut totals, block_bytes, scale.to_f32(), block_input);
+     }
+     totals.iter().sum()
+ }
+ 
++/// Add one block's products to `totals`, as [`dot_i8_row`] does.
++#[cfg_attr(not(debug_assertions), inline(always))]
++fn add_i8_block(totals: &mut [f32; LANES], bytes: &[u8], scale: f32, input: &[f32]) {
++    let (groups, _) = bytes.as_chunks::<32>();
++    let (group_inputs, _) = input.as_chunks::<32>();
++    for (group, group_input) in groups.iter().zip(group_inputs) {
++        let weights = decode_i8_32(group, scale);
++        let (weight_chunks, _) = weights.as_chunks::<LANES>();
++        let (input_chunks, _) = group_input.as_chunks::<LANES>();
++        add_products(totals, weight_chunks, input_chunks);
++    }
++}
++
+ fn packed_rows_ok<S: Scale>(quantized: &Quantized<S>, columns: usize) -> bool {
+     let block = quantized.block();
+     if block == 0 || !columns.is_multiple_of(block) {
+@@ -417,7 +461,9 @@ mod tests {
+             .map(|i| (i as f32 * 0.37).sin().abs())
+             .collect();
+         let ones = vec![1.0; values.len()];
+-        let tensors: [Quantized<f32>; 4] = [
++        let tensors: [Quantized<f32>; 6] = [
++            symmetric::quantize_with(&values, 4, 32).unwrap(),
++            symmetric::quantize_with(&values, 8, 32).unwrap(),
+             symmetric::quantize_with(&values, 3, 32).unwrap(),
+             symmetric::quantize_with(&values, 5, 32).unwrap(),
+             asymmetric::quantize_with(&values, 4, 32).unwrap(),

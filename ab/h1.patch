@@ -1,0 +1,175 @@
+diff --git a/src/kernels/i4.rs b/src/kernels/i4.rs
+index abadfbb..ef9003c 100644
+--- a/src/kernels/i4.rs
++++ b/src/kernels/i4.rs
+@@ -89,45 +89,51 @@ pub(crate) fn dequant_i4_blocks<S: Scale>(
+     block: usize,
+     out: &mut [f32],
+ ) {
+-    assert!(bytes.len() >= nbytes(out.len(), 4));
+-    let mut i = 0usize;
++    let mut first = 0;
+     for (bi, chunk) in out.chunks_mut(block).enumerate() {
+-        let s = scales[bi].to_f32();
+-        let mut j = 0;
+-        // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
+-        // high nibble when `i` is odd. So after a block of odd length, the
+-        // next block starts on a high nibble.
+-        if !i.is_multiple_of(2) {
+-            chunk[0] = high_code(bytes[i / 2]) as f32 * s;
+-            i += 1;
+-            j += 1;
+-        }
+-        #[cfg(target_arch = "aarch64")]
+-        {
+-            // SAFETY: 32 codes = 16 packed bytes, which the assert above
+-            // guarantees are inside `bytes`.
+-            unsafe {
+-                while j + 32 <= chunk.len() {
+-                    dequant_32(bytes.as_ptr().add(i / 2), s, chunk.as_mut_ptr().add(j));
+-                    i += 32;
+-                    j += 32;
+-                }
++        dequant_i4_block(bytes, first, scales[bi].to_f32(), chunk);
++        first += chunk.len();
++    }
++}
++
++/// Decode the block whose first value is value `first`, times `s`.
++#[cfg_attr(not(debug_assertions), inline(always))]
++fn dequant_i4_block(bytes: &[u8], first: usize, s: f32, chunk: &mut [f32]) {
++    assert!(bytes.len() >= nbytes(first + chunk.len(), 4));
++    let mut i = first;
++    let mut j = 0;
++    // Value `i` is in byte `i / 2`: its low nibble when `i` is even, its
++    // high nibble when `i` is odd. So after a block of odd length, the
++    // next block starts on a high nibble.
++    if !i.is_multiple_of(2) {
++        chunk[0] = high_code(bytes[i / 2]) as f32 * s;
++        i += 1;
++        j += 1;
++    }
++    #[cfg(target_arch = "aarch64")]
++    {
++        // SAFETY: 32 codes = 16 packed bytes, which the assert above
++        // guarantees are inside `bytes`.
++        unsafe {
++            while j + 32 <= chunk.len() {
++                dequant_32(bytes.as_ptr().add(i / 2), s, chunk.as_mut_ptr().add(j));
++                i += 32;
++                j += 32;
+             }
+         }
+-        // Decode both of a byte's codes at once. With no branch on which
+-        // nibble comes next, the compiler can decode many bytes side by side
+-        // in SIMD registers.
+-        let (pairs, _) = chunk[j..].as_chunks_mut::<2>();
+-        for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
+-            *pair = [low_code(byte) as f32 * s, high_code(byte) as f32 * s];
+-        }
+-        i += 2 * pairs.len();
+-        j += 2 * pairs.len();
+-        // And a block of odd length ends on a low nibble.
+-        if j < chunk.len() {
+-            chunk[j] = low_code(bytes[i / 2]) as f32 * s;
+-            i += 1;
+-        }
++    }
++    // Decode both of a byte's codes at once. With no branch on which
++    // nibble comes next, the compiler can decode many bytes side by side
++    // in SIMD registers.
++    let (pairs, _) = chunk[j..].as_chunks_mut::<2>();
++    for (pair, &byte) in pairs.iter_mut().zip(&bytes[i / 2..]) {
++        *pair = [low_code(byte) as f32 * s, high_code(byte) as f32 * s];
++    }
++    i += 2 * pairs.len();
++    j += 2 * pairs.len();
++    // And a block of odd length ends on a low nibble.
++    if j < chunk.len() {
++        chunk[j] = low_code(bytes[i / 2]) as f32 * s;
+     }
+ }
+ 
+diff --git a/src/kernels/i8.rs b/src/kernels/i8.rs
+index 5ecff5f..afed5d5 100644
+--- a/src/kernels/i8.rs
++++ b/src/kernels/i8.rs
+@@ -81,10 +81,7 @@ pub(crate) fn dequant_i8_blocks<S: Scale>(
+     }
+ }
+ 
+-// `dequant_i8_blocks` is generic, so it's compiled in each crate that calls
+-// it. Without `#[inline]` on these two functions, the code it compiles to
+-// there calls into this crate for every block.
+-#[inline]
++#[cfg_attr(not(debug_assertions), inline(always))]
+ fn dequant_chunk(bytes: &[u8], scale: f32, out: &mut [f32]) {
+     let mut i = 0;
+     #[cfg(target_arch = "aarch64")]
+diff --git a/src/shared/decode.rs b/src/shared/decode.rs
+index f55c27c..4ed264a 100644
+--- a/src/shared/decode.rs
++++ b/src/shared/decode.rs
+@@ -203,12 +203,26 @@ pub(crate) fn matmul_into<S: Scale>(
+     {
+         let bytes_per_row = columns * codes.bits() as usize / 8;
+         let scales_per_row = columns / block;
++        let mut row_scales = vec![0.0; scales_per_row];
+         for (row, slot) in out.iter_mut().enumerate() {
+             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
+-            let row_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
++            let stored_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
++            let (scale_quads, scale_rest) = row_scales.as_chunks_mut::<4>();
++            let (stored_quads, stored_rest) = stored_scales.as_chunks::<4>();
++            for (quad, stored) in scale_quads.iter_mut().zip(stored_quads) {
++                *quad = [
++                    stored[0].to_f32(),
++                    stored[1].to_f32(),
++                    stored[2].to_f32(),
++                    stored[3].to_f32(),
++                ];
++            }
++            for (scale, stored) in scale_rest.iter_mut().zip(stored_rest) {
++                *scale = stored.to_f32();
++            }
+             *slot = match codes.bits() {
+-                4 => dot_i4_row(row_scales, row_codes, *block, inputs),
+-                _ => dot_i8_row(row_scales, row_codes, *block, inputs),
++                4 => dot_i4_row(&row_scales, row_codes, *block, inputs),
++                _ => dot_i8_row(&row_scales, row_codes, *block, inputs),
+             };
+         }
+         return;
+@@ -241,11 +255,15 @@ pub(crate) fn matmul_into<S: Scale>(
+ /// as `dot`'s, in the same order, and a row of whole groups of 32 leaves `dot`
+ /// no remainder, so the result is bit for bit what decoding the row and
+ /// calling `dot` gives.
+-fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
++///
++/// It takes the row's scales as f32 instead of being generic over the scale
++/// type. A generic function compiles in the crate that calls it, at that
++/// crate's optimization level, so this loop would run unoptimized in a debug
++/// build, even one that sets `opt-level = 3` for its dependencies.
++fn dot_i4_row(scales: &[f32], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
+     let mut totals = [0.0_f32; LANES];
+     let blocks = bytes.chunks_exact(block / 2).zip(input.chunks_exact(block));
+-    for ((block_bytes, block_input), scale) in blocks.zip(scales) {
+-        let scale = scale.to_f32();
++    for ((block_bytes, block_input), &scale) in blocks.zip(scales) {
+         let (groups, _) = block_bytes.as_chunks::<16>();
+         let (group_inputs, _) = block_input.as_chunks::<32>();
+         for (group, group_input) in groups.iter().zip(group_inputs) {
+@@ -260,11 +278,10 @@ fn dot_i4_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32])
+ 
+ /// Like [`dot_i4_row`], for an 8-bit matrix, where each group of 32 codes
+ /// takes 32 bytes instead of 16.
+-fn dot_i8_row<S: Scale>(scales: &[S], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
++fn dot_i8_row(scales: &[f32], bytes: &[u8], block: usize, input: &[f32]) -> f32 {
+     let mut totals = [0.0_f32; LANES];
+     let blocks = bytes.chunks_exact(block).zip(input.chunks_exact(block));
+-    for ((block_bytes, block_input), scale) in blocks.zip(scales) {
+-        let scale = scale.to_f32();
++    for ((block_bytes, block_input), &scale) in blocks.zip(scales) {
+         let (groups, _) = block_bytes.as_chunks::<32>();
+         let (group_inputs, _) = block_input.as_chunks::<32>();
+         for (group, group_input) in groups.iter().zip(group_inputs) {

@@ -1,10 +1,10 @@
 #!/bin/bash
 # Temporary: times 0.3.1, main, and variants of this branch side by side on
 # Apple silicon, each built as a git dependency, the way a user's crate gets it.
-#   A: only the single-vector commit
-#   A4: A, converting scales four at a time (a4.patch)
-#   B': main without #[inline] on the NEON decode helpers (bprime.patch)
-#   dot: the fused dot branch, on top of this branch
+#   fix: per-block functions inlined only without debug assertions (h3.patch)
+#   H1: those for decoding, and f32-scale kernels for one vector (h1.patch)
+#   H3+dot: fix, and dot through the single-vector kernels (h3dot.patch)
+#   A4: only the f32-scale kernels, converting scales four at a time
 set -euo pipefail
 repo="$(git rev-parse --show-toplevel)"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -23,12 +23,10 @@ make_version() {
 }
 make_version main HEAD^1
 make_version main-again HEAD^1
-make_version fix HEAD^2
-make_version a d1d7572
+make_version h3 HEAD^1 h3.patch
+make_version h1 HEAD^1 h1.patch
+make_version h3dot HEAD^1 h3dot.patch
 make_version a4 d1d7572 a4.patch
-make_version b HEAD^1 bprime.patch
-make_version a4b d1d7572 a4.patch bprime.patch
-make_version dot origin/akshey/fused-dot-e87a
 cd "$here"
 cat > Cargo.toml <<TOML
 [package]
@@ -39,13 +37,11 @@ edition = "2021"
 [dependencies]
 q031 = { version = "=0.3.1", package = "quantize" }
 qmain = { package = "quantize", git = "file:///tmp/versions/main", branch = "timing" }
-qfix = { package = "quantize", git = "file:///tmp/versions/fix", branch = "timing" }
+qfix = { package = "quantize", git = "file:///tmp/versions/h3", branch = "timing" }
 qsame = { package = "quantize", git = "file:///tmp/versions/main-again", branch = "timing" }
-qa = { package = "quantize", git = "file:///tmp/versions/a", branch = "timing" }
+qh1 = { package = "quantize", git = "file:///tmp/versions/h1", branch = "timing" }
+qh3dot = { package = "quantize", git = "file:///tmp/versions/h3dot", branch = "timing" }
 qa4 = { package = "quantize", git = "file:///tmp/versions/a4", branch = "timing" }
-qb = { package = "quantize", git = "file:///tmp/versions/b", branch = "timing" }
-qa4b = { package = "quantize", git = "file:///tmp/versions/a4b", branch = "timing" }
-qdot = { package = "quantize", git = "file:///tmp/versions/dot", branch = "timing" }
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -65,3 +61,5 @@ echo "== release, whole tokens"
 ./target/release/qbench token 8 15 1
 echo "== dev, dependencies at opt-level 3"
 ./target/debug/qbench bench 1024 1024 5
+./target/debug/qbench bench 1024 1024 5
+./target/debug/qbench token 2 3 1

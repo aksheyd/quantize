@@ -1,4 +1,5 @@
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -140,19 +141,37 @@ def test_a_copy_keeps_the_original_through_refine_and_alternate():
 def test_refine_and_alternate_work_while_another_thread_uses_the_tensor():
     weights = np.random.default_rng(0).standard_normal((256, 256)).astype(np.float32)
     quantized = quantize(weights, bits=4)
+    out = np.empty_like(weights)
     stop = threading.Event()
 
-    def multiply_until_stopped():
+    def read_until_stopped():
         while not stop.is_set():
             quantized.matmul(weights)
             quantized.dot(weights)
+            quantized.dequantize(out)
 
     with ThreadPoolExecutor() as pool:
-        multiplying = pool.submit(multiply_until_stopped)
+        reading = pool.submit(read_until_stopped)
         try:
             for _ in range(10):
                 learned.refine(quantized, weights)
                 learned.alternate(quantized, weights)
         finally:
             stop.set()
-        multiplying.result()
+        reading.result()
+
+
+def test_other_threads_keep_running_while_alternate_refits():
+    weights = np.random.default_rng(0).standard_normal((1024, 1024)).astype(np.float32)
+    quantized = quantize(weights, bits=4)
+    wakeups = 0
+    start = time.perf_counter()
+    with ThreadPoolExecutor() as pool:
+        refitting = pool.submit(learned.alternate, quantized, weights)
+        while not refitting.done():
+            wakeups += 1
+            time.sleep(0.001)
+    refitting.result()
+    # This loop wakes every millisecond or so while the GIL is free, but only
+    # about once in all if alternate holds it.
+    assert wakeups > (time.perf_counter() - start) / 0.010

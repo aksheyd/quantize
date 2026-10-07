@@ -18,8 +18,10 @@ use crate::scale::PyScale;
 /// `Scheme(text)` reads a scheme written like a call to one of those
 /// methods, without the `Scheme.`, such as
 /// `Scheme("adaptive(block=32, tolerance=0.002)")`, or a constant's name,
-/// such as `Scheme("Q4_32")`. Text that isn't a scheme, or that holds a
-/// value `quantize` would reject, like `bits=99`, raises `QuantizeError`.
+/// such as `Scheme("Q4_32")`. `str()` writes a scheme like that call, as
+/// `str(Scheme.Q4_32)` gives `'symmetric(bits=4, block=32)'`, so
+/// `Scheme(str(scheme)) == scheme`. Text that isn't a scheme, or that holds
+/// a value `quantize` would reject, like `bits=99`, raises `QuantizeError`.
 ///
 /// Pickles and copies load through `Scheme(text)`, so a scheme that
 /// `quantize` would reject, like `Scheme.symmetric(bits=99)`, raises the
@@ -174,6 +176,10 @@ impl PyScheme {
                 format!("Scheme(kind='adaptive', block={block}, tolerance={tolerance})")
             }
         }
+    }
+
+    fn __str__(&self) -> String {
+        self.inner.to_string()
     }
 
     #[classattr]

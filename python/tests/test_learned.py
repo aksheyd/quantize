@@ -142,7 +142,9 @@ def test_a_copy_keeps_the_original_through_refine_and_alternate():
 
 
 def test_refine_and_alternate_work_while_other_threads_use_the_tensor():
-    weights = np.random.default_rng(0).standard_normal((256, 256)).astype(np.float32)
+    # Too large for any call to keep the GIL, so with a GIL too, the reads
+    # can run while a refit does.
+    weights = np.random.default_rng(0).standard_normal((512, 256)).astype(np.float32)
     quantized = quantize(weights, bits=4)
     versions = {quantized.to_bytes()}
     saved, products = set(), set()
@@ -244,6 +246,53 @@ def test_other_threads_keep_running_while_alternate_refits():
     # alike. The loop doesn't sleep, since a 1 ms sleep can last 10 ms on
     # some machines.
     assert longest_pause < (last_check - start) / 2
+
+
+@pytest.mark.skipif(
+    sysconfig.get_config_var("Py_GIL_DISABLED") and not sys._is_gil_enabled(),
+    reason="the GIL is off, so there's no GIL to keep",
+)
+def test_calls_on_at_most_65536_values_keep_the_gil():
+    weights = np.random.default_rng(0).standard_normal((256, 256)).astype(np.float32)
+    quantized = quantize(weights, bits=4)
+    out = np.empty_like(weights)
+    # alternate can go through its values 100 times, so it keeps the GIL
+    # only for a hundredth as many.
+    few = weights[:2]
+    calls = [
+        lambda: quantize(weights, bits=4),
+        lambda: quantized.dequantize(),
+        lambda: quantized.dequantize(out),
+        lambda: quantized.dot(weights),
+        lambda: quantized.matmul(weights[0], out=out[0]),
+        lambda: learned.refine(quantized, weights),
+        lambda: learned.alternate(quantize(few, bits=4), few),
+    ]
+    turns = 0
+    go, stop = threading.Event(), threading.Event()
+
+    def take_turns():
+        nonlocal turns
+        go.wait()
+        while not stop.is_set():
+            turns += 1
+
+    switch_interval = sys.getswitchinterval()
+    # The other thread waits this long before it asks for the GIL, longer
+    # than the calls take, so it only takes a turn if a call gives the GIL up.
+    sys.setswitchinterval(1.0)
+    other = threading.Thread(target=take_turns)
+    other.start()
+    try:
+        go.set()
+        for call in calls:
+            before = turns
+            call()
+            assert turns == before
+    finally:
+        stop.set()
+        other.join()
+        sys.setswitchinterval(switch_interval)
 
 
 @pytest.mark.skipif(

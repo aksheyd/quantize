@@ -72,6 +72,8 @@ def linear(q, x):  # x has shape (batch, columns)
 out = linear(q, x)
 ```
 
+with a gil, while another thread keeps running python, each piece can wait up to `sys.getswitchinterval()`, 5 ms by default, to get the gil back, so splitting pays off only while your other threads are idle or in native code, or on free-threaded python. calls on 65,536 values or fewer, like one vector times a 256 × 256 matrix, keep the gil, so they don't wait.
+
 each value decodes as `code * scale`, or `(code - zero_point) * scale` with zero-points, using the scale and zero-point of its block. codes are signed and `bits` wide, and `q.codes` packs them low bits first. scales can be negative, since a symmetric block puts its value farthest from zero on the most negative code. `help(Quantized)` has the details.
 
 to build and test from a clone of the repo, with rust 1.88 or newer and [just](https://github.com/casey/just):

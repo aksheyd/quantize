@@ -66,14 +66,19 @@ pub enum Quantized<S: Scale> {
         block: usize,
         /// Number of values.
         len: usize,
-        /// Each row's length for a matrix, or `None` for a flat vector.
+        /// Each row's length for a matrix, or `None` for a flat vector. Set it
+        /// with [`set_shape`](Self::set_shape), which also fills in
+        /// `row_starts`.
         columns: Option<usize>,
         /// For a matrix, the byte in `codes` where each row's first block
         /// starts. Blocks have different widths, so without it, finding a row
         /// means adding up the widths of every block before it.
         /// [`set_shape`](Self::set_shape) fills it in: to build a tensor by
         /// hand, leave `columns` as `None` and `row_starts` empty, then call
-        /// [`validate`](Self::validate) and `set_shape`.
+        /// [`validate`](Self::validate) and `set_shape`. Until it does, a
+        /// `columns` set any other way, in a struct literal or through a
+        /// pattern, gets [`Error::Malformed`] from `validate` and from the
+        /// methods that read rows, like [`matmul`](Self::matmul).
         /// [`to_bytes`](Self::to_bytes) doesn't save it, and
         /// [`nbytes`](Self::nbytes) doesn't count it.
         row_starts: Vec<usize>,
@@ -121,7 +126,10 @@ impl<S: Scale> Quantized<S> {
     ///
     /// [`Error::ShapeMismatch`] if `columns` is 0, and
     /// [`Error::MatrixMismatch`] if `rows × columns` isn't
-    /// [`len`](Self::len). Either way the tensor is left as it was.
+    /// [`len`](Self::len). Adding up an adaptive tensor's widths reads every
+    /// block's, so a tensor built by hand also gets any error that
+    /// [`validate`](Self::validate) finds in its buffers. On any error the
+    /// tensor is left as it was.
     pub fn set_shape(&mut self, rows: usize, columns: usize) -> Result<()> {
         let len = self.len();
         if columns == 0 {
@@ -129,6 +137,9 @@ impl<S: Scale> Quantized<S> {
         }
         if rows.checked_mul(columns) != Some(len) {
             return Err(Error::MatrixMismatch { rows, columns, len });
+        }
+        if let Self::Adaptive { .. } = self {
+            self.check_buffers()?;
         }
         match self {
             Self::Symmetric {
@@ -251,8 +262,8 @@ impl<S: Scale> Quantized<S> {
     /// [`Error::Malformed`] for a buffer of the wrong length or wrong row
     /// starts.
     pub fn validate(&self) -> Result<()> {
-        let (len, block) = (self.len(), self.block());
-        check_block(block)?;
+        self.check_buffers()?;
+        let len = self.len();
         let columns = match self {
             Self::Symmetric { columns, .. }
             | Self::Asymmetric { columns, .. }
@@ -263,7 +274,32 @@ impl<S: Scale> Quantized<S> {
         {
             return Err(Error::ShapeMismatch { len, columns });
         }
+        // Checked last, since finding the row starts relies on every check
+        // above.
+        if let Self::Adaptive {
+            block_bits,
+            block,
+            row_starts,
+            ..
+        } = self
+        {
+            let expected = match columns {
+                Some(columns) => find_row_starts(block_bits, *block, len / columns, columns),
+                None => Vec::new(),
+            };
+            if *row_starts != expected {
+                return Err(wrong_row_starts());
+            }
+        }
+        Ok(())
+    }
 
+    /// The checks of [`validate`](Self::validate) that don't need the shape:
+    /// that the buffers are exactly as long as `block`, `len`, and the bit
+    /// widths say.
+    fn check_buffers(&self) -> Result<()> {
+        let (len, block) = (self.len(), self.block());
+        check_block(block)?;
         let blocks = len.div_ceil(block);
         let zero_points = match self {
             Self::Symmetric { .. } => 0,
@@ -291,24 +327,6 @@ impl<S: Scale> Quantized<S> {
             return Err(malformed(
                 "the codes must fill exactly the bytes that len and the bit widths need",
             ));
-        }
-        // Checked last, since finding the row starts relies on every check
-        // above.
-        if let Self::Adaptive {
-            block_bits,
-            row_starts,
-            ..
-        } = self
-        {
-            let expected = match columns {
-                Some(columns) => find_row_starts(block_bits, block, len / columns, columns),
-                None => Vec::new(),
-            };
-            if *row_starts != expected {
-                return Err(malformed(
-                    "row_starts must say where each row's first block starts, as set_shape records",
-                ));
-            }
         }
         Ok(())
     }
@@ -403,12 +421,12 @@ impl<S: Scale> Quantized<S> {
     /// # Errors
     ///
     /// [`Error::NotAMatrix`] if [`set_shape`](Self::set_shape) hasn't
-    /// recorded a shape, [`Error::RowOutOfRange`] if `row` isn't below `rows`,
-    /// and [`Error::LengthMismatch`] if `out` isn't `columns` long.
+    /// recorded a shape, [`Error::Malformed`] if an adaptive matrix's
+    /// `row_starts` aren't the ones `set_shape` records for that shape,
+    /// [`Error::RowOutOfRange`] if `row` isn't below `rows`, and
+    /// [`Error::LengthMismatch`] if `out` isn't `columns` long.
     pub fn dequantize_row_into(&self, row: usize, out: &mut [f32]) -> Result<()> {
-        let Some((rows, columns)) = self.shape() else {
-            return Err(Error::NotAMatrix { len: self.len() });
-        };
+        let (rows, columns) = self.matrix_shape()?;
         if row >= rows {
             return Err(Error::RowOutOfRange { row, rows });
         }
@@ -491,7 +509,9 @@ impl<S: Scale> Quantized<S> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotAMatrix`] if the tensor has no shape,
+    /// [`Error::NotAMatrix`] if the tensor has no shape, [`Error::Malformed`]
+    /// if an adaptive matrix's `row_starts` aren't the ones
+    /// [`set_shape`](Self::set_shape) records for that shape,
     /// [`Error::InputMismatch`] if `inputs` doesn't split into whole vectors
     /// of `columns` values, and [`Error::OutputTooLarge`] if the
     /// `batch × rows` result can't be allocated.
@@ -546,10 +566,11 @@ impl<S: Scale> Quantized<S> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotAMatrix`] and [`Error::InputMismatch`] as in
-    /// [`matmul`](Self::matmul), [`Error::OutputTooLarge`] if `batch × rows`
-    /// is more values than a `usize` can count, and [`Error::OutputMismatch`]
-    /// if `out` isn't `batch × rows` long.
+    /// [`Error::NotAMatrix`], [`Error::Malformed`], and
+    /// [`Error::InputMismatch`] as in [`matmul`](Self::matmul),
+    /// [`Error::OutputTooLarge`] if `batch × rows` is more values than a
+    /// `usize` can count, and [`Error::OutputMismatch`] if `out` isn't
+    /// `batch × rows` long.
     pub fn matmul_into(&self, inputs: &[f32], out: &mut [f32]) -> Result<()> {
         let (batch, rows, columns) = self.matmul_shape(inputs)?;
         let Some(output_len) = batch.checked_mul(rows) else {
@@ -592,9 +613,7 @@ impl<S: Scale> Quantized<S> {
     /// `(batch, rows, columns)`: how many input vectors `inputs` holds, and
     /// the shape of the matrix they multiply.
     fn matmul_shape(&self, inputs: &[f32]) -> Result<(usize, usize, usize)> {
-        let Some((rows, columns)) = self.shape() else {
-            return Err(Error::NotAMatrix { len: self.len() });
-        };
+        let (rows, columns) = self.matrix_shape()?;
         if !inputs.len().is_multiple_of(columns) {
             return Err(Error::InputMismatch {
                 columns,
@@ -602,6 +621,24 @@ impl<S: Scale> Quantized<S> {
             });
         }
         Ok((inputs.len() / columns, rows, columns))
+    }
+
+    /// `(rows, columns)` for the methods that read the matrix row by row.
+    ///
+    /// An adaptive matrix finds each row in `row_starts`, so it must hold one
+    /// start per row of a shape that splits the values into whole rows, as
+    /// `set_shape` records. That catches a `columns` set any other way in
+    /// constant time; [`validate`](Self::validate) checks every start.
+    fn matrix_shape(&self) -> Result<(usize, usize)> {
+        let Some((rows, columns)) = self.shape() else {
+            return Err(Error::NotAMatrix { len: self.len() });
+        };
+        if let Self::Adaptive { row_starts, .. } = self
+            && (row_starts.len() != rows || rows * columns != self.len())
+        {
+            return Err(wrong_row_starts());
+        }
+        Ok((rows, columns))
     }
 }
 
@@ -633,8 +670,9 @@ impl<S: Scale> core::fmt::Debug for Quantized<S> {
 /// bytes that every block before it fills, added up one row after another.
 /// Those blocks are all full, since only the tensor's last block can be short.
 ///
-/// It reads a width for every block before the last row, so a tensor built by
-/// hand should pass [`Quantized::validate`] first.
+/// It reads a width for every block before the last row, so
+/// [`Quantized::set_shape`] and [`Quantized::validate`] check the buffers
+/// first.
 pub(crate) fn find_row_starts(
     block_bits: &[u8],
     block: usize,
@@ -664,6 +702,10 @@ fn packed_size(count: usize, bits: u32) -> Result<usize> {
 
 fn too_large() -> Error {
     malformed("len is too large to pack")
+}
+
+fn wrong_row_starts() -> Error {
+    malformed("row_starts doesn't match columns; call set_shape(rows, columns), which fills it in")
 }
 
 #[cfg(test)]
@@ -758,6 +800,83 @@ mod tests {
             row_starts[2] += 1;
         }
         assert!(matches!(wrong.validate(), Err(Error::Malformed { .. })));
+    }
+
+    #[test]
+    fn an_adaptive_matrix_shaped_without_set_shape_is_an_error() {
+        // A struct literal or a pattern that sets `columns` itself leaves
+        // `row_starts` empty, or holding the row starts of another shape.
+        let values: Vec<f32> = (0..120).map(|i| (i as f32 * 0.37).sin()).collect();
+        let mut table = adaptive::quantize_with::<f32>(&values, 8, 0.05).unwrap();
+        let Quantized::Adaptive {
+            scales,
+            zero_points,
+            codes,
+            block_bits,
+            block,
+            len,
+            ..
+        } = table.clone()
+        else {
+            unreachable!()
+        };
+        let literal = Quantized::Adaptive {
+            scales,
+            zero_points,
+            codes,
+            block_bits,
+            block,
+            len,
+            columns: Some(30),
+            row_starts: Vec::new(),
+        };
+        table.set_shape(4, 30).unwrap();
+        let mut reshaped = table.clone();
+        if let Quantized::Adaptive { columns, .. } = &mut reshaped {
+            *columns = Some(60);
+        }
+
+        let wrong_row_starts = super::wrong_row_starts();
+        assert_eq!(
+            wrong_row_starts.to_string(),
+            "malformed tensor: row_starts doesn't match columns; call set_shape(rows, columns), which fills it in"
+        );
+        for mut matrix in [literal, reshaped] {
+            let (rows, columns) = matrix.shape().unwrap();
+            let input = vec![1.0; columns];
+            let mut out = vec![0.0; rows];
+            assert_eq!(matrix.validate(), Err(wrong_row_starts.clone()));
+            assert_eq!(
+                matrix.dequantize_row_into(0, &mut vec![0.0; columns]),
+                Err(wrong_row_starts.clone())
+            );
+            assert_eq!(matrix.matmul(&input), Err(wrong_row_starts.clone()));
+            assert_eq!(
+                matrix.matmul_into(&input, &mut out),
+                Err(wrong_row_starts.clone())
+            );
+            matrix.set_shape(rows, columns).unwrap();
+            assert_eq!(matrix.validate(), Ok(()));
+        }
+    }
+
+    #[test]
+    fn set_shape_checks_an_adaptive_tensors_widths_before_reading_them() {
+        let values: Vec<f32> = (0..120).map(|i| (i as f32 * 0.37).sin()).collect();
+        let mut short = adaptive::quantize_with::<f32>(&values, 8, 0.05).unwrap();
+        // Rows of 30 values start in blocks 0, 3, 7, and 11 of 15, so finding
+        // where the last row starts reads 11 widths.
+        if let Quantized::Adaptive { block_bits, .. } = &mut short {
+            block_bits.truncate(10);
+        }
+        let unchanged = short.clone();
+        assert_eq!(
+            short.set_shape(4, 30),
+            Err(Error::Malformed {
+                reason: "every block needs one bit width"
+            })
+        );
+        assert_eq!(short, unchanged);
     }
 
     #[test]

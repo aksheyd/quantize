@@ -863,6 +863,14 @@ mod tests {
             matrix.set_shape(rows, columns).unwrap();
             assert_eq!(matrix.validate(), Ok(()));
         }
+
+        // 25 columns also make 4 rows, as many as the starts recorded for
+        // rows of 30, but 4 × 25 leaves 20 of the 120 values out.
+        let mut uneven = table;
+        if let Quantized::Adaptive { columns, .. } = &mut uneven {
+            *columns = Some(25);
+        }
+        assert_eq!(uneven.matmul(&[1.0; 25]), Err(wrong_row_starts));
     }
 
     #[test]

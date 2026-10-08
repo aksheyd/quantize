@@ -24,21 +24,25 @@ use crate::tensor::Quantized;
 /// times past on blocks far from zero, as [`asymmetric`](crate::asymmetric)
 /// explains.
 ///
+/// `BLOCK` must be at least 1, or the build stops, as in
+/// [`symmetric::quantize`](crate::symmetric::quantize).
+///
 /// # Errors
 ///
 /// [`Error::InvalidTolerance`] if `tolerance` is not finite and `> 0`.
 /// [`Error::ToleranceTooTight`] if even 8 bits can't round a block within
 /// `tolerance`, with the smallest tolerance that every block meets.
-/// [`Error::InvalidBlock`] if `BLOCK == 0`.
 /// [`Error::ScaleOutOfRange`] if `S` can't hold a block's scale or zero-point.
 pub fn quantize<S: Scale, const BLOCK: usize>(
     values: &[f32],
     tolerance: f32,
 ) -> Result<Quantized<S>> {
+    const { assert!(BLOCK >= 1, "BLOCK must be at least 1") };
     quantize_with::<S>(values, BLOCK, tolerance)
 }
 
-/// Runtime-block variant of [`quantize`].
+/// [`quantize`] with the block size chosen at run time. It returns the same
+/// errors, plus [`Error::InvalidBlock`] if `block` is 0.
 pub fn quantize_with<S: Scale>(
     values: &[f32],
     block: usize,

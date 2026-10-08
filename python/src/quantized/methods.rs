@@ -272,13 +272,13 @@ impl PyQuantized {
         bits: Option<u32>,
         block_bits: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
-        let zero_points = match zero_points {
-            Some(zero_points) => as_f32_values(&zero_points)?.to_vec()?,
-            None => Vec::new(),
-        };
         let block_bits = match block_bits {
             Some(block_bits) => Some(as_block_bits(&block_bits)?),
             None => None,
+        };
+        let zero_points = match zero_points {
+            Some(zero_points) => as_f32_values(&zero_points)?.to_vec()?,
+            None => Vec::new(),
         };
         let parts = Parts {
             kind: kind.str()?.to_string(),

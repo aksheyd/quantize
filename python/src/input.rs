@@ -195,6 +195,23 @@ pub fn as_packed_codes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
     read_uint8(obj, PACKED_CODES_TYPE)
 }
 
+/// Read block widths: a 1-D uint8 array, like `Quantized.block_bits`
+/// returns, or a sequence of ints. The array is copied at once, since reading
+/// it as a sequence would convert one NumPy scalar at a time.
+pub fn as_block_bits(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
+    match obj.cast::<PyArray1<u8>>() {
+        Ok(widths) => {
+            let widths = widths.try_readonly()?;
+            Ok(widths
+                .as_array()
+                .iter()
+                .map(|&bits| u32::from(bits))
+                .collect())
+        }
+        Err(_) => obj.extract(),
+    }
+}
+
 /// Read the bytes that `to_bytes` saved: `bytes` or another bytes-like
 /// object, or a 1-D uint8 array.
 pub fn as_bytes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {

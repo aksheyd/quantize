@@ -827,3 +827,28 @@ def test_adaptive_block_widths_take_one_byte_each():
             block_bits=[300, 8, 8],
             scale="f32",
         )
+
+
+def test_from_parts_reads_block_bits_from_an_array_or_any_sequence_of_ints():
+    quantized = adaptive.quantize(weight_matrix(3, 30), block=8, tolerance=0.001)
+    parts = {
+        "kind": "adaptive",
+        "shape": quantized.shape,
+        "block": quantized.block,
+        "codes": quantized.codes,
+        "scales": quantized.scales,
+        "zero_points": quantized.zero_points,
+        "scale": "f32",
+    }
+    widths = quantized.block_bits
+    non_contiguous_widths = np.repeat(widths, 2)[::2]
+    for block_bits in [
+        widths,
+        non_contiguous_widths,
+        widths.tolist(),
+        tuple(widths),
+        widths.astype(np.int64),
+    ]:
+        assert Quantized.from_parts(**parts, block_bits=block_bits) == quantized
+    with pytest.raises(InvalidBitsError, match="got 17"):
+        Quantized.from_parts(**parts, block_bits=np.full_like(widths, 17))

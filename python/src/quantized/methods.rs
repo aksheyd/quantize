@@ -10,7 +10,7 @@ use super::parts::Parts;
 use crate::error::from_quantize;
 use crate::gil::detach_if_large;
 use crate::input::{
-    as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
+    as_block_bits, as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
     as_writable_f32_out, check_shape,
 };
 use crate::scale::PyScale;
@@ -270,11 +270,15 @@ impl PyQuantized {
         scale: PyScale,
         zero_points: Option<Bound<'_, PyAny>>,
         bits: Option<u32>,
-        block_bits: Option<Vec<u32>>,
+        block_bits: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         let zero_points = match zero_points {
             Some(zero_points) => as_f32_values(&zero_points)?.to_vec()?,
             None => Vec::new(),
+        };
+        let block_bits = match block_bits {
+            Some(block_bits) => Some(as_block_bits(&block_bits)?),
+            None => None,
         };
         let parts = Parts {
             kind: kind.str()?.to_string(),

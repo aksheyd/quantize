@@ -16,6 +16,8 @@ workload = [
     "dep:serde",
     "dep:serde_json",
     "dep:ureq",
+    # candle multiplies on every core, so quantize does too.
+    "quantize/rayon",
 ]
 
 # Only wikitext uses these. They'd be dev-dependencies too, but Cargo doesn't

@@ -216,7 +216,9 @@ impl<S: Scale> Quantized<S> {
     }
 
     /// Bytes held by the codes, scales, zero-points, and block widths: what
-    /// [`to_bytes`](Self::to_bytes) writes, minus its header.
+    /// [`to_bytes`](Self::to_bytes) writes, minus its header. An adaptive
+    /// matrix also keeps one `usize` a row in memory, to find where each row
+    /// starts, which this doesn't count.
     pub fn nbytes(&self) -> usize {
         let extra = match self {
             Self::Adaptive { block_bits, .. } => core::mem::size_of_val(block_bits.as_slice()),

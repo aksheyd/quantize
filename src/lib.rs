@@ -65,13 +65,25 @@
 //!
 //! ## Features
 //!
-//! The `rayon` feature, off by default, runs [`matmul`](Quantized::matmul)
-//! and [`matmul_into`](Quantized::matmul_into) on every core with the
-//! [rayon](https://docs.rs/rayon) crate: each core multiplies its own share of
-//! the batch, and the results are the same, bit for bit. A single input still
-//! runs on one core, and to use fewer cores, set `RAYON_NUM_THREADS`. Turn it
-//! on with `cargo add quantize --features rayon`. Without it, the crate's only
-//! dependency is `half`.
+//! The `rayon` feature, off by default, splits a large
+//! [`matmul`](Quantized::matmul) or [`matmul_into`](Quantized::matmul_into)
+//! across every core with the [rayon](https://docs.rs/rayon) crate, and the
+//! results are the same, bit for bit. A single input splits the matrix's
+//! rows, and a batch splits into shares of inputs, as `matmul` explains. A
+//! smaller call stays on the thread that made it, as every call does without
+//! the feature.
+//!
+//! A program that already calls `matmul` from several threads at once keeps
+//! every core busy, so a split can't make its calls finish sooner. Its
+//! smaller calls run as they did, and a call big enough to split costs up to
+//! about a seventh more. Rayon starts one thread per core: set
+//! `RAYON_NUM_THREADS` to use fewer, or to 1 to stop splitting, which holds
+//! for any other rayon code in the program too. Cargo turns a feature on for
+//! every user of a crate once anything in the build asks for it, so a
+//! dependency can turn this one on for you.
+//!
+//! Turn it on with `cargo add quantize --features rayon`. Without it, the
+//! crate's only dependency is `half`.
 
 #![warn(missing_docs)]
 
@@ -92,4 +104,6 @@ pub use shared::scheme::Scheme;
 pub use shared::tensor::Quantized;
 pub use symmetric::{quantize, quantize_tensor};
 
+#[cfg(feature = "rayon")]
+pub(crate) use shared::cores;
 pub(crate) use shared::{decode, error, packed, scale, tensor};

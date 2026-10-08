@@ -37,7 +37,7 @@ numpy = "0.29"
 all = { level = "deny", priority = -1 }
 
 [features]
-# Splits matmul's batch across every core.
+# Splits large matmul calls across every core.
 rayon = ["dep:rayon"]
 
 [dependencies]

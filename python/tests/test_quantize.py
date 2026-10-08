@@ -759,6 +759,7 @@ def test_from_parts_rebuilds_parts_saved_with_numpy_as_the_readme_says():
             quantize(weights, bits=4, block=32, scale=scale),
             asymmetric.quantize(weights, bits=5, block=16, scale=scale),
             adaptive.quantize(weights.ravel(), block=32, tolerance=0.001, scale=scale),
+            adaptive.quantize(weights, block=32, tolerance=0.001, scale=scale),
             quantize([], scale=scale),
         ]:
             parts = {

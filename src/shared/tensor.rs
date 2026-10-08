@@ -242,7 +242,10 @@ impl<S: Scale> Quantized<S> {
     }
 
     /// Bits per value, counting the scales: 4-bit codes with one `f16` scale
-    /// per 32 values cost 4.5.
+    /// per 32 values cost 4.5. An adaptive matrix also keeps one `usize` a
+    /// row in memory, to find where each row starts, which this doesn't
+    /// count: with 64 columns and a 64-bit `usize`, that's 1 more bit per
+    /// value.
     pub fn bits_per_element(&self) -> f32 {
         if self.is_empty() {
             0.0

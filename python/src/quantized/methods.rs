@@ -10,7 +10,7 @@ use super::parts::Parts;
 use crate::error::from_quantize;
 use crate::gil::detach_if_large;
 use crate::input::{
-    as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
+    as_block_bits, as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
     as_writable_f32_out, check_shape,
 };
 use crate::scale::PyScale;
@@ -235,14 +235,18 @@ impl PyQuantized {
             .map(|bits| bits.to_vec().into_pyarray(py)))
     }
 
-    /// Bytes held by the codes, scales, zero-points, and block widths.
+    /// Bytes held by the codes, scales, zero-points, and block widths. An
+    /// adaptive matrix also keeps 8 bytes a row in memory, to find where each
+    /// row starts, which this doesn't count.
     #[getter]
     fn nbytes(&self) -> usize {
         with_inner!(&self.snapshot(), |quantized| quantized.nbytes())
     }
 
     /// Bits per value, counting the scales: 4-bit codes with one f16 scale
-    /// per 32 values cost 4.5.
+    /// per 32 values cost 4.5. An adaptive matrix also keeps 8 bytes a row in
+    /// memory, to find where each row starts, which this doesn't count: at
+    /// 64 columns, that's 1 more bit per value.
     #[getter]
     fn bits_per_element(&self) -> f32 {
         with_inner!(&self.snapshot(), |quantized| quantized.bits_per_element())
@@ -270,8 +274,12 @@ impl PyQuantized {
         scale: PyScale,
         zero_points: Option<Bound<'_, PyAny>>,
         bits: Option<u32>,
-        block_bits: Option<Vec<u32>>,
+        block_bits: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
+        let block_bits = match block_bits {
+            Some(block_bits) => Some(as_block_bits(&block_bits)?),
+            None => None,
+        };
         let zero_points = match zero_points {
             Some(zero_points) => as_f32_values(&zero_points)?.to_vec()?,
             None => Vec::new(),

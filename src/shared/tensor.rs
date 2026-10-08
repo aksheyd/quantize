@@ -481,8 +481,8 @@ impl<S: Scale> Quantized<S> {
     /// A group stays in the CPU's cache while every row passes over it, where
     /// a whole large batch would be read from memory again for every row.
     ///
-    /// With the `rayon` feature, the inputs are split into one group per
-    /// core, and the cores multiply their groups this way at the same time,
+    /// With the `rayon` feature, the inputs are split into one share per
+    /// core, and the cores multiply their shares as above at the same time,
     /// each decoding the matrix itself. The results are the same, bit for
     /// bit. A single input isn't split, so it runs on one core.
     ///
@@ -564,27 +564,28 @@ impl<S: Scale> Quantized<S> {
         }
 
         // A vector's results depend on that vector alone, so the batch can be
-        // split into groups of vectors that multiply on their own. Each group
+        // split into shares of vectors that multiply on their own. Each share
         // decodes the whole matrix, so there are only as many as threads: with
         // the `rayon` feature, one thread per core, all multiplying at once,
-        // and without it, just this one.
+        // and without it, just this one. A large share still goes through the
+        // matrix in groups that stay in cache, as a large batch does.
         #[cfg(not(feature = "rayon"))]
         let threads = 1;
         #[cfg(feature = "rayon")]
         let threads = rayon::current_num_threads();
-        let vectors_per_group = batch.div_ceil(threads);
-        let inputs_per_group = vectors_per_group * columns;
-        let outputs_per_group = vectors_per_group * rows;
+        let vectors_per_share = batch.div_ceil(threads);
+        let inputs_per_share = vectors_per_share * columns;
+        let outputs_per_share = vectors_per_share * rows;
 
         #[cfg(not(feature = "rayon"))]
-        let groups = inputs
-            .chunks(inputs_per_group)
-            .zip(out.chunks_mut(outputs_per_group));
+        let shares = inputs
+            .chunks(inputs_per_share)
+            .zip(out.chunks_mut(outputs_per_share));
         #[cfg(feature = "rayon")]
-        let groups = inputs
-            .par_chunks(inputs_per_group)
-            .zip(out.par_chunks_mut(outputs_per_group));
-        groups.for_each(|(inputs, out)| crate::decode::matmul_into(self, inputs, columns, out));
+        let shares = inputs
+            .par_chunks(inputs_per_share)
+            .zip(out.par_chunks_mut(outputs_per_share));
+        shares.for_each(|(inputs, out)| crate::decode::matmul_into(self, inputs, columns, out));
         Ok(())
     }
 
@@ -671,9 +672,9 @@ mod tests {
 
     #[test]
     fn matmul_gives_each_vector_the_result_it_gets_alone() {
-        // With the `rayon` feature, matmul splits a batch into one group of
+        // With the `rayon` feature, matmul splits a batch into one share of
         // vectors per core, and a batch that doesn't divide evenly leaves the
-        // last group short. A single vector is never split, so whatever the
+        // last share short. A single vector is never split, so whatever the
         // batch and the number of cores, each vector's results should match
         // its results alone, bit for bit. The 4-bit and 8-bit rows decode
         // with the packed kernels, blocks of 7 cross from one row into the

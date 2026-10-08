@@ -8,4 +8,6 @@ pub mod scheme;
 pub mod tensor;
 
 mod bytes;
+#[cfg(feature = "rayon")]
+pub(crate) mod cores;
 pub(crate) mod decode;

@@ -15,18 +15,30 @@ use crate::tensor::Quantized;
 
 /// Quantize into blocks of `BLOCK` using one bit width for every block.
 ///
+/// `BITS` must be from 2 to 16, and `BLOCK` at least 1, or the build stops,
+/// as in [`symmetric::quantize`](crate::symmetric::quantize).
+///
 /// # Errors
 ///
-/// [`crate::Error::InvalidBits`] or [`crate::Error::InvalidBlock`], and
 /// [`crate::Error::ScaleOutOfRange`] if `S` can't hold a block's scale or
 /// zero-point.
 pub fn quantize<S: Scale, const BITS: u32, const BLOCK: usize>(
     values: &[f32],
 ) -> Result<Quantized<S>> {
+    const {
+        assert!(2 <= BITS && BITS <= 16, "BITS must be from 2 to 16");
+        assert!(BLOCK >= 1, "BLOCK must be at least 1");
+    }
     quantize_with::<S>(values, BITS, BLOCK)
 }
 
-/// Runtime-width variant of [`quantize`].
+/// [`quantize`] with the bit width and block size chosen at run time.
+///
+/// # Errors
+///
+/// [`crate::Error::InvalidBits`] or [`crate::Error::InvalidBlock`], and
+/// [`crate::Error::ScaleOutOfRange`] if `S` can't hold a block's scale or
+/// zero-point.
 pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Result<Quantized<S>> {
     check_bits(bits)?;
     check_block(block)?;
@@ -58,8 +70,10 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
     })
 }
 
-/// Quantize the entire tensor with one scale and one zero-point.
+/// Quantize the entire tensor with one scale and one zero-point. `BITS` must
+/// be from 2 to 16, as in [`quantize`].
 pub fn quantize_tensor<S: Scale, const BITS: u32>(values: &[f32]) -> Result<Quantized<S>> {
+    const { assert!(2 <= BITS && BITS <= 16, "BITS must be from 2 to 16") };
     quantize_with::<S>(values, BITS, values.len().max(1))
 }
 

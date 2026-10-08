@@ -6,13 +6,16 @@ format:
 
 lint:
     cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 test:
     cargo test --workspace
+    cargo test -p quantize --features rayon
 
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p quantize --features rayon
 
 minimum-rust:
     rustup toolchain install 1.88 --profile minimal

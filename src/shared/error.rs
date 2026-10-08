@@ -116,6 +116,15 @@ pub enum Error {
         /// Length of the `out` that was passed.
         got: usize,
     },
+    /// The `inputs` of [`matmul`](crate::Quantized::matmul) or
+    /// [`matmul_into`](crate::Quantized::matmul_into) don't split into whole
+    /// vectors of `columns` values.
+    InputMismatch {
+        /// Number of matrix columns, the length of each input vector.
+        columns: usize,
+        /// Length of the `inputs` that was passed.
+        got: usize,
+    },
 }
 
 impl fmt::Display for Error {
@@ -218,6 +227,12 @@ impl fmt::Display for Error {
                     "out should hold batch x rows = {batch} x {rows} values, too many to count, but holds {got}"
                 ),
             },
+            Self::InputMismatch { columns, got } => {
+                write!(
+                    f,
+                    "inputs should hold a whole number of vectors of columns = {columns} values, but holds {got}; if your vectors aren't {columns} long, set_shape may have rows and columns swapped"
+                )
+            }
         }
     }
 }
@@ -344,6 +359,20 @@ mod tests {
                 "out should hold batch x rows = {} x 2 values, too many to count, but holds 4",
                 usize::MAX
             )
+        );
+    }
+
+    #[test]
+    fn display_says_how_long_each_input_vector_should_be() {
+        // A layer with 4096 outputs and 11008 inputs, recorded the wrong way
+        // round, can't split one input of 11008 values into vectors of 4096.
+        let err = Error::InputMismatch {
+            columns: 4096,
+            got: 11008,
+        };
+        assert_eq!(
+            err.to_string(),
+            "inputs should hold a whole number of vectors of columns = 4096 values, but holds 11008; if your vectors aren't 4096 long, set_shape may have rows and columns swapped"
         );
     }
 

@@ -25,9 +25,10 @@
 //! 32 values adds 16 / 32 = 0.5 bits to each value: 4-bit codes cost 4.5 bits
 //! per value.
 //!
-//! `BITS` and `BLOCK` are const generics. To choose them at run time, call the
-//! scheme's `quantize_with`, like [`symmetric::quantize_with`], which takes
-//! them as ordinary arguments.
+//! `BITS` and `BLOCK` are const generics, so a width outside 2 to 16 or a
+//! block of 0 stops the build instead of returning an error. To choose them at
+//! run time, call the scheme's `quantize_with`, like
+//! [`symmetric::quantize_with`], which takes them as ordinary arguments.
 //!
 //! [`quantize`] is symmetric: each block gets one scale. Everything below
 //! uses the same [`Quantized`] type:

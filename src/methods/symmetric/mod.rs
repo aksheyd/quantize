@@ -8,17 +8,32 @@ use crate::tensor::Quantized;
 
 /// Quantize `values` into fixed-size blocks of `BLOCK` with `BITS`-wide codes.
 ///
+/// `BITS` must be from 2 to 16, and `BLOCK` at least 1. Anything else stops
+/// the build, though `cargo check` doesn't catch it:
+///
+/// ```compile_fail
+/// let q = quantize::quantize::<f32, 1, 32>(&[0.5]);
+/// ```
+///
 /// # Errors
 ///
-/// [`crate::Error::InvalidBits`] or [`crate::Error::InvalidBlock`], and
 /// [`crate::Error::ScaleOutOfRange`] if `S` can't hold a block's scale.
 pub fn quantize<S: Scale, const BITS: u32, const BLOCK: usize>(
     values: &[f32],
 ) -> Result<Quantized<S>> {
+    const {
+        assert!(2 <= BITS && BITS <= 16, "BITS must be from 2 to 16");
+        assert!(BLOCK >= 1, "BLOCK must be at least 1");
+    }
     quantize_with::<S>(values, BITS, BLOCK)
 }
 
-/// Runtime-width variant of [`quantize`].
+/// [`quantize`] with the bit width and block size chosen at run time.
+///
+/// # Errors
+///
+/// [`crate::Error::InvalidBits`] or [`crate::Error::InvalidBlock`], and
+/// [`crate::Error::ScaleOutOfRange`] if `S` can't hold a block's scale.
 pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Result<Quantized<S>> {
     check_bits(bits)?;
     check_block(block)?;
@@ -41,8 +56,10 @@ pub fn quantize_with<S: Scale>(values: &[f32], bits: u32, block: usize) -> Resul
     })
 }
 
-/// Quantize the entire tensor with a single scale.
+/// Quantize the entire tensor with a single scale. `BITS` must be from 2 to
+/// 16, as in [`quantize`].
 pub fn quantize_tensor<S: Scale, const BITS: u32>(values: &[f32]) -> Result<Quantized<S>> {
+    const { assert!(2 <= BITS && BITS <= 16, "BITS must be from 2 to 16") };
     quantize_with::<S>(values, BITS, values.len().max(1))
 }
 
@@ -379,13 +396,12 @@ mod tests {
         let mut q = quantize::<f32, 8, 32>(&w).unwrap();
         q.set_shape(2, 32).unwrap();
         let inputs = [0.0_f32; 48];
-        assert!(matches!(
-            q.matmul(&inputs),
-            Err(crate::Error::ShapeMismatch {
-                len: 48,
-                columns: 32
-            })
-        ));
+        let mismatch = crate::Error::InputMismatch {
+            columns: 32,
+            got: 48,
+        };
+        assert_eq!(q.matmul(&inputs), Err(mismatch.clone()));
+        assert_eq!(q.matmul_into(&inputs, &mut [0.0; 2]), Err(mismatch));
     }
 
     #[test]

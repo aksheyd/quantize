@@ -446,7 +446,7 @@ impl<S: Scale> Quantized<S> {
     /// # Errors
     ///
     /// [`Error::NotAMatrix`] if the tensor has no shape,
-    /// [`Error::ShapeMismatch`] if `inputs` doesn't split into whole vectors
+    /// [`Error::InputMismatch`] if `inputs` doesn't split into whole vectors
     /// of `columns` values, and [`Error::OutputTooLarge`] if the
     /// `batch × rows` result can't be allocated.
     pub fn matmul(&self, inputs: &[f32]) -> Result<Vec<f32>> {
@@ -499,7 +499,7 @@ impl<S: Scale> Quantized<S> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotAMatrix`] and [`Error::ShapeMismatch`] as in
+    /// [`Error::NotAMatrix`] and [`Error::InputMismatch`] as in
     /// [`matmul`](Self::matmul), [`Error::OutputTooLarge`] if `batch × rows`
     /// is more values than a `usize` can count, and [`Error::OutputMismatch`]
     /// if `out` isn't `batch × rows` long.
@@ -523,9 +523,9 @@ impl<S: Scale> Quantized<S> {
             return Err(Error::NotAMatrix { len: self.len() });
         };
         if !inputs.len().is_multiple_of(columns) {
-            return Err(Error::ShapeMismatch {
-                len: inputs.len(),
+            return Err(Error::InputMismatch {
                 columns,
+                got: inputs.len(),
             });
         }
         Ok((inputs.len() / columns, rows, columns))

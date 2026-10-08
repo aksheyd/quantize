@@ -28,17 +28,16 @@ const VALUES_PER_ROW_SHARE: usize = 1 << 19;
 ///
 /// Each share decodes the whole matrix, which takes about as long as
 /// multiplying it by 1 to 4 vectors for the [`whole_groups_of_32`] layouts,
-/// and by up to 23 for the rest. A share of 16 times that many vectors spends
-/// at most about a sixteenth of its time decoding when it has a core to
-/// itself. Shares take turns with other threads on a busy machine, which
-/// costs more: with 8 threads each multiplying their own batch through a
-/// 2048 × 2048 matrix, shares of 32 vectors make every call up to a fifth
-/// slower, and shares of 64 up to a seventh.
+/// and by up to 23 for the rest. When other threads already keep every core
+/// busy, the shares take turns with them, which costs more than that. With 8
+/// threads each multiplying their own batch on an 8-core x86 machine, shares
+/// this size keep every call within about a seventh of its time without the
+/// feature, where shares half this size cost up to a fifth.
 fn fewest_vectors_per_share<S: Scale>(quantized: &Quantized<S>, columns: usize) -> usize {
     if whole_groups_of_32(quantized, columns) {
-        16 * 4
+        64
     } else {
-        16 * 23
+        184
     }
 }
 

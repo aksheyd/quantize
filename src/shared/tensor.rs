@@ -483,7 +483,7 @@ impl<S: Scale> Quantized<S> {
     /// cores multiply at the same time, and the results are the same, bit for
     /// bit. A single input splits the rows once the matrix holds 2^20 values,
     /// like 1024 × 1024. A batch splits into shares of at least 64 inputs
-    /// with those fastest layouts, and 368 with the rest, since each share
+    /// with those fastest layouts, and 184 with the rest, since each share
     /// decodes the whole matrix itself. A smaller call stays on the thread
     /// that made it.
     ///
@@ -678,7 +678,7 @@ mod tests {
                 .chunks(32)
                 .flat_map(|input| matrix.matmul(input).unwrap())
                 .collect();
-            for batch in (1..=20).chain([127, 128, 129, 300, 735, 736, 737, 1999, 2000]) {
+            for batch in (1..=20).chain([127, 128, 129, 300, 367, 368, 369, 1999, 2000]) {
                 let together = matrix.matmul(&inputs[..batch * 32]).unwrap();
                 assert_eq!(together, alone[..batch * 4], "batch {batch}");
             }

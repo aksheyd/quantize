@@ -427,9 +427,9 @@ impl<S: Scale> Quantized<S> {
     ///
     /// [`Error::NotAMatrix`] if [`set_shape`](Self::set_shape) hasn't
     /// recorded a shape, [`Error::Malformed`] if an adaptive matrix's
-    /// `row_starts` aren't the ones `set_shape` records for that shape,
-    /// [`Error::RowOutOfRange`] if `row` isn't below `rows`, and
-    /// [`Error::LengthMismatch`] if `out` isn't `columns` long.
+    /// `row_starts` don't hold one start per row, as when `columns` is set
+    /// without `set_shape`, [`Error::RowOutOfRange`] if `row` isn't below
+    /// `rows`, and [`Error::LengthMismatch`] if `out` isn't `columns` long.
     pub fn dequantize_row_into(&self, row: usize, out: &mut [f32]) -> Result<()> {
         let (rows, columns) = self.matrix_shape()?;
         if row >= rows {
@@ -515,8 +515,8 @@ impl<S: Scale> Quantized<S> {
     /// # Errors
     ///
     /// [`Error::NotAMatrix`] if the tensor has no shape, [`Error::Malformed`]
-    /// if an adaptive matrix's `row_starts` aren't the ones
-    /// [`set_shape`](Self::set_shape) records for that shape,
+    /// if an adaptive matrix's `row_starts` don't hold one start per row, as
+    /// when `columns` is set without [`set_shape`](Self::set_shape),
     /// [`Error::InputMismatch`] if `inputs` doesn't split into whole vectors
     /// of `columns` values, and [`Error::OutputTooLarge`] if the
     /// `batch × rows` result can't be allocated.

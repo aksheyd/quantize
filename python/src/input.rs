@@ -208,7 +208,11 @@ pub fn as_block_bits(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u32>> {
                 .map(|&bits| u32::from(bits))
                 .collect())
         }
-        Err(_) => obj.extract(),
+        Err(_) => obj.extract().inspect_err(|error: &PyErr| {
+            // Errors like "Can't extract `str` to `Vec`" don't name the
+            // argument, so add the note PyO3 adds to the arguments it reads.
+            let _ = error.add_note(obj.py(), "while processing 'block_bits'");
+        }),
     }
 }
 

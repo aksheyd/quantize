@@ -852,3 +852,6 @@ def test_from_parts_reads_block_bits_from_an_array_or_any_sequence_of_ints():
         assert Quantized.from_parts(**parts, block_bits=block_bits) == quantized
     with pytest.raises(InvalidBitsError, match="got 17"):
         Quantized.from_parts(**parts, block_bits=np.full_like(widths, 17))
+    with pytest.raises(TypeError) as raised:
+        Quantized.from_parts(**parts, block_bits="4")
+    assert raised.value.__notes__ == ["while processing 'block_bits'"]

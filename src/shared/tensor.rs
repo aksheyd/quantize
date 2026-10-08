@@ -676,12 +676,15 @@ mod tests {
         // vectors per core, and a batch that doesn't divide evenly leaves the
         // last share short. A single vector is never split, so whatever the
         // batch and the number of cores, each vector's results should match
-        // its results alone, bit for bit. The 4-bit and 8-bit rows decode
-        // with the packed kernels, blocks of 7 cross from one row into the
-        // next, and the adaptive rows start after a mix of widths.
-        let values: Vec<f32> = (0..96).map(|i| (i as f32 * 0.37).sin()).collect();
-        let inputs: Vec<f32> = (0..20 * 24).map(|i| (i as f32 * 0.11).cos()).collect();
-        let matrices: [Quantized<f32>; 5] = [
+        // its results alone, bit for bit. 4-bit and 8-bit blocks of 32
+        // multiply a share of one vector as they decode it, blocks of 8
+        // decode with the packed kernels, blocks of 7 cross from one row into
+        // the next, and the adaptive rows start after a mix of widths.
+        let values: Vec<f32> = (0..128).map(|i| (i as f32 * 0.37).sin()).collect();
+        let inputs: Vec<f32> = (0..20 * 32).map(|i| (i as f32 * 0.11).cos()).collect();
+        let matrices: [Quantized<f32>; 7] = [
+            symmetric::quantize_with(&values, 4, 32).unwrap(),
+            symmetric::quantize_with(&values, 8, 32).unwrap(),
             symmetric::quantize_with(&values, 4, 8).unwrap(),
             symmetric::quantize_with(&values, 8, 8).unwrap(),
             symmetric::quantize_with(&values, 5, 7).unwrap(),
@@ -689,13 +692,13 @@ mod tests {
             adaptive::quantize_with(&values, 8, 0.05).unwrap(),
         ];
         for mut matrix in matrices {
-            matrix.set_shape(4, 24).unwrap();
+            matrix.set_shape(4, 32).unwrap();
             let alone: Vec<f32> = inputs
-                .chunks(24)
+                .chunks(32)
                 .flat_map(|input| matrix.matmul(input).unwrap())
                 .collect();
             for batch in 1..=20 {
-                let together = matrix.matmul(&inputs[..batch * 24]).unwrap();
+                let together = matrix.matmul(&inputs[..batch * 32]).unwrap();
                 assert_eq!(together, alone[..batch * 4], "batch {batch}");
             }
         }

@@ -32,6 +32,11 @@ jobs:
       - name: Chapters
         run: just chapters
 
+      # Each runner's CPU has kernels of its own, x86 on Linux and Arm on
+      # macOS, that ggml multiplies quantize's Q4_0 and Q8_0 tensors with.
+      - name: ggml check
+        run: just ggml-check
+
   minimum-rust:
     runs-on: ubuntu-latest
     steps:

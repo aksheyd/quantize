@@ -14,7 +14,8 @@ use crate::error::{Error, invalid};
 /// Write `metadata` and `tensors` to a gguf file at `path`, replacing any
 /// file there.
 ///
-/// A [`Tensor::Float`] is saved as `F32`. The tensors' data aligns to
+/// A [`Tensor::Float`] is saved as `F32`, and a [`Tensor::Quantized`] as
+/// `Q4_0` or `Q8_0`, with two dimensions. The tensors' data aligns to
 /// `general.alignment`, if `metadata` has it, or to 32 bytes.
 ///
 /// # Errors
@@ -22,10 +23,11 @@ use crate::error::{Error, invalid};
 /// [`Error::Invalid`] if `general.alignment` isn't a
 /// [`Value::U32`](super::Value::U32) that is a power of two, an array is
 /// empty or its elements don't all have one type, a float tensor's shape
-/// doesn't hold its number of values, a tensor is quantized, or the file
-/// would break one of the limits of ggml, which llama.cpp loads files with:
-/// more than 4 dimensions, a tensor name of 64 bytes or more, or an array of
-/// arrays. [`Error::Io`] if the file can't be written.
+/// doesn't hold its number of values, a quantized tensor isn't a symmetric
+/// matrix with 4-bit or 8-bit codes in blocks of 32 that split its rows, or
+/// the file would break one of the limits of ggml, which llama.cpp loads
+/// files with: more than 4 dimensions, a tensor name of 64 bytes or more, or
+/// an array of arrays. [`Error::Io`] if the file can't be written.
 pub fn write(
     path: impl AsRef<Path>,
     metadata: &Metadata,

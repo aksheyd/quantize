@@ -16,13 +16,16 @@ use crate::error::{Error, invalid};
 /// name.
 ///
 /// `F32`, `F16`, and `BF16` tensors read as [`Tensor::Float`], widened to
-/// `f32`, with the shape outermost first.
+/// `f32`, with the shape outermost first. `Q4_0` and `Q8_0` tensors read as
+/// [`Tensor::Quantized`]: symmetric matrices with 4-bit or 8-bit codes in
+/// blocks of 32, whose rows run along the innermost dimension.
 ///
 /// # Errors
 ///
 /// [`Error::Io`] if the file can't be read, and [`Error::Invalid`] if it
 /// isn't little-endian gguf version 3, breaks the format's rules, or holds a
-/// tensor of another ggml type.
+/// tensor of another ggml type, or a `Q4_0` or `Q8_0` tensor whose rows
+/// don't split into blocks of 32.
 pub fn read(path: impl AsRef<Path>) -> Result<(Metadata, BTreeMap<String, Tensor<f16>>), Error> {
     let path = path.as_ref();
     let bytes = fs::read(path).map_err(|error| Error::Io {

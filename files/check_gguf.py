@@ -9,6 +9,12 @@ read back.
 Both halves make the same values, (i - 60) / 16 for value i, which f32 and
 f16 both hold exactly.
 
+Then the same both ways for Q4_0 and Q8_0, saved next to the values they
+decode to: gguf.quants.dequantize must decode the blocks in
+DIR/quantized_from_rust.gguf to quantize's values, bit for bit, and
+DIR/quantized_from_python.gguf holds blocks that gguf.quants.quantize made,
+for the Rust half to decode.
+
 Usage: python check_gguf.py DIR
 """
 
@@ -17,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 from gguf import GGMLQuantizationType, GGUFReader, GGUFValueType, GGUFWriter
+from gguf.quants import dequantize, quantize
 
 directory = Path(sys.argv[1])
 T = GGUFValueType
@@ -80,3 +87,26 @@ writer.write_kv_data_to_file()
 writer.write_tensors_to_file()
 writer.close()
 print("gguf wrote from_python.gguf")
+
+quantized = {tensor.name: tensor for tensor in GGUFReader(directory / "quantized_from_rust.gguf").tensors}
+for qtype in (GGMLQuantizationType.Q4_0, GGMLQuantizationType.Q8_0):
+    name = qtype.name.lower()
+    assert quantized[name].tensor_type == qtype, (name, quantized[name].tensor_type)
+    decoded = dequantize(quantized[name].data, qtype)
+    expected = quantized[f"{name}.decoded"].data
+    assert decoded.shape == expected.shape, (name, decoded.shape)
+    # Compared as bit patterns, so that -0 differs from 0.
+    assert np.array_equal(decoded.view(np.uint32), expected.view(np.uint32)), name
+print("gguf decoded quantized_from_rust.gguf's q4_0 and q8_0 to quantize's values, bit for bit")
+
+writer = GGUFWriter(directory / "quantized_from_python.gguf", arch="quantize-check")
+weights = (0.02 * np.random.default_rng(0).standard_normal((8, 256))).astype(np.float32)
+for qtype in (GGMLQuantizationType.Q4_0, GGMLQuantizationType.Q8_0):
+    blocks = quantize(weights, qtype)
+    writer.add_tensor(qtype.name.lower(), blocks, raw_dtype=qtype)
+    writer.add_tensor(f"{qtype.name.lower()}.decoded", dequantize(blocks, qtype))
+writer.write_header_to_file()
+writer.write_kv_data_to_file()
+writer.write_tensors_to_file()
+writer.close()
+print("gguf wrote quantized_from_python.gguf")

@@ -12,9 +12,13 @@
 //!   read as `f32`, floats write as `F32`, and quantized tensors of any
 //!   scheme save as the bytes that [`Quantized::to_bytes`] writes.
 //! - [`gguf`], llama.cpp's format. `F32`, `F16`, and `BF16` tensors read as
-//!   `f32`, and floats write as `F32`. Its metadata, like the model's
-//!   architecture and its tokenizer's vocabulary, reads and writes alongside
-//!   the tensors, as a map from keys to [`gguf::Value`]s.
+//!   `f32`, and floats write as `F32`. Quantized tensors read and write as
+//!   ggml's `Q4_0` and `Q8_0` when they are
+//!   [`Scheme::Q4_32`](quantize::Scheme::Q4_32) and
+//!   [`Scheme::Q8_32`](quantize::Scheme::Q8_32) matrices with f16 scales,
+//!   which hold the same values in other bytes. Its metadata, like the
+//!   model's architecture and its tokenizer's vocabulary, reads and writes
+//!   alongside the tensors, as a map from keys to [`gguf::Value`]s.
 //!
 //! Start with [`Tensor`], then read the module of your format: its docs lay
 //! out the file byte by byte, and its `read` and `write` follow that layout
@@ -24,7 +28,7 @@
 //! use std::collections::BTreeMap;
 //!
 //! use quantize::{Scheme, f16};
-//! use quantize_files::{Tensor, safetensors};
+//! use quantize_files::{Tensor, gguf, safetensors};
 //!
 //! // A 2 × 32 weight matrix, quantized to 4 bits, and a norm kept as floats.
 //! let values: Vec<f32> = (0..64).map(|i| (i as f32 * 0.37).sin()).collect();
@@ -41,6 +45,13 @@
 //!
 //! // The weight was saved with f16 scales, so it loads back with f16 scales.
 //! assert_eq!(safetensors::read::<f16>(&path)?, tensors);
+//!
+//! // gguf holds the weight as ggml's Q4_0 blocks, which decode to the same
+//! // values, so it loads back the same too.
+//! let path = std::env::temp_dir().join("quantize-files-example.gguf");
+//! gguf::write(&path, &gguf::Metadata::new(), &tensors)?;
+//! let (_, loaded) = gguf::read(&path)?;
+//! assert_eq!(loaded, tensors);
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 //!

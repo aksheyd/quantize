@@ -103,11 +103,21 @@ fn each_broken_rule_of_the_metadata_is_refused_with_what_is_wrong() {
 fn each_broken_rule_of_the_tensors_is_refused_with_what_is_wrong() {
     let one = |name: &str, offset: u64| tensor_info(name, &[1], 0, offset);
     let sixteen = tensor_info("x", &[16], 0, 0);
-    let cases: [(Vec<Vec<u8>>, usize, &str); 7] = [
+    let cases: [(Vec<Vec<u8>>, usize, &str); 9] = [
         (
-            vec![tensor_info("x", &[32], 2, 0)],
+            vec![tensor_info("x", &[32], 3, 0)],
             0,
-            r#"tensor "x" has ggml type 2, but only F32 (0), F16 (1), and BF16 (30) are read"#,
+            r#"tensor "x" has ggml type 3, but only F32 (0), F16 (1), Q4_0 (2), Q8_0 (8), and BF16 (30) are read"#,
+        ),
+        (
+            vec![tensor_info("x", &[48], 2, 0)],
+            0,
+            r#"tensor "x" is Q4_0 with rows of 48 values, which don't split into blocks of 32"#,
+        ),
+        (
+            vec![tensor_info("x", &[0, 2], 8, 0)],
+            0,
+            r#"tensor "x" is Q8_0 with rows of no values, which quantize's tensors can't hold"#,
         ),
         (
             vec![tensor_info("x", &[u64::MAX, 2], 0, 0)],
@@ -153,22 +163,12 @@ fn writing_refuses_what_the_format_cannot_hold() {
         shape: vec![2, 3],
         values: vec![0.0; 5],
     };
-    let quantized = Scheme::Q4_32.quantize::<f16>(&values(32)).unwrap();
-    let tensor_cases = [
-        (
-            wrong_shape,
-            r#"tensor "x" has 5 values, which don't fit its shape [2, 3]"#,
-        ),
-        (
-            Tensor::Quantized(quantized),
-            r#"tensor "x" is quantized, but only float tensors are written to gguf"#,
-        ),
-    ];
-    for (tensor, message) in tensor_cases {
-        let tensors = BTreeMap::from([("x".to_string(), tensor)]);
-        let error = to_bytes(&Metadata::new(), &tensors).unwrap_err();
-        assert_eq!(error.to_string(), message);
-    }
+    let tensors = BTreeMap::from([("x".to_string(), wrong_shape)]);
+    let error = to_bytes(&Metadata::new(), &tensors).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        r#"tensor "x" has 5 values, which don't fit its shape [2, 3]"#
+    );
 
     let metadata_cases = [
         (
@@ -228,6 +228,51 @@ fn writing_refuses_what_ggml_would_not_load() {
         error.to_string(),
         r#"metadata "k" is an array of arrays, which ggml doesn't load"#
     );
+}
+
+#[test]
+fn writing_refuses_quantized_tensors_that_q4_0_and_q8_0_cannot_hold() {
+    let matrix = |scheme: Scheme, rows: usize, columns: usize| {
+        let mut quantized = scheme.quantize::<f16>(&values(rows * columns)).unwrap();
+        quantized.set_shape(rows, columns).unwrap();
+        quantized
+    };
+    let adaptive = Scheme::Adaptive {
+        block: 32,
+        tolerance: 0.01,
+    };
+    let cases = [
+        (
+            matrix(Scheme::Asymmetric { bits: 4, block: 32 }, 2, 32),
+            "is asymmetric, but Q4_0 and Q8_0 are symmetric",
+        ),
+        (
+            matrix(adaptive, 2, 32),
+            "is adaptive, but Q4_0 and Q8_0 give every block one width",
+        ),
+        (
+            matrix(Scheme::Symmetric { bits: 6, block: 32 }, 2, 32),
+            "has 6-bit codes, but Q4_0 and Q8_0 have 4-bit and 8-bit ones",
+        ),
+        (
+            matrix(Scheme::Symmetric { bits: 8, block: 64 }, 2, 64),
+            "has blocks of 64, but Q4_0 and Q8_0 have blocks of 32",
+        ),
+        (
+            Scheme::Q4_32.quantize::<f16>(&values(64)).unwrap(),
+            "has no shape, but Q4_0 and Q8_0 blocks run along a matrix's rows, which set_shape records",
+        ),
+        (
+            matrix(Scheme::Q8_32, 2, 48),
+            "has rows of 48 values, but Q4_0 and Q8_0 split each row into blocks of 32",
+        ),
+    ];
+    for (quantized, why) in cases {
+        let tensors = BTreeMap::from([("x".to_string(), Tensor::Quantized(quantized))]);
+        let error = to_bytes(&Metadata::new(), &tensors).unwrap_err();
+        let message = format!(r#"tensor "x" {why}; safetensors keeps any quantized tensor"#);
+        assert_eq!(error.to_string(), message);
+    }
 }
 
 #[test]

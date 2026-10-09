@@ -504,14 +504,14 @@ impl<S: Scale> Quantized<S> {
     ///
     /// With the `rayon` feature, a large call splits into shares that the
     /// cores multiply at the same time, and the results are the same, bit for
-    /// bit. A share takes some of the rows for some of the inputs. A share of
-    /// rows decodes only those rows, so the rows split to give every core a
-    /// share, as long as each share takes about as long as one input through
-    /// 2^19 values, like 512 × 1024: the more inputs, the fewer rows that
-    /// takes. A share of inputs decodes the whole matrix itself, so the
-    /// inputs split only into shares of at least 64 with those fastest
-    /// layouts, and 184 with the rest. A call too small for two shares stays
-    /// on the thread that made it.
+    /// bit. A share multiplies a part of the rows by a part of the inputs. A
+    /// part of the rows decodes only those rows, so the rows split to give
+    /// every core a share, as long as each share takes about as long as one
+    /// input through 2^19 values, like 512 × 1024: the more inputs, the fewer
+    /// rows that takes. A part of the inputs decodes the whole matrix for
+    /// itself, so the inputs split only into parts of at least 64 with those
+    /// fastest layouts, and 184 with the rest. A call too small for two
+    /// shares stays on the thread that made it.
     ///
     /// To reuse one buffer for the result, or to catch a shape recorded the
     /// wrong way round, use [`matmul_into`](Self::matmul_into).

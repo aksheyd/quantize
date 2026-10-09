@@ -1,5 +1,33 @@
 # changelog
 
+## 0.4.0
+
+0.4.0 is a breaking release of the rust crate `quantize` and the python package `quantize-py`. it adds a `rayon` feature that splits large `matmul` calls across the cores, and finds any row of an adaptive matrix equally fast. python users see no api change, though `quantize-py` moves to 0.4.0 with the crate, since they share a version. results are the same as 0.3.2's, bit for bit, on x86 and apple silicon, and the two load each other's files and pickles.
+
+### breaking changes
+
+- the `std` and `default` features are gone, since they did nothing: delete them from `quantize`'s `features`.
+- `Scale` requires `Sync`, so every core can read one tensor: make a custom scale type `Sync`, which a plain number type already is.
+- `Quantized::Adaptive` has a new field, `row_starts`: add `..` to patterns that list every field. to build one by hand, give it `columns: None` and `row_starts: Vec::new()`, then call `validate()` and `set_shape(rows, columns)`, which fills it in. code that sets `columns` itself, in a struct literal or through a pattern, calls `set_shape` instead: until it does, `validate`, `dequantize_row_into`, and `matmul` return an error.
+- a `BITS` outside 2 to 16 or a `BLOCK` of 0, like `quantize::<f32, 1, 32>`, stops the build instead of returning `InvalidBits` or `InvalidBlock`, though `cargo check` misses it: for the error at run time, call the scheme's `quantize_with`, like `symmetric::quantize_with`.
+- `matmul` and `matmul_into` return `Error::InputMismatch` instead of `ShapeMismatch` for `inputs` that don't split into vectors of `columns` values, and the error says `set_shape` may have rows and columns swapped. a match on `ShapeMismatch` there still compiles, but reaches its `_` arm: match `Error::InputMismatch { .. }` instead.
+
+### new and faster
+
+- the `rayon` feature, off by default, splits a large `matmul` across the cores, with the same results, bit for bit: on an 8-core intel xeon, 512 tokens through SmolLM-135M's linear layers take 0.7 s instead of 5.1, and 64 vectors through a 4096 × 4096 layer take 10 ms instead of 80. small calls stay on one core. a program that already keeps every core busy calling `matmul` loses up to about a quarter, and one with cores to spare gains. python's wheels leave the feature off.
+- `dequantize_row_into` finds any row of an adaptive matrix equally fast: the last row of a 32,000 × 4,096 embedding table takes 0.006 ms instead of 0.52, or 2.4 with blocks of 30.
+- python: `from_parts` copies the array that `q.block_bits` returns at once, as it does `codes`, so it rebuilds a 4096 × 4096 adaptive tensor in 5 ms instead of 19.
+
+### changes you might notice
+
+- an adaptive matrix keeps where each row starts, 8 bytes a row, which `to_bytes` doesn't save, and `nbytes` and `bits_per_element` don't count: 0.25% more memory with 4,096 columns, and 16% with 64.
+- `set_shape` checks an adaptive tensor's buffers first, as `validate` does, so one built by hand that's short of widths or codes gets `validate`'s error instead of `Ok`.
+
+### contributors
+
+- `just lint`, `just test`, and `just doc` run with and without the `rayon` feature.
+- the WikiText run multiplies on every core, as candle does, with the same perplexities.
+
 ## 0.3.2
 
 0.3.2 is a patch release of the rust crate `quantize` and the python package `quantize-py`. it multiplies one vector up to 3 times as fast and big batches up to 2.7 times, and adds wheels for free-threaded python.

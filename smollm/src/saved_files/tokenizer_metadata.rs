@@ -17,7 +17,7 @@ pub fn tokenizer_metadata(
     if model["type"] != "BPE" {
         let model_type = &model["type"];
         return Err(format!(
-            "llama.cpp runs byte-level BPE tokenizers like SmolLM's, not {model_type}"
+            "smollm writes llama.cpp's tokenizer metadata only for byte-level BPE tokenizers like SmolLM's, not {model_type}"
         ));
     }
     let (tokens, token_types) = tokens_and_types(config, tokenizer);

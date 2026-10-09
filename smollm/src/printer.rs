@@ -4,6 +4,8 @@ use std::io::{self, Write};
 
 use tokenizers::Tokenizer;
 
+/// Prints the text of a prompt, then of each token after it.
+///
 /// A token can end partway through a character, which decodes as "�" until
 /// the next token finishes it. So each time a token arrives, this decodes
 /// every token so far and prints what's new, once the text ends in a whole

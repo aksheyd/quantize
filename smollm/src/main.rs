@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let checkpoint = match &arguments.model_directory {
         Some(directory) => Checkpoint::read(directory)?,
         None => {
-            println!("downloading {MODEL_ID}");
+            println!("loading {MODEL_ID}");
             Checkpoint::download()?
         }
     };

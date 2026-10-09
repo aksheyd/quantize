@@ -34,13 +34,16 @@ python:
 python-test:
     {{system_python}} -m pytest python/tests
 
-# Checks quantize-files against the safetensors Python package, both ways.
-# Run `just setup` first.
+# Checks quantize-files against the safetensors and gguf Python packages,
+# both ways. Run `just setup` first.
 files-check:
-    {{venv}} -m pip install --quiet safetensors
+    {{venv}} -m pip install --quiet safetensors gguf==0.19.0
     cargo run -p quantize-files --example check_safetensors -- write target/files-check
     {{venv}} files/check_safetensors.py target/files-check
     cargo run -p quantize-files --example check_safetensors -- read target/files-check
+    cargo run -p quantize-files --example check_gguf -- write target/files-check
+    {{venv}} files/check_gguf.py target/files-check
+    cargo run -p quantize-files --example check_gguf -- read target/files-check
 
 wheels:
     maturin build --release --out dist

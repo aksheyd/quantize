@@ -11,6 +11,10 @@
 //! - [`safetensors`], Hugging Face's format. `F32`, `F16`, and `BF16` tensors
 //!   read as `f32`, floats write as `F32`, and quantized tensors of any
 //!   scheme save as the bytes that [`Quantized::to_bytes`] writes.
+//! - [`gguf`], llama.cpp's format. `F32`, `F16`, and `BF16` tensors read as
+//!   `f32`, and floats write as `F32`. Its metadata, like the model's
+//!   architecture and its tokenizer's vocabulary, reads and writes alongside
+//!   the tensors, as a map from keys to [`gguf::Value`]s.
 //!
 //! Start with [`Tensor`], then read the module of your format: its docs lay
 //! out the file byte by byte, and its `read` and `write` follow that layout
@@ -45,6 +49,7 @@
 #![warn(missing_docs)]
 
 mod error;
+pub mod gguf;
 pub mod safetensors;
 
 use quantize::{Quantized, Scale};
@@ -55,7 +60,8 @@ pub use error::Error;
 /// quantized.
 ///
 /// `S` is the scale type of the quantized tensors: `f32`, `f16`, or `bf16`.
-/// A file of floats alone reads with any of them.
+/// A safetensors file of floats alone reads with any of them. A gguf file's
+/// tensors are `Tensor<f16>`, since ggml's quantized blocks hold f16 scales.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tensor<S: Scale> {
     /// Values of any float type, widened to `f32`.

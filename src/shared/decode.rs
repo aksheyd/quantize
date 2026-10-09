@@ -236,26 +236,36 @@ pub(crate) fn matmul_into<S: Scale>(
     // no batch to reuse a decoded row for, and storing each row only to read
     // it straight back costs about as much as decoding it. So a 4-bit or 8-bit
     // matrix whose blocks are whole groups of 32 codes multiplies each group
-    // as it decodes it instead.
-    if let Quantized::Symmetric {
-        scales,
-        codes,
-        block,
-        ..
-    } = quantized
+    // as it decodes it instead, with or without zero-points.
+    if let Quantized::Symmetric { codes, .. } | Quantized::Asymmetric { codes, .. } = quantized
         && inputs.len() == columns
-        && whole_groups_of_32(quantized, columns)
+        && matches!(codes.bits(), 4 | 8)
+        && quantized.block().is_multiple_of(32)
+        && packed_rows_ok(quantized, columns)
     {
+        let block = quantized.block();
+        let scales = quantized.scales();
+        // A symmetric matrix has no zero-points.
+        let zero_points = quantized.zero_points();
         let bytes_per_row = columns * codes.bits() as usize / 8;
         let scales_per_row = columns / block;
         let mut row_scales = vec![0.0; scales_per_row];
+        let mut row_zero_points = vec![0.0; scales_per_row];
         for (row, slot) in (first_row..).zip(out[0].iter_mut()) {
             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
-            let stored_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
-            scales_to_f32(stored_scales, &mut row_scales);
-            *slot = match codes.bits() {
-                4 => dot_i4_row(&row_scales, row_codes, *block, inputs),
-                _ => dot_i8_row(&row_scales, row_codes, *block, inputs),
+            let row_blocks = row * scales_per_row..(row + 1) * scales_per_row;
+            scales_to_f32(&scales[row_blocks.clone()], &mut row_scales);
+            *slot = if zero_points.is_empty() {
+                match codes.bits() {
+                    4 => dot_i4_row(&row_scales, row_codes, block, inputs),
+                    _ => dot_i8_row(&row_scales, row_codes, block, inputs),
+                }
+            } else {
+                scales_to_f32(&zero_points[row_blocks], &mut row_zero_points);
+                match codes.bits() {
+                    4 => dot_asym_i4_row(&row_scales, &row_zero_points, row_codes, block, inputs),
+                    _ => dot_asym_i8_row(&row_scales, &row_zero_points, row_codes, block, inputs),
+                }
             };
         }
         return;
@@ -266,12 +276,13 @@ pub(crate) fn matmul_into<S: Scale>(
     // to stay in the CPU's cache is read from there, where a large batch
     // would be read from memory again for each row.
     //
-    // Each group decodes the matrix again. For the layouts above, decoding a
-    // row takes about as long as a few of its dot products, so decoding it
-    // once per group of 256 costs 1 to 3% where the whole batch would have
-    // stayed in cache anyway. Rows that read each code on its own, or have
-    // shorter blocks, take up to 20, and up to 180 in a debug build, so those
-    // layouts take the whole batch as one group.
+    // Each group decodes the matrix again. For the layouts above without
+    // zero-points, decoding a row takes about as long as a few of its dot
+    // products, so decoding it once per group of 256 costs 1 to 3% where the
+    // whole batch would have stayed in cache anyway. Rows that read each code
+    // on its own, as those with zero-points still do here, or have shorter
+    // blocks, take up to 20, and up to 180 in a debug build, so those layouts
+    // take the whole batch as one group.
     let vectors_per_group = if whole_groups_of_32(quantized, columns) {
         VECTORS_PER_GROUP.min(out.len())
     } else {
@@ -331,7 +342,7 @@ fn dot_i4_row(scales: &[f32], bytes: &[u8], block: usize, input: &[f32]) -> f32 
         let (groups, _) = block_bytes.as_chunks::<16>();
         let (group_inputs, _) = block_input.as_chunks::<32>();
         for (group, group_input) in groups.iter().zip(group_inputs) {
-            let weights = decode_i4_32(group, scale);
+            let weights = decode_i4_32(group, scale, 0.0);
             let (weight_chunks, _) = weights.as_chunks::<LANES>();
             let (input_chunks, _) = group_input.as_chunks::<LANES>();
             add_products(&mut totals, weight_chunks, input_chunks);
@@ -349,7 +360,56 @@ fn dot_i8_row(scales: &[f32], bytes: &[u8], block: usize, input: &[f32]) -> f32 
         let (groups, _) = block_bytes.as_chunks::<32>();
         let (group_inputs, _) = block_input.as_chunks::<32>();
         for (group, group_input) in groups.iter().zip(group_inputs) {
-            let weights = decode_i8_32(group, scale);
+            let weights = decode_i8_32(group, scale, 0.0);
+            let (weight_chunks, _) = weights.as_chunks::<LANES>();
+            let (input_chunks, _) = group_input.as_chunks::<LANES>();
+            add_products(&mut totals, weight_chunks, input_chunks);
+        }
+    }
+    totals.iter().sum()
+}
+
+/// Like [`dot_i4_row`], for an asymmetric matrix: each code has its block's
+/// zero-point taken away before it's scaled, as `decode_values` does.
+fn dot_asym_i4_row(
+    scales: &[f32],
+    zero_points: &[f32],
+    bytes: &[u8],
+    block: usize,
+    input: &[f32],
+) -> f32 {
+    let mut totals = [0.0_f32; LANES];
+    let blocks = bytes.chunks_exact(block / 2).zip(input.chunks_exact(block));
+    let parameters = scales.iter().zip(zero_points);
+    for ((block_bytes, block_input), (&scale, &zero_point)) in blocks.zip(parameters) {
+        let (groups, _) = block_bytes.as_chunks::<16>();
+        let (group_inputs, _) = block_input.as_chunks::<32>();
+        for (group, group_input) in groups.iter().zip(group_inputs) {
+            let weights = decode_i4_32(group, scale, zero_point);
+            let (weight_chunks, _) = weights.as_chunks::<LANES>();
+            let (input_chunks, _) = group_input.as_chunks::<LANES>();
+            add_products(&mut totals, weight_chunks, input_chunks);
+        }
+    }
+    totals.iter().sum()
+}
+
+/// Like [`dot_asym_i4_row`], for an 8-bit matrix.
+fn dot_asym_i8_row(
+    scales: &[f32],
+    zero_points: &[f32],
+    bytes: &[u8],
+    block: usize,
+    input: &[f32],
+) -> f32 {
+    let mut totals = [0.0_f32; LANES];
+    let blocks = bytes.chunks_exact(block).zip(input.chunks_exact(block));
+    let parameters = scales.iter().zip(zero_points);
+    for ((block_bytes, block_input), (&scale, &zero_point)) in blocks.zip(parameters) {
+        let (groups, _) = block_bytes.as_chunks::<32>();
+        let (group_inputs, _) = block_input.as_chunks::<32>();
+        for (group, group_input) in groups.iter().zip(group_inputs) {
+            let weights = decode_i8_32(group, scale, zero_point);
             let (weight_chunks, _) = weights.as_chunks::<LANES>();
             let (input_chunks, _) = group_input.as_chunks::<LANES>();
             add_products(&mut totals, weight_chunks, input_chunks);
@@ -586,16 +646,21 @@ mod tests {
 
     #[test]
     fn one_vector_gives_bit_for_bit_what_it_gives_in_a_batch() {
-        // 4-bit and 8-bit blocks of 32 and 64 multiply a single vector as
-        // they decode it, and take a large batch in groups: the larger batch
-        // here leaves one vector for its last group. Every other layout
-        // decodes each row first, whatever the batch.
+        // 4-bit and 8-bit blocks of 32 and 64, with or without zero-points,
+        // multiply a single vector as they decode it, and decode each row
+        // first for a batch. Without zero-points they take a large batch in
+        // groups: the larger batch here leaves one vector for its last group.
+        // Every other layout decodes each row first, whatever the batch.
         let values: Vec<f32> = (0..6 * 128).map(|i| (i as f32 * 0.37).sin()).collect();
         let mut wide_rows = [
             symmetric::quantize_with(&values, 4, 32).unwrap(),
             symmetric::quantize_with(&values, 4, 64).unwrap(),
             symmetric::quantize_with(&values, 8, 32).unwrap(),
             symmetric::quantize_with(&values, 8, 64).unwrap(),
+            asymmetric::quantize_with(&values, 4, 32).unwrap(),
+            asymmetric::quantize_with(&values, 4, 64).unwrap(),
+            asymmetric::quantize_with(&values, 8, 32).unwrap(),
+            asymmetric::quantize_with(&values, 8, 64).unwrap(),
         ];
         for matrix in &mut wide_rows {
             matrix.set_shape(6, 128).unwrap();

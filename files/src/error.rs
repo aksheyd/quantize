@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 /// An error from reading or writing a model file.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// The file at `path` couldn't be read or written.
     Io {

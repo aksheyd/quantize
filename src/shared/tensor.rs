@@ -747,12 +747,14 @@ mod tests {
         // On 3 and 8 threads, these calls split their rows, their vectors, or
         // both, and parts that don't divide evenly leave the last share
         // short. Each should give what one thread gives, bit for bit. One
-        // vector through 2049 rows, and 17 through 513, split their rows. On
-        // 3 threads, 129 vectors through 152 rows and 369 through 64 split
-        // their rows too, and on 8, they split into two parts of the vectors,
-        // each split by rows. The 4-bit blocks of 32 multiply one vector as
-        // they decode it, and the adaptive blocks of 7 cross from one row
-        // into the next.
+        // vector through 2049 rows, and 17 through 513, split their rows, and
+        // so do 129 vectors through 152 rows, but on 8 threads the 4-bit
+        // blocks split those into two parts of the vectors, each split by
+        // rows. 369 vectors through 64 rows split only their vectors with the
+        // 4-bit blocks, and with the adaptive blocks, their rows on 3 threads
+        // and both on 8. The 4-bit blocks of 32 multiply one vector as they
+        // decode it, and the adaptive blocks of 7 cross from one row into the
+        // next.
         let pool = |threads| {
             rayon::ThreadPoolBuilder::new()
                 .num_threads(threads)

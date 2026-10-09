@@ -31,15 +31,15 @@ const VALUES_PER_ROW_SHARE: usize = 1 << 19;
 /// long as multiplying its values by its vectors plus this many.
 const DECODE_IN_VECTORS: usize = 4;
 
-/// The fewest vectors in each share of a batch's vectors.
+/// The fewest vectors in each part of a batch's vectors.
 ///
-/// Each share decodes the whole matrix, which takes about as long as
+/// Each part decodes the whole matrix, which takes about as long as
 /// multiplying it by 1 to 4 vectors for the [`whole_groups_of_32`] layouts,
 /// and by up to 23 for the rest. When other threads already keep every core
 /// busy, the shares take turns with them, which costs more than that. With 8
-/// threads each multiplying their own batch on an 8-core x86 machine, shares
+/// threads each multiplying their own batch on an 8-core x86 machine, parts
 /// this size keep every call within about a seventh of its time without the
-/// feature, where shares half this size cost up to a fifth.
+/// feature, where parts half this size cost up to a fifth.
 fn fewest_vectors_per_share<S: Scale>(quantized: &Quantized<S>, columns: usize) -> usize {
     if whole_groups_of_32(quantized, columns) {
         64
@@ -81,6 +81,7 @@ pub(crate) fn matmul_on_every_core<S: Scale>(
     // needs a full share of vectors. Of the ways to split them, take the one
     // that gives the most shares, and of those, the most parts of the
     // vectors: a smaller part's inputs stay in cache while its rows pass.
+    // `max_by_key` returns the last of equal maxima, which has the most parts.
     let most_vector_parts = (batch / fewest_vectors_per_share(quantized, columns)).clamp(1, cores);
     let vector_parts = (1..=most_vector_parts)
         .max_by_key(|&vector_parts| vector_parts * row_parts(vector_parts))

@@ -4,12 +4,24 @@
 //!
 //! - gguf, llama.cpp's format, holds `Q4_32` and `Q8_32` matrices as ggml's
 //!   `Q4_0` and `Q8_0` blocks: `smollm-135m-q4_0.gguf` for `Q4_32`. ggml has
-//!   no blocks for other schemes, so they get no gguf file.
+//!   no blocks for other schemes, so they get no gguf file. llama.cpp runs
+//!   the file as it runs its own conversion of SmolLM-135M, which takes
+//!   three changes, each in a file of its own: llama.cpp's names for the
+//!   tensors, in `llama_cpp_names.rs`; its order for the rows of the query
+//!   and key matrices, in `rope_order.rs`; and metadata that describes the
+//!   model, in `gguf_metadata.rs`, and its tokenizer, in
+//!   `tokenizer_metadata.rs`.
 //! - safetensors, Hugging Face's format, holds a matrix of any scheme as the
-//!   bytes that quantize writes: `smollm-135m-q4_32.safetensors` for `Q4_32`.
+//!   bytes that quantize writes, by Hugging Face's names:
+//!   `smollm-135m-q4_32.safetensors` for `Q4_32`.
 //!
 //! Each file holds every tensor, the quantized matrices and the f32 norms,
-//! by its Hugging Face name, so either one loads back alone.
+//! so either one loads back alone.
+
+mod gguf_metadata;
+mod llama_cpp_names;
+pub mod rope_order;
+mod tokenizer_metadata;
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -18,6 +30,9 @@ use std::path::{Path, PathBuf};
 
 use quantize::{Scheme, f16};
 use quantize_files::{Tensor, gguf, safetensors};
+use tokenizers::Tokenizer;
+
+use crate::config::Config;
 
 /// The quantized model's files.
 pub struct SavedFiles {
@@ -30,21 +45,23 @@ pub struct SavedFiles {
 impl SavedFiles {
     /// Save `tensors`, quantized with `scheme`, into `directory`, replacing
     /// any files of the same names, and print each file's path and size.
+    /// The gguf file also holds what llama.cpp needs to run the model, from
+    /// `config` and `tokenizer`.
     pub fn save(
         directory: &Path,
         scheme: Scheme,
+        config: &Config,
+        tokenizer: &Tokenizer,
         tensors: &BTreeMap<String, Tensor<f16>>,
     ) -> Result<Self, Box<dyn Error>> {
         fs::create_dir_all(directory)
             .map_err(|error| format!("{}: {error}", directory.display()))?;
         let gguf_path = match ggml_blocks_for(scheme) {
-            Some(blocks) => {
+            Some((blocks, file_type)) => {
                 let path = directory.join(format!("smollm-135m-{blocks}.gguf"));
-                // llama.cpp runs a file whose metadata names its architecture,
-                // and looks its tensors up by llama.cpp's own names. These
-                // are Hugging Face's, so the metadata stays empty, and
-                // llama.cpp won't take the file for a model it can run.
-                gguf::write(&path, &gguf::Metadata::new(), tensors)?;
+                let metadata = gguf_metadata::metadata(config, tokenizer, file_type)?;
+                let tensors = llama_cpp_names::to_llama_cpp(tensors, config)?;
+                gguf::write(&path, &metadata, &tensors)?;
                 print_saved(&path)?;
                 Some(path)
             }
@@ -61,29 +78,33 @@ impl SavedFiles {
     }
 
     /// Load the tensors back from the gguf file, the one llama.cpp reads, or
-    /// from the safetensors file when the scheme has no gguf.
-    pub fn load(&self) -> Result<BTreeMap<String, Tensor<f16>>, quantize_files::Error> {
+    /// from the safetensors file when the scheme has no gguf. Either way,
+    /// they come back by Hugging Face's names, in Hugging Face's order, as
+    /// [`Model::new`](crate::model::Model::new) takes them.
+    pub fn load(&self, config: &Config) -> Result<BTreeMap<String, Tensor<f16>>, Box<dyn Error>> {
         let path = self.gguf.as_ref().unwrap_or(&self.safetensors);
         println!("loading the quantized model from {}", path.display());
         if self.gguf.is_some() {
-            gguf::read(path).map(|(_metadata, tensors)| tensors)
+            let (_metadata, tensors) = gguf::read(path)?;
+            Ok(llama_cpp_names::to_hugging_face(tensors, config)?)
         } else {
-            safetensors::read(path)
+            Ok(safetensors::read(path)?)
         }
     }
 }
 
-/// The name of the ggml blocks that hold `scheme`'s matrices, as llama.cpp's
-/// file names give it, or `None` if no ggml blocks hold them as they are.
+/// The ggml blocks that hold `scheme`'s matrices, or `None` if no ggml
+/// blocks hold them as they are: their name, as llama.cpp's file names give
+/// it, and llama.h's number for a file whose matrices are all those blocks.
 ///
 /// ggml's `Q4_0` and `Q8_0` are quantize's symmetric 4-bit and 8-bit blocks
 /// of 32, with the same f16 scales, laid out another way. ggml's blocks
 /// have no place for an asymmetric block's zero-point, or for an adaptive
 /// block's width of its own.
-fn ggml_blocks_for(scheme: Scheme) -> Option<&'static str> {
+fn ggml_blocks_for(scheme: Scheme) -> Option<(&'static str, u32)> {
     match scheme {
-        Scheme::Symmetric { bits: 4, block: 32 } => Some("q4_0"),
-        Scheme::Symmetric { bits: 8, block: 32 } => Some("q8_0"),
+        Scheme::Symmetric { bits: 4, block: 32 } => Some(("q4_0", 2)),
+        Scheme::Symmetric { bits: 8, block: 32 } => Some(("q8_0", 7)),
         _ => None,
     }
 }

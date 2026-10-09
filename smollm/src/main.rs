@@ -9,9 +9,10 @@
 //! 2. Quantize every weight matrix with `--scheme`, `Q4_32` by default, with
 //!    f16 scales. The norms' weights stay f32.
 //! 3. Save the quantized model in `target/smollm`, or `--output DIR`:
-//!    as `smollm-135m-q4_0.gguf`, llama.cpp's format, when ggml has blocks
-//!    for the scheme, and as `smollm-135m-q4_32.safetensors`, Hugging Face's
-//!    format, for any scheme.
+//!    as `smollm-135m-q4_0.gguf`, llama.cpp's format, which llama.cpp runs,
+//!    when ggml has blocks for the scheme, and as
+//!    `smollm-135m-q4_32.safetensors`, Hugging Face's format, for any
+//!    scheme.
 //! 4. Load the quantized model back from the gguf file, or from the
 //!    safetensors file when the scheme has no gguf.
 //! 5. Generate 32 tokens greedily from the f32 model and the loaded one,
@@ -20,7 +21,8 @@
 //! The model is plain Rust. Its files read in order: `config.rs`,
 //! `linear.rs`, `attention.rs`, `layer.rs`, `model.rs`, `weights.rs`, and
 //! `generate.rs`. `saved_files.rs` saves the quantized model and loads it
-//! back.
+//! back, and the files in `saved_files/` write the gguf as llama.cpp's own
+//! converter does.
 //!
 //! Run: `cargo run --release -p smollm -- the capital of france is`, and add
 //! `--scheme Q8_32` for 8-bit weights.
@@ -74,13 +76,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let saved = SavedFiles::save(
         &arguments.output_directory,
         arguments.scheme,
+        &config,
+        &tokenizer,
         &quantized_tensors,
     )?;
     // The quantized model comes from its file, not from the tensors in
     // memory, so its text shows that the file holds the whole model.
     let models = [
         ("f32", Model::new(&config, tensors)?),
-        ("quantized", Model::new(&config, saved.load()?)?),
+        ("quantized", Model::new(&config, saved.load(&config)?)?),
     ];
 
     let encoding = tokenizer.encode(arguments.prompt.as_str(), true);

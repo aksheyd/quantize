@@ -45,12 +45,26 @@ except ToleranceTooTightError as error:
 
 quantized values can be pickled, and compared with `==`. `q.to_bytes()` saves one as bytes, in the same format as the rust crate, and `Quantized.from_bytes(data)` loads it back. to keep it in an `np.savez` or safetensors file, store `np.frombuffer(q.to_bytes(), np.uint8)`.
 
+to save its parts as plain arrays instead, like with `np.savez`, pass them back by name to `Quantized.from_parts`. leave out the one that's `None`: `bits` for an adaptive tensor, or `block_bits` for the others:
+
+```python
+parts = dict(kind=q.kind, shape=q.shape, block=q.block, bits=q.bits, block_bits=q.block_bits,
+             codes=q.codes, scales=q.scales, zero_points=q.zero_points, scale=q.scale.name)
+np.savez("layer.npz", **{name: part for name, part in parts.items() if part is not None})
+q = Quantized.from_parts(**np.load("layer.npz"))
+```
+
+to keep quantized values in a `torch.save` checkpoint, store `torch.frombuffer(bytearray(q.to_bytes()), dtype=torch.uint8)`, and load each back with `Quantized(t)`. the checkpoint is then as small as the bytes, and `torch.load` reads it without `add_safe_globals`. pickling `q` itself makes the checkpoint about 1.5 times larger, since `torch.save` stores bytes as text, and needs `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
+
 a gguf file, which llama.cpp runs, holds a matrix quantized with `bits=4` or `bits=8` and `scale=Scale.F16`, in blocks of 32, as ggml's `Q4_0` or `Q8_0` blocks. `q.to_ggml()` gives those blocks and their type's name, for the [gguf](https://pypi.org/project/gguf/) package, and `Quantized.from_ggml` loads them back:
 
 ```python
+import numpy as np
 from gguf import GGMLQuantizationType, GGUFReader, GGUFWriter
+from quantize import Quantized, Scale, quantize
 
-blocks, ggml_type = q.to_ggml()  # ggml_type is "Q4_0" or "Q8_0"
+q = quantize(np.random.randn(64, 256), bits=4, scale=Scale.F16)
+blocks, ggml_type = q.to_ggml()  # "Q4_0", or "Q8_0" for bits=8
 writer = GGUFWriter("model.gguf", arch="llama")
 writer.add_tensor("weight", blocks, raw_dtype=GGMLQuantizationType[ggml_type])
 writer.write_header_to_file()
@@ -65,17 +79,6 @@ q = Quantized.from_ggml(tensor.data, tensor.tensor_type.name)
 any other tensor raises `QuantizeError`, which says why. keep those in safetensors, as above.
 
 numpy has no bf16, so to quantize a bf16 checkpoint, load it with pytorch, like `safetensors.torch.load_file`. `quantize` reads its bf16 tensors as they are, and `t.float()` turns one into floats numpy can read.
-
-to save its parts as plain arrays instead, like with `np.savez`, pass them back by name to `Quantized.from_parts`. leave out the one that's `None`: `bits` for an adaptive tensor, or `block_bits` for the others:
-
-```python
-parts = dict(kind=q.kind, shape=q.shape, block=q.block, bits=q.bits, block_bits=q.block_bits,
-             codes=q.codes, scales=q.scales, zero_points=q.zero_points, scale=q.scale.name)
-np.savez("layer.npz", **{name: part for name, part in parts.items() if part is not None})
-q = Quantized.from_parts(**np.load("layer.npz"))
-```
-
-to keep quantized values in a `torch.save` checkpoint, store `torch.frombuffer(bytearray(q.to_bytes()), dtype=torch.uint8)`, and load each back with `Quantized(t)`. the checkpoint is then as small as the bytes, and `torch.load` reads it without `add_safe_globals`. pickling `q` itself makes the checkpoint about 1.5 times larger, since `torch.save` stores bytes as text, and needs `torch.serialization.add_safe_globals([Quantized])` before `torch.load`.
 
 `q.matmul` runs on one core, but it lets other threads run while it multiplies, so threads can share out a batch. on an 8-core intel xeon, this multiplies a batch of 512 by a 4-bit 1536 × 576 matrix in 6 ms instead of 33 ms, with the same result, bit for bit:
 

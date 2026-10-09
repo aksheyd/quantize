@@ -5,9 +5,9 @@
 //! into its own pieces of `out`. A share costs more than its multiplications,
 //! so a call splits only into shares big enough to pay for themselves, and a
 //! call too small for two stays on the thread that made it, as every call does
-//! without the feature. That matters most when a program already multiplies
-//! on several threads at once: its cores are busy, so a split can't make a call
-//! faster, and whatever the split costs comes out of every call.
+//! without the feature. That matters most when a program already keeps every
+//! core busy multiplying: a split can't make its calls faster, and whatever
+//! the split costs comes out of every call.
 
 use rayon::prelude::*;
 

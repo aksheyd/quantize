@@ -59,8 +59,9 @@ fn saved_files_generate_the_tokens_that_memory_does() {
     let tiny = tiny_llama("saved-generation");
     let directory = temporary_directory("saved-generation-files");
     // The tiny llama answers this prompt with "which" a few times, then
-    // "later" over and over. Where it turns moves with any change to the
-    // weights: each of the three schemes turns at a different token.
+    // "later" over and over, and each of the three schemes turns at a
+    // different token. Most changes to a matrix move where one of them
+    // turns; the test above, which compares the tensors, catches the rest.
     let prompt = encode(&tiny.tokenizer, "the first school in the city");
     let generate_from = |tensors| {
         let model = Model::new(&tiny.config, tensors).unwrap();

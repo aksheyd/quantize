@@ -76,3 +76,9 @@ wikitext *args:
 
 update-readme:
     cargo run --release -p benchmarks --example update_readme
+
+# Downloads SmolLM-135M, quantizes it, and generates text, like
+# `just smollm --scheme Q8_32 the capital of france is`.
+[positional-arguments]
+smollm *args:
+    cargo run --release -p smollm -- "$@"

@@ -13,7 +13,7 @@ const BF16: u32 = 30;
 
 /// How many bytes tensor `name`'s data takes: its shape's values, of
 /// `ggml_type`.
-pub(super) fn data_size(name: &str, ggml_type: u32, shape: &[usize]) -> Result<usize, Error> {
+pub(super) fn byte_count_of(name: &str, ggml_type: u32, shape: &[usize]) -> Result<usize, Error> {
     let value_size = match ggml_type {
         F32 => 4,
         F16 | BF16 => 2,
@@ -23,8 +23,8 @@ pub(super) fn data_size(name: &str, ggml_type: u32, shape: &[usize]) -> Result<u
             )));
         }
     };
-    let size = value_count(shape).and_then(|count| count.checked_mul(value_size));
-    size.ok_or_else(|| {
+    let byte_count = value_count(shape).and_then(|count| count.checked_mul(value_size));
+    byte_count.ok_or_else(|| {
         invalid(format!(
             "tensor {name:?} has shape {shape:?}, which holds too many bytes to count"
         ))
@@ -37,7 +37,7 @@ pub(super) fn decode(ggml_type: u32, shape: Vec<usize>, bytes: &[u8]) -> Tensor<
     let values = match ggml_type {
         F32 => values_of(bytes, f32::from_le_bytes),
         F16 => values_of(bytes, |value| f16::from_le_bytes(value).to_f32()),
-        // Only BF16 is left, since `data_size` refused every other type.
+        // Only BF16 is left, since `byte_count_of` refused every other type.
         _ => values_of(bytes, |value| bf16::from_le_bytes(value).to_f32()),
     };
     Tensor::Float { shape, values }

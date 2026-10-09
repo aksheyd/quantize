@@ -6,7 +6,7 @@ use std::path::Path;
 
 use half::f16;
 
-use super::ggml_types::{data_size, decode};
+use super::ggml_types::{byte_count_of, decode};
 use super::reader::Reader;
 use super::{MAGIC, Metadata, VERSION, Value, alignment};
 use crate::Tensor;
@@ -121,7 +121,7 @@ fn read_data(
     let mut next_offset = 0;
     for info in tensor_infos {
         let name = info.name;
-        let size = data_size(&name, info.ggml_type, &info.shape)?;
+        let byte_count = byte_count_of(&name, info.ggml_type, &info.shape)?;
         let offset = info.offset;
         if !offset.is_multiple_of(alignment) {
             return Err(invalid(format!(
@@ -134,14 +134,14 @@ fn read_data(
             )));
         }
         let start = data_start + offset;
-        let end = start.checked_add(size);
+        let end = start.checked_add(byte_count);
         let Some(tensor_bytes) = end.and_then(|end| bytes.get(start..end)) else {
             return Err(invalid(format!(
                 "tensor {name:?}'s data runs past the end of the file, at byte {}",
                 bytes.len()
             )));
         };
-        next_offset = (offset + size).next_multiple_of(alignment);
+        next_offset = (offset + byte_count).next_multiple_of(alignment);
         let tensor = decode(info.ggml_type, info.shape, tensor_bytes);
         if tensors.insert(name.clone(), tensor).is_some() {
             return Err(invalid(format!("tensor {name:?} appears twice")));

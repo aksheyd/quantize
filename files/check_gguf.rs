@@ -5,7 +5,7 @@
 //!    of every type, which the Python half reads with `gguf.GGUFReader` and
 //!    checks. It also saves `DIR/quantized_from_rust.gguf`, with a `Q4_32`
 //!    and a `Q8_32` matrix, which the Python half decodes with
-//!    `gguf.quants.dequantize`.
+//!    `gguf.quants.dequantize`, and `just ggml-check` with ggml.
 //! 2. The Python half saves `DIR/from_python.gguf` with `gguf.GGUFWriter`,
 //!    and `DIR/quantized_from_python.gguf` with blocks that
 //!    `gguf.quants.quantize` made.
@@ -23,6 +23,9 @@ use std::{env, fs};
 use quantize::{Scheme, f16};
 use quantize_files::Tensor;
 use quantize_files::gguf::{self, Metadata, Value};
+
+/// How many inputs the quantized matrices multiply, for `just ggml-check`.
+const BATCH: usize = 16;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<String> = env::args().skip(1).collect();
@@ -58,7 +61,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ]);
             fs::create_dir_all(directory)?;
             gguf::write(directory.join("from_rust.gguf"), &metadata, &tensors)?;
-            // The quantized matrices go in a file of their own.
+            // The quantized matrices go in a file of their own, which
+            // `just ggml-check` loads with ggml too.
             let metadata = metadata_of(&[("general.architecture", text("quantize-check"))]);
             let path = directory.join("quantized_from_rust.gguf");
             gguf::write(path, &metadata, &quantized()?)?;
@@ -145,9 +149,12 @@ fn float(shape: &[usize]) -> Tensor<f16> {
 }
 
 /// A `Q4_32` and a `Q8_32` matrix of 64 rows of 256 [`weights`], as `q4_0`
-/// and `q8_0`, each next to `NAME.decoded`.
+/// and `q8_0`. Next to each is `NAME.decoded`, and `NAME.product`: the
+/// product of its `matmul` with the `BATCH` vectors in `inputs`, which
+/// `just ggml-check` compares with ggml's.
 fn quantized() -> Result<BTreeMap<String, Tensor<f16>>, quantize::Error> {
     let (rows, columns) = (64, 256);
+    let inputs = normal(BATCH * columns, 2, 1.0);
     let mut tensors = BTreeMap::new();
     for (name, scheme) in [("q4_0", Scheme::Q4_32), ("q8_0", Scheme::Q8_32)] {
         let mut matrix = scheme.quantize::<f16>(&weights(rows, columns))?;
@@ -157,9 +164,23 @@ fn quantized() -> Result<BTreeMap<String, Tensor<f16>>, quantize::Error> {
             shape,
             values: matrix.dequantize(),
         };
+        let shape = vec![BATCH, rows];
+        let product = Tensor::Float {
+            shape,
+            values: matrix.matmul(&inputs)?,
+        };
         tensors.insert(format!("{name}.decoded"), decoded);
+        tensors.insert(format!("{name}.product"), product);
         tensors.insert(name.to_string(), Tensor::Quantized(matrix));
     }
+    let shape = vec![BATCH, columns];
+    tensors.insert(
+        "inputs".to_string(),
+        Tensor::Float {
+            shape,
+            values: inputs,
+        },
+    );
     Ok(tensors)
 }
 

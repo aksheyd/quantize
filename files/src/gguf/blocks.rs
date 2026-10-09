@@ -23,6 +23,8 @@
 //! quantize's bytes, block by block. quantize puts each block's value
 //! farthest from zero on -128, a code that ggml's own quantizer never
 //! writes, but that its decoder reads as it reads any other.
+//! `just ggml-check` checks that its CPU kernels multiply by it as quantize
+//! does.
 //!
 //! [`Scheme::Q4_32`]: quantize::Scheme::Q4_32
 //! [`Scheme::Q8_32`]: quantize::Scheme::Q8_32

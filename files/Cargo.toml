@@ -17,7 +17,7 @@ serde_json = "1"
 workspace = true
 
 # The Rust halves of `just files-check`, with check_safetensors.py and
-# check_gguf.py.
+# check_gguf.py. check_gguf also writes the file that `just ggml-check` loads.
 [[example]]
 name = "check_safetensors"
 path = "check_safetensors.rs"

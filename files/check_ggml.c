@@ -95,6 +95,7 @@ static float * rounded_to_q8_0(const float * inputs, int64_t columns, int64_t co
 static char repacked_as[32];
 
 static void keep_repack_layout(enum ggml_log_level level, const char * text, void * user_data) {
+    (void) level, (void) user_data;
     const char * with = strstr(text, "repack tensor") ? strstr(text, " with ") : NULL;
     if (with) {
         with += strlen(" with ");
@@ -102,7 +103,6 @@ static void keep_repack_layout(enum ggml_log_level level, const char * text, voi
     } else {
         fputs(text, stderr);
     }
-    (void) level, (void) user_data;
 }
 
 // `weights` times the first `count` inputs on ggml's CPU backend, with the
@@ -111,7 +111,11 @@ static void keep_repack_layout(enum ggml_log_level level, const char * text, voi
 // buffer by placing them in an empty one, as this does.
 static float * ggml_product(ggml_backend_t backend, ggml_backend_buffer_type_t buffer_type,
                             const struct ggml_tensor * weights, const float * inputs, int64_t count) {
-    struct ggml_init_params params = { 4 * ggml_tensor_overhead() + ggml_graph_overhead(), NULL, true };
+    struct ggml_init_params params = {
+        .mem_size = 4 * ggml_tensor_overhead() + ggml_graph_overhead(),
+        .mem_buffer = NULL,
+        .no_alloc = true,
+    };
     struct ggml_context * weight_context = ggml_init(params);
     struct ggml_context * context = ggml_init(params);
     struct ggml_tensor * matrix = ggml_new_tensor_2d(weight_context, weights->type, weights->ne[0], weights->ne[1]);

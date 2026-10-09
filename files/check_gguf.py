@@ -44,8 +44,6 @@ expected_metadata = {
     "check.bool": ([T.BOOL], True),
     "check.strings": ([T.ARRAY, T.STRING], ["a", "", "naïve"]),
     "check.floats": ([T.ARRAY, T.FLOAT32], [0.5, -2.0]),
-    # GGUFReader gives a nested array's innermost elements, one after another.
-    "check.nested": ([T.ARRAY, T.ARRAY, T.STRING], ["b", "c", "d"]),
 }
 # GGUFReader also lists the header's numbers, as fields named GGUF.*.
 fields = {key: field for key, field in reader.fields.items() if not key.startswith("GGUF.")}

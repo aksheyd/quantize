@@ -9,7 +9,7 @@ use half::f16;
 use super::ggml_types::encode;
 use super::{MAGIC, Metadata, VERSION, alignment};
 use crate::Tensor;
-use crate::error::Error;
+use crate::error::{Error, invalid};
 
 /// Write `metadata` and `tensors` to a gguf file at `path`, replacing any
 /// file there.
@@ -22,8 +22,10 @@ use crate::error::Error;
 /// [`Error::Invalid`] if `general.alignment` isn't a
 /// [`Value::U32`](super::Value::U32) that is a power of two, an array is
 /// empty or its elements don't all have one type, a float tensor's shape
-/// doesn't hold its number of values, or a tensor is quantized, and
-/// [`Error::Io`] if the file can't be written.
+/// doesn't hold its number of values, a tensor is quantized, or the file
+/// would break one of the limits of ggml, which llama.cpp loads files with:
+/// more than 4 dimensions, a tensor name of 64 bytes or more, or an array of
+/// arrays. [`Error::Io`] if the file can't be written.
 pub fn write(
     path: impl AsRef<Path>,
     metadata: &Metadata,
@@ -57,6 +59,7 @@ pub(super) fn to_bytes(
     let mut data = Vec::new();
     for (name, tensor) in tensors {
         let (ggml_type, shape, tensor_bytes) = encode(name, tensor)?;
+        check_ggml_loads(name, &shape)?;
         write_string(&mut bytes, name);
         bytes.extend((shape.len() as u32).to_le_bytes());
         // Dimensions run innermost first, the reverse of the shape.
@@ -77,4 +80,30 @@ pub(super) fn to_bytes(
 pub(super) fn write_string(bytes: &mut Vec<u8>, text: &str) {
     bytes.extend((text.len() as u64).to_le_bytes());
     bytes.extend(text.as_bytes());
+}
+
+/// The most dimensions a tensor can have for ggml to load it.
+const MOST_DIMENSIONS: usize = 4;
+
+/// The longest tensor name, in bytes, that ggml loads: it keeps each name in
+/// 64 bytes, the last of them a zero.
+const LONGEST_NAME: usize = 63;
+
+/// Check that ggml would load tensor `name` of `shape`. The format allows any
+/// name and any number of dimensions, but ggml refuses a whole file for one
+/// tensor past its limits.
+fn check_ggml_loads(name: &str, shape: &[usize]) -> Result<(), Error> {
+    if name.len() > LONGEST_NAME {
+        return Err(invalid(format!(
+            "tensor {name:?}'s name is {} bytes long, but ggml loads names of at most {LONGEST_NAME}",
+            name.len()
+        )));
+    }
+    if shape.len() > MOST_DIMENSIONS {
+        return Err(invalid(format!(
+            "tensor {name:?} has {} dimensions, but ggml loads at most {MOST_DIMENSIONS}",
+            shape.len()
+        )));
+    }
+    Ok(())
 }

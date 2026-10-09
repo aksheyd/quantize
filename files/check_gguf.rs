@@ -44,10 +44,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "check.floats",
                     Value::Array(vec![Value::F32(0.5), Value::F32(-2.0)]),
                 ),
-                (
-                    "check.nested",
-                    Value::Array(vec![strings(&["b"]), strings(&["c", "d"])]),
-                ),
             ]);
             let tensors = BTreeMap::from([
                 ("matrix".to_string(), float(&[6, 20])),

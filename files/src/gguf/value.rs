@@ -34,9 +34,10 @@ pub enum Value {
     Bool(bool),
     /// Type 8: UTF-8 text.
     String(String),
-    /// Type 9: values that all have one type, which can be arrays too.
-    /// ggml's own reader refuses arrays of arrays, so llama.cpp can't load a
-    /// file that holds one.
+    /// Type 9: values that all have one type. The format lets them be arrays
+    /// too, which [`read()`](super::read) takes, but
+    /// [`write()`](super::write) refuses, since ggml's own reader refuses
+    /// arrays of arrays, so llama.cpp couldn't load the file.
     Array(Vec<Value>),
 }
 
@@ -147,6 +148,11 @@ impl Value {
                         "metadata {key:?} is an empty array, which has no element type to write"
                     )));
                 };
+                if let Self::Array(_) = first {
+                    return Err(invalid(format!(
+                        "metadata {key:?} is an array of arrays, which ggml doesn't load"
+                    )));
+                }
                 let element_type = first.type_number();
                 if elements
                     .iter()

@@ -196,6 +196,41 @@ fn writing_refuses_what_the_format_cannot_hold() {
 }
 
 #[test]
+fn writing_refuses_what_ggml_would_not_load() {
+    let long_name = "x".repeat(64);
+    let tensor_cases = [
+        (
+            long_name.clone(),
+            float(&[1]),
+            format!(
+                "tensor {long_name:?}'s name is 64 bytes long, but ggml loads names of at most 63"
+            ),
+        ),
+        (
+            "x".to_string(),
+            float(&[1, 1, 1, 1, 1]),
+            r#"tensor "x" has 5 dimensions, but ggml loads at most 4"#.to_string(),
+        ),
+    ];
+    for (name, tensor, message) in tensor_cases {
+        let tensors = BTreeMap::from([(name, tensor)]);
+        let error = to_bytes(&Metadata::new(), &tensors).unwrap_err();
+        assert_eq!(error.to_string(), message);
+    }
+    // A byte shorter and a dimension fewer are within ggml's limits.
+    let at_the_limits = BTreeMap::from([("x".repeat(63), float(&[1, 1, 1, 1]))]);
+    assert!(to_bytes(&Metadata::new(), &at_the_limits).is_ok());
+
+    let nested = Value::Array(vec![Value::Array(vec![Value::I32(1)])]);
+    let metadata = Metadata::from([("k".to_string(), nested)]);
+    let error = to_bytes(&metadata, &BTreeMap::new()).unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        r#"metadata "k" is an array of arrays, which ggml doesn't load"#
+    );
+}
+
+#[test]
 fn a_file_that_does_not_open_gives_its_path() {
     let path = temporary_path("missing");
     let error = read(&path).unwrap_err();

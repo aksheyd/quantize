@@ -40,6 +40,12 @@
 //! alignment: 32 bytes, unless the metadata entry `general.alignment`, a
 //! `u32` power of two, says otherwise.
 //!
+//! ggml, the library llama.cpp loads files with, takes less than the format
+//! allows: at most 4 dimensions, tensor names shorter than 64 bytes, and no
+//! arrays of arrays. [`write()`] refuses anything past those limits, rather
+//! than write a file that llama.cpp won't load, but [`read()`] takes it,
+//! since the `gguf` Python package writes it.
+//!
 //! ggml types `F32` (0), `F16` (1), and `BF16` (30) read as
 //! [`Tensor::Float`](crate::Tensor::Float), widened to `f32`, and float
 //! tensors write as `F32`. Any other ggml type, and a

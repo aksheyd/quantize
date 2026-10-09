@@ -33,13 +33,6 @@ fn every_type() -> Metadata {
             "floats",
             Value::Array(vec![Value::F32(0.5), Value::F32(-2.0)]),
         ),
-        (
-            "nested",
-            Value::Array(vec![
-                Value::Array(vec![Value::I32(1), Value::I32(2)]),
-                Value::Array(vec![Value::String("three".to_string())]),
-            ]),
-        ),
     ];
     values
         .into_iter()
@@ -101,6 +94,31 @@ fn dimensions_read_innermost_first() {
         values: counting,
     };
     assert_eq!(tensors["cube"], cube);
+}
+
+#[test]
+fn arrays_of_arrays_read_as_the_gguf_package_writes_them() {
+    // An array of I32s: their type, 5, how many there are, then each one.
+    let array_of_i32s = |numbers: &[i32]| {
+        let mut bytes = 5_u32.to_le_bytes().to_vec();
+        bytes.extend((numbers.len() as u64).to_le_bytes());
+        bytes.extend(numbers.iter().flat_map(|number| number.to_le_bytes()));
+        bytes
+    };
+    // [[1, 2], [3]]: an array of 2 elements of type 9, arrays.
+    let nested = [
+        &9_u32.to_le_bytes()[..],
+        &2_u64.to_le_bytes(),
+        &array_of_i32s(&[1, 2]),
+        &array_of_i32s(&[3]),
+    ]
+    .concat();
+    let (metadata, _) = from_bytes(&file(&[entry("k", 9, &nested)], &[], &[])).unwrap();
+    let expected = Value::Array(vec![
+        Value::Array(vec![Value::I32(1), Value::I32(2)]),
+        Value::Array(vec![Value::I32(3)]),
+    ]);
+    assert_eq!(metadata["k"], expected);
 }
 
 #[test]

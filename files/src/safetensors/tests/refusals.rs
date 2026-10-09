@@ -3,10 +3,10 @@ use std::collections::BTreeMap;
 use half::f16;
 use quantize::Scheme;
 
-use super::super::read;
-use super::super::read::from_bytes;
-use super::super::write::to_bytes;
 use super::{file, float, temporary_path, values};
+use crate::safetensors::read;
+use crate::safetensors::read::from_bytes;
+use crate::safetensors::write::to_bytes;
 use crate::{Error, Tensor};
 
 fn refusal(bytes: &[u8]) -> String {

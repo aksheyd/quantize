@@ -5,11 +5,11 @@ use half::{bf16, f16};
 use quantize::{Scale, Scheme};
 use serde_json::{Value, json};
 
-use super::super::read::from_bytes;
-use super::super::write::to_bytes;
-use super::super::{read, write};
 use super::{file, float, temporary_path, values};
 use crate::Tensor;
+use crate::safetensors::read::from_bytes;
+use crate::safetensors::write::to_bytes;
+use crate::safetensors::{read, write};
 
 #[test]
 fn floats_of_every_shape_round_trip_through_a_file() {
@@ -64,27 +64,27 @@ fn quantized_tensors_of_every_scheme_and_scale_type_round_trip() {
 fn f16_and_bf16_tensors_read_as_the_f32_values_they_hold() {
     // 1, -2, about a third, the largest value, the smallest above zero, and
     // negative zero.
-    let half_bits: [u16; 6] = [0x3C00, 0xC000, 0x3555, 0x7BFF, 0x0001, 0x8000];
-    let half_values = [1.0, -2.0, 0.333_251_95, 65504.0, 2.0_f32.powi(-24), -0.0];
-    let brain_bits: [u16; 6] = [0x3F80, 0xC000, 0x3EAB, 0x7F7F, 0x0001, 0x8000];
+    let f16_bits: [u16; 6] = [0x3C00, 0xC000, 0x3555, 0x7BFF, 0x0001, 0x8000];
+    let f16_values = [1.0, -2.0, 0.333_251_95, 65504.0, 2.0_f32.powi(-24), -0.0];
+    let bf16_bits: [u16; 6] = [0x3F80, 0xC000, 0x3EAB, 0x7F7F, 0x0001, 0x8000];
     // A bf16 is the first 16 bits of an f32.
-    let brain_values = brain_bits.map(|bits| f32::from_bits(u32::from(bits) << 16));
+    let bf16_values = bf16_bits.map(|bits| f32::from_bits(u32::from(bits) << 16));
 
-    let data: Vec<u8> = half_bits
+    let data: Vec<u8> = f16_bits
         .iter()
-        .chain(&brain_bits)
+        .chain(&bf16_bits)
         .flat_map(|bits| bits.to_le_bytes())
         .collect();
-    let header = r#"{"half": {"dtype": "F16", "shape": [2, 3], "data_offsets": [0, 12]},
-                     "brain": {"dtype": "BF16", "shape": [6], "data_offsets": [12, 24]}}"#;
+    let header = r#"{"f16": {"dtype": "F16", "shape": [2, 3], "data_offsets": [0, 12]},
+                     "bf16": {"dtype": "BF16", "shape": [6], "data_offsets": [12, 24]}}"#;
     let tensors = from_bytes::<f32>(&file(header, &data)).unwrap();
     let bits = |name: &str| match &tensors[name] {
         Tensor::Float { values, .. } => values.iter().map(|value| value.to_bits()).collect(),
         Tensor::Quantized(_) => Vec::new(),
     };
-    assert_eq!(bits("half"), half_values.map(f32::to_bits));
-    assert_eq!(bits("brain"), brain_values.map(f32::to_bits));
-    assert!(matches!(&tensors["half"], Tensor::Float { shape, .. } if *shape == [2, 3]));
+    assert_eq!(bits("f16"), f16_values.map(f32::to_bits));
+    assert_eq!(bits("bf16"), bf16_values.map(f32::to_bits));
+    assert!(matches!(&tensors["f16"], Tensor::Float { shape, .. } if *shape == [2, 3]));
 }
 
 #[test]

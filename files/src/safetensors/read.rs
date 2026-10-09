@@ -64,8 +64,8 @@ pub(super) fn from_bytes<S: Scale>(bytes: &[u8]) -> Result<BTreeMap<String, Tens
                 "tensor {name:?} is {dtype}, but only F32, F16, BF16, and quantize's U8 tensors are read"
             )));
         };
-        let size = value_count(&shape).and_then(|count| count.checked_mul(value_size));
-        if begin > end || size != Some(end - begin) {
+        let byte_count = value_count(&shape).and_then(|count| count.checked_mul(value_size));
+        if begin > end || byte_count != Some(end - begin) {
             return Err(invalid(format!(
                 "tensor {name:?}'s data_offsets [{begin}, {end}] don't hold {dtype} values of shape {shape:?}"
             )));

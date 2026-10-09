@@ -13,6 +13,8 @@ use crate::error::{InvalidBitsError, InvalidBlockError, length_mismatch};
 const CODES_TYPE: &str = "codes must be a 1-D signed integer array or a sequence of int; packed Quantized.codes is uint8 and must not be passed here — use unpacked_codes";
 const PACKED_CODES_TYPE: &str = "codes must be a 1-D uint8 array, like Quantized.codes";
 const BYTES_TYPE: &str = "data must be bytes, like to_bytes returns, or a 1-D uint8 array";
+const BLOCKS_TYPE: &str =
+    "data must be a uint8 array of ggml blocks, like to_ggml returns or GGUFReader gives";
 const OUT_TYPE: &str = "out must be a float32 numpy array or pytorch tensor";
 const OUT_CONTIG: &str = "out must be writable and C-contiguous";
 const OUT_OVERLAPS_INPUTS: &str = "out can't share memory with inputs";
@@ -223,6 +225,24 @@ pub fn as_bytes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<u8>> {
         Ok(buffer) => buffer.to_vec(obj.py()),
         Err(_) => read_uint8(obj, BYTES_TYPE),
     }
+}
+
+/// Read ggml's blocks: a uint8 array, like the `data` that the `gguf`
+/// package's `GGUFReader` gives a quantized tensor, shaped `(rows, bytes per
+/// row)`. More dimensions run together into rows, as ggml lays them out, and
+/// one dimension is one row. Returns the bytes, the rows, and the bytes per
+/// row.
+pub fn as_ggml_blocks(obj: &Bound<'_, PyAny>) -> PyResult<(Vec<u8>, usize, usize)> {
+    let array = obj.py().import("numpy")?.call_method1("asarray", (obj,))?;
+    let blocks = array
+        .cast::<PyArrayDyn<u8>>()
+        .map_err(|_| PyTypeError::new_err(BLOCKS_TYPE))?;
+    let Some((&row_bytes, outer)) = blocks.shape().split_last() else {
+        return Err(PyTypeError::new_err(BLOCKS_TYPE));
+    };
+    let rows = outer.iter().product();
+    let bytes = blocks.try_readonly()?.as_array().iter().copied().collect();
+    Ok((bytes, rows, row_bytes))
 }
 
 /// Read a 1-D uint8 array, or anything that `numpy.asarray` turns into one,

@@ -6,7 +6,7 @@ use quantize::Scheme;
 use super::{entry, file, float, temporary_path, tensor_info, values};
 use crate::gguf::read::from_bytes;
 use crate::gguf::write::to_bytes;
-use crate::gguf::{Metadata, Value, read};
+use crate::gguf::{GgmlType, Metadata, Value, from_ggml, read, to_ggml};
 use crate::{Error, Tensor};
 
 fn refusal(bytes: &[u8]) -> String {
@@ -231,7 +231,7 @@ fn writing_refuses_what_ggml_would_not_load() {
 }
 
 #[test]
-fn writing_refuses_quantized_tensors_that_q4_0_and_q8_0_cannot_hold() {
+fn quantized_tensors_that_q4_0_and_q8_0_cannot_hold_are_refused() {
     let matrix = |scheme: Scheme, rows: usize, columns: usize| {
         let mut quantized = scheme.quantize::<f16>(&values(rows * columns)).unwrap();
         quantized.set_shape(rows, columns).unwrap();
@@ -260,7 +260,7 @@ fn writing_refuses_quantized_tensors_that_q4_0_and_q8_0_cannot_hold() {
         ),
         (
             Scheme::Q4_32.quantize::<f16>(&values(64)).unwrap(),
-            "has no shape, but Q4_0 and Q8_0 blocks run along a matrix's rows, which set_shape records",
+            "is a flat vector of 64 values, but Q4_0 and Q8_0 blocks run along a matrix's rows",
         ),
         (
             matrix(Scheme::Q8_32, 2, 48),
@@ -268,11 +268,58 @@ fn writing_refuses_quantized_tensors_that_q4_0_and_q8_0_cannot_hold() {
         ),
     ];
     for (quantized, why) in cases {
+        // to_ggml says why too, of "the tensor", since it has no name.
+        let error = to_ggml(&quantized).unwrap_err();
+        let message = format!("the tensor {why}; safetensors keeps any quantized tensor");
+        assert_eq!(error.to_string(), message);
+
         let tensors = BTreeMap::from([("x".to_string(), Tensor::Quantized(quantized))]);
         let error = to_bytes(&Metadata::new(), &tensors).unwrap_err();
         let message = format!(r#"tensor "x" {why}; safetensors keeps any quantized tensor"#);
         assert_eq!(error.to_string(), message);
     }
+}
+
+#[test]
+fn blocks_that_do_not_fit_their_type_and_shape_are_refused() {
+    let mut quantized = Scheme::Q8_32.quantize::<f16>(&values(64)).unwrap();
+    quantized.set_shape(2, 32).unwrap();
+    let (blocks, _) = to_ggml(&quantized).unwrap();
+    let cases = [
+        (
+            GgmlType::Q8_0,
+            2,
+            0,
+            "the tensor is Q8_0 with rows of no values, which quantize's tensors can't hold",
+        ),
+        (
+            GgmlType::Q8_0,
+            1,
+            48,
+            "the tensor is Q8_0 with rows of 48 values, which don't split into blocks of 32",
+        ),
+        (
+            GgmlType::Q8_0,
+            3,
+            32,
+            "68 bytes aren't 3 rows of 32 Q8_0 values, which take 34 bytes each",
+        ),
+        (
+            GgmlType::Q4_0,
+            2,
+            32,
+            "68 bytes aren't 2 rows of 32 Q4_0 values, which take 18 bytes each",
+        ),
+    ];
+    for (ggml_type, rows, columns, message) in cases {
+        let error = from_ggml(&blocks, ggml_type, rows, columns).unwrap_err();
+        assert_eq!(error.to_string(), message);
+    }
+    let error = "q4_0".parse::<GgmlType>().unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        r#""q4_0" isn't Q4_0 or Q8_0, the ggml types that hold quantize's tensors"#
+    );
 }
 
 #[test]

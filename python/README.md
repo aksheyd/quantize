@@ -45,6 +45,27 @@ except ToleranceTooTightError as error:
 
 quantized values can be pickled, and compared with `==`. `q.to_bytes()` saves one as bytes, in the same format as the rust crate, and `Quantized.from_bytes(data)` loads it back. to keep it in an `np.savez` or safetensors file, store `np.frombuffer(q.to_bytes(), np.uint8)`.
 
+a gguf file, which llama.cpp runs, holds a matrix quantized with `bits=4` or `bits=8` and `scale=Scale.F16`, in blocks of 32, as ggml's `Q4_0` or `Q8_0` blocks. `q.to_ggml()` gives those blocks and their type's name, for the [gguf](https://pypi.org/project/gguf/) package, and `Quantized.from_ggml` loads them back:
+
+```python
+from gguf import GGMLQuantizationType, GGUFReader, GGUFWriter
+
+blocks, ggml_type = q.to_ggml()  # ggml_type is "Q4_0" or "Q8_0"
+writer = GGUFWriter("model.gguf", arch="llama")
+writer.add_tensor("weight", blocks, raw_dtype=GGMLQuantizationType[ggml_type])
+writer.write_header_to_file()
+writer.write_kv_data_to_file()
+writer.write_tensors_to_file()
+writer.close()
+
+tensor = GGUFReader("model.gguf").tensors[0]
+q = Quantized.from_ggml(tensor.data, tensor.tensor_type.name)
+```
+
+any other tensor raises `QuantizeError`, which says why. keep those in safetensors, as above.
+
+numpy has no bf16, so to quantize a bf16 checkpoint, load it with pytorch, like `safetensors.torch.load_file`. `quantize` reads its bf16 tensors as they are, and `t.float()` turns one into floats numpy can read.
+
 to save its parts as plain arrays instead, like with `np.savez`, pass them back by name to `Quantized.from_parts`. leave out the one that's `None`: `bits` for an adaptive tensor, or `block_bits` for the others:
 
 ```python

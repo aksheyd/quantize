@@ -6,9 +6,9 @@ use quantize::{Quantized, Scheme};
 
 use super::{file, tensor_info};
 use crate::Tensor;
-use crate::gguf::Metadata;
 use crate::gguf::read::from_bytes;
 use crate::gguf::write::to_bytes;
+use crate::gguf::{GgmlType, Metadata, from_ggml, to_ggml};
 
 /// `count` weights spread like a layer's, by a normal distribution with
 /// standard deviation 0.02, from `seed`, so that every run makes the same
@@ -117,6 +117,30 @@ fn q4_32_and_q8_32_matrices_round_trip_through_q4_0_and_q8_0() {
             .any(|scale| scale.classify() == FpCategory::Subnormal)
     );
     assert!(edge_cases.unpacked_codes().contains(&-128));
+}
+
+#[test]
+fn to_ggml_gives_the_blocks_a_file_holds_and_from_ggml_reads_them_back() {
+    for (scheme, ggml_type) in [
+        (Scheme::Q4_32, GgmlType::Q4_0),
+        (Scheme::Q8_32, GgmlType::Q8_0),
+    ] {
+        let mut quantized = scheme.quantize::<f16>(&edge_cases()).unwrap();
+        quantized.set_shape(4, 64).unwrap();
+        let (blocks, to_type) = to_ggml(&quantized).unwrap();
+        assert_eq!(to_type, ggml_type);
+        assert_eq!(ggml_type.name().parse::<GgmlType>().unwrap(), ggml_type);
+        assert_eq!(blocks.len(), 4 * 2 * ggml_type.block_bytes());
+
+        // A file of this one tensor ends with its data: these blocks, padded
+        // to 32 bytes.
+        let tensors = BTreeMap::from([("x".to_string(), Tensor::Quantized(quantized.clone()))]);
+        let file = to_bytes(&Metadata::new(), &tensors).unwrap();
+        let data = &file[file.len() - blocks.len().next_multiple_of(32)..];
+        assert_eq!(data[..blocks.len()], blocks);
+
+        assert_eq!(from_ggml(&blocks, ggml_type, 4, 64).unwrap(), quantized);
+    }
 }
 
 #[test]

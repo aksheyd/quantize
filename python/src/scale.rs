@@ -76,7 +76,7 @@ impl PyScale {
 
     /// The name that `scale=` also accepts: `'f32'`, `'f16'`, or `'bf16'`.
     #[getter]
-    fn name(&self) -> &'static str {
+    pub(crate) fn name(&self) -> &'static str {
         match self {
             Self::F32 => "f32",
             Self::F16 => "f16",

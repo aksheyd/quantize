@@ -24,7 +24,7 @@ minimum-rust:
 
 setup:
     {{system_python}} -m venv .venv
-    {{venv}} -m pip install maturin numpy pytest
+    {{venv}} -m pip install maturin numpy pytest gguf==0.19.0
 
 python:
     cargo clippy -p quantize-py --all-targets -- -D warnings

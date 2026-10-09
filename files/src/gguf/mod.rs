@@ -79,11 +79,16 @@
 //! Any other ggml type is an error that names the tensor. Tensors are
 //! `Tensor<f16>`, since `Q4_0` and `Q8_0` hold f16 scales.
 //!
+//! [`to_ggml`] and [`from_ggml`] turn one tensor into its blocks and back,
+//! without a file, for a gguf file that something else reads or writes, like
+//! the `gguf` Python package.
+//!
 //! [`Scheme::Q4_32`]: quantize::Scheme::Q4_32
 //! [`Scheme::Q8_32`]: quantize::Scheme::Q8_32
 
 mod blocks;
 mod ggml_types;
+mod quantized;
 mod read;
 mod reader;
 mod value;
@@ -94,6 +99,8 @@ mod tests;
 
 use std::collections::BTreeMap;
 
+pub use blocks::BLOCK;
+pub use quantized::{GgmlType, from_ggml, to_ggml};
 pub use read::read;
 pub use value::Value;
 pub use write::write;

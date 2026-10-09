@@ -1434,6 +1434,7 @@ dependencies = [
  "numpy",
  "pyo3",
  "quantize",
+ "quantize-files",
 ]
 
 [[package]]

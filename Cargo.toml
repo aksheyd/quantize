@@ -18,9 +18,10 @@ include = [
 ]
 
 [workspace]
-members = ["python", "chapters", "benchmarks"]
-# benchmarks isn't a default member, so a first chapter run doesn't download
-# candle and the rest of its dependencies. Its examples run with -p benchmarks.
+members = ["python", "chapters", "benchmarks", "files"]
+# benchmarks and files aren't default members, so a first chapter run doesn't
+# download their dependencies, like candle and serde_json. Their examples run
+# with -p benchmarks and -p quantize-files.
 default-members = [".", "chapters"]
 resolver = "3"
 

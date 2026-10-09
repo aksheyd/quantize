@@ -1,0 +1,22 @@
+[package]
+name = "quantize-files"
+version.workspace = true
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "MIT"
+description = "Read and write the files models ship in, with quantize's tensors inside."
+repository = "https://github.com/aksheyd/quantize"
+
+[dependencies]
+quantize = { path = ".." }
+half = { workspace = true }
+serde_json = "1"
+
+[lints]
+workspace = true
+
+# The Rust half of `just files-check`, with check_safetensors.py.
+[[example]]
+name = "check_safetensors"
+path = "check_safetensors.rs"

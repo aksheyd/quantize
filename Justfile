@@ -16,6 +16,7 @@ test:
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p quantize --features rayon
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps -p quantize-files
 
 minimum-rust:
     rustup toolchain install 1.88 --profile minimal
@@ -32,6 +33,14 @@ python:
 
 python-test:
     {{system_python}} -m pytest python/tests
+
+# Checks quantize-files against the safetensors Python package, both ways.
+# Run `just setup` first.
+files-check:
+    {{venv}} -m pip install --quiet safetensors
+    cargo run -p quantize-files --example check_safetensors -- write target/files-check
+    {{venv}} files/check_safetensors.py target/files-check
+    cargo run -p quantize-files --example check_safetensors -- read target/files-check
 
 wheels:
     maturin build --release --out dist

@@ -52,6 +52,28 @@ to run `matmul` on every core, turn on the `rayon` feature with `cargo add quant
 
 codes can be 2 to 16 bits, and scales `f32`, `f16`, or `bf16`. the rest is in the [api docs](https://docs.rs/quantize). for python, see [python/](https://github.com/aksheyd/quantize/tree/main/python).
 
+## model files
+
+`quantize-files` reads and writes the files models ship in, with quantize's tensors inside: safetensors, hugging face's format, and gguf, llama.cpp's. it's a crate of its own, so `quantize` gains no dependencies.
+
+```
+cargo add quantize-files
+```
+
+both formats read `F32`, `F16`, and `BF16` tensors as f32, and write floats as `F32`. safetensors keeps a quantized tensor of any scheme, as the bytes `to_bytes` writes. gguf keeps `Q4_32` and `Q8_32` matrices with f16 scales as ggml's `Q4_0` and `Q8_0` blocks, without losing a bit. the rest is in the [api docs](https://docs.rs/quantize-files).
+
+the [smollm](https://github.com/aksheyd/quantize/tree/main/smollm) example puts it together. from a clone of the repo:
+
+```
+cargo run --release -p smollm -- the capital of france is
+```
+
+it downloads [SmolLM-135M](https://huggingface.co/HuggingFaceTB/SmolLM-135M), about 540 MB, quantizes its weight matrices to `Q4_32`, and saves the model in `target/smollm` as a gguf and a safetensors file. then it loads the gguf back, generates text from it and from the f32 model, and prints both speeds. add `--scheme Q8_32` for 8 bits. the model is plain rust, in small files that read in order.
+
+llama.cpp runs the gguf too, like `llama-completion -m target/smollm/smollm-135m-q4_0.gguf -p "the capital of france is" -n 32`. on WikiText-2, its perplexity with smollm's `Q4_0` and `Q8_0` files is within half a percent of the ones it quantizes itself, with `llama-quantize --pure`.
+
+in python, `q.to_ggml()` hands a tensor to the [gguf](https://pypi.org/project/gguf/) package as ggml's blocks, and `Quantized.from_ggml` loads them back. see [python/](https://github.com/aksheyd/quantize/tree/main/python).
+
 ---
 
 ## comparison

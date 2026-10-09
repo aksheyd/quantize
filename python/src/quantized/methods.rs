@@ -336,11 +336,11 @@ impl PyQuantized {
         ))
     }
 
-    /// Load ggml's blocks of type `ggml_type`, `'Q4_0'` or `'Q8_0'`, like the
-    /// `data` that `gguf.GGUFReader` gives a tensor, whose type's name is
-    /// `tensor.tensor_type.name`: a uint8 array of shape `(rows, bytes per
-    /// row)`, as `to_ggml` returns. More dimensions run together into rows,
-    /// and one dimension is one row. The tensor is symmetric, with 4-bit or
+    /// Load ggml's blocks, as `to_ggml` returns them or `gguf.GGUFReader`
+    /// gives them in a tensor's `data`: a uint8 array of shape `(rows, bytes
+    /// per row)`. More dimensions run together into rows, and one dimension
+    /// is one row. `ggml_type` names their type, `'Q4_0'` or `'Q8_0'`, like
+    /// `tensor.tensor_type.name`. The tensor is symmetric, with 4-bit or
     /// 8-bit codes in blocks of 32, `Scale.F16`, and its shape set. Another
     /// type, or rows that don't split into its blocks, raise `QuantizeError`.
     #[staticmethod]

@@ -276,12 +276,13 @@ pub(crate) fn matmul_into<S: Scale>(
     // to stay in the CPU's cache is read from there, where a large batch
     // would be read from memory again for each row.
     //
-    // Each group decodes the matrix again. For the layouts above, decoding a
-    // row takes about as long as a few of its dot products, so decoding it
-    // once per group of 256 costs 1 to 3% where the whole batch would have
-    // stayed in cache anyway. Rows that read each code on its own, or have
-    // shorter blocks, take up to 20, and up to 180 in a debug build, so those
-    // layouts take the whole batch as one group.
+    // Each group decodes the matrix again. For the layouts above without
+    // zero-points, decoding a row takes about as long as a few of its dot
+    // products, so decoding it once per group of 256 costs 1 to 3% where the
+    // whole batch would have stayed in cache anyway. Rows that read each code
+    // on its own, as those with zero-points still do here, or have shorter
+    // blocks, take up to 20, and up to 180 in a debug build, so those layouts
+    // take the whole batch as one group.
     let vectors_per_group = if whole_groups_of_32(quantized, columns) {
         VECTORS_PER_GROUP.min(out.len())
     } else {

@@ -6,11 +6,10 @@
 //!   `Q4_0` and `Q8_0` blocks: `smollm-135m-q4_0.gguf` for `Q4_32`. ggml has
 //!   no blocks for other schemes, so they get no gguf file. llama.cpp runs
 //!   the file as it runs its own conversion of SmolLM-135M, which takes
-//!   three changes, each in a file of its own: llama.cpp's names for the
-//!   tensors, in `llama_cpp_names.rs`; its order for the rows of the query
-//!   and key matrices, in `rope_order.rs`; and metadata that describes the
-//!   model, in `gguf_metadata.rs`, and its tokenizer, in
-//!   `tokenizer_metadata.rs`.
+//!   three changes: llama.cpp's names for the tensors, in
+//!   `llama_cpp_names.rs`; its order for the rows of the query and key
+//!   matrices, in `rope_order.rs`; and metadata that describes the model, in
+//!   `gguf_metadata.rs`, and its tokenizer, in `tokenizer_metadata.rs`.
 //! - safetensors, Hugging Face's format, holds a matrix of any scheme as the
 //!   bytes that quantize writes, by Hugging Face's names:
 //!   `smollm-135m-q4_32.safetensors` for `Q4_32`.

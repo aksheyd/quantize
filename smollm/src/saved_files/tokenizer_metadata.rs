@@ -41,18 +41,19 @@ pub fn tokenizer_metadata(
     ])
 }
 
-/// llama.cpp's numbers for a token's type: an ordinary piece of text, a
-/// special token that text never turns into, like `<|endoftext|>`, a token
-/// added to the vocabulary that text does turn into, and a row of the
-/// embedding table that no token uses.
+/// llama.cpp's numbers for a token's type: an ordinary piece of text; a
+/// special token like `<|endoftext|>`, which llama.cpp finds in text and
+/// prints only when asked to; a token added to the vocabulary, which it
+/// always finds and prints like text; and a row of the embedding table that
+/// no token uses.
 const NORMAL: i32 = 1;
 const CONTROL: i32 = 3;
 const USER_DEFINED: i32 = 4;
 const UNUSED: i32 = 5;
 
-/// Each token's text, and its type, in order of id. The embedding table has
-/// a row for every id below vocab_size, which the checkpoint checked every
-/// token's id is, and the converter names an id without a token `[PAD<id>]`.
+/// Each token's text, and its type, in order of id, for every row of the
+/// embedding table. The checkpoint checked that every token's id is below
+/// vocab_size, and the converter names a row that no token uses `[PAD<id>]`.
 fn tokens_and_types(config: &Config, tokenizer: &Tokenizer) -> (Value, Value) {
     let mut texts: Vec<Option<String>> = vec![None; config.vocab_size];
     for (text, id) in tokenizer.get_vocab(true) {

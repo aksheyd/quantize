@@ -10,9 +10,9 @@ use super::{temporary_directory, tiny_llama};
 use crate::checkpoint::quantize_matrices;
 use crate::saved_files::SavedFiles;
 
-/// The keys of llama.cpp's own conversion of SmolLM-135M, but for
-/// `general.finetune`, which SmolLM-135M has none of, and
-/// `tokenizer.ggml.unknown_token_id`, which byte-level BPE never uses.
+/// The keys llama.cpp's converter writes for SmolLM-135M, but for
+/// `tokenizer.ggml.unknown_token_id`, which llama.cpp's byte-level BPE
+/// never uses.
 const KEYS: &str = "general.architecture general.type general.name general.basename \
     general.size_label general.file_type general.quantization_version llama.vocab_size \
     llama.context_length llama.embedding_length llama.feed_forward_length llama.block_count \

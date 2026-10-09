@@ -68,10 +68,9 @@
 //! The `rayon` feature, off by default, splits a large
 //! [`matmul`](Quantized::matmul) or [`matmul_into`](Quantized::matmul_into)
 //! across every core with the [rayon](https://docs.rs/rayon) crate, and the
-//! results are the same, bit for bit. A single input splits the matrix's
-//! rows, and a batch splits into shares of inputs, as `matmul` explains. A
-//! smaller call stays on the thread that made it, as every call does without
-//! the feature.
+//! results are the same, bit for bit. A call splits the matrix's rows, its
+//! inputs, or both, as `matmul` explains. A call too small to split stays on
+//! the thread that made it, as every call does without the feature.
 //!
 //! A program that already calls `matmul` from several threads at once keeps
 //! every core busy, so a split can't make its calls finish sooner. Its

@@ -504,11 +504,14 @@ impl<S: Scale> Quantized<S> {
     ///
     /// With the `rayon` feature, a large call splits into shares that the
     /// cores multiply at the same time, and the results are the same, bit for
-    /// bit. A single input splits the rows once the matrix holds 2^20 values,
-    /// like 1024 × 1024. A batch splits into shares of at least 64 inputs
-    /// with those fastest layouts, and 184 with the rest, since each share
-    /// decodes the whole matrix itself. A smaller call stays on the thread
-    /// that made it.
+    /// bit. A share multiplies a part of the rows by a part of the inputs. A
+    /// part of the rows decodes only those rows, so the rows split to give
+    /// every core a share, as long as each share takes about as long as one
+    /// input through 2^19 values, like 512 × 1024: the more inputs, the fewer
+    /// rows that takes. A part of the inputs decodes the whole matrix for
+    /// itself, so the inputs split only into parts of at least 64 with those
+    /// fastest layouts, and 184 with the rest. A call too small for two
+    /// shares stays on the thread that made it.
     ///
     /// To reuse one buffer for the result, or to catch a shape recorded the
     /// wrong way round, use [`matmul_into`](Self::matmul_into).
@@ -544,8 +547,8 @@ impl<S: Scale> Quantized<S> {
 
     /// Like [`matmul`](Self::matmul), but write the `batch × rows` result into
     /// `out`, so a loop can reuse one buffer. The only memory it allocates is
-    /// one decoded row of `columns` values, or with the `rayon` feature, one
-    /// per core.
+    /// one decoded row of `columns` values and a list of where each input's
+    /// results go in `out`, or with the `rayon` feature, one of each per core.
     ///
     /// `matmul` works out the batch from the length of `inputs`, so when a
     /// shape is recorded the wrong way round and the inputs still split into
@@ -592,7 +595,13 @@ impl<S: Scale> Quantized<S> {
         #[cfg(feature = "rayon")]
         crate::cores::matmul_on_every_core(self, inputs, rows, columns, out);
         #[cfg(not(feature = "rayon"))]
-        crate::decode::matmul_into(self, 0, inputs, columns, out);
+        crate::decode::matmul_into(
+            self,
+            0,
+            inputs,
+            columns,
+            &mut out.chunks_mut(rows).collect::<Vec<_>>(),
+        );
         Ok(())
     }
 
@@ -701,8 +710,8 @@ mod tests {
     #[test]
     fn matmul_gives_each_vector_the_result_it_gets_alone() {
         // With the `rayon` feature, matmul splits a batch of enough vectors
-        // into shares, at most one per core, and a batch that doesn't divide
-        // evenly leaves the last share short. Whatever the batch and the
+        // into parts, at most one per core, and a batch that doesn't divide
+        // evenly leaves the last part short. Whatever the batch and the
         // number of cores, each vector's results should match its results
         // alone, bit for bit. 4-bit and 8-bit blocks of 32 multiply a single
         // vector as they decode it, blocks of 8 decode with the packed
@@ -732,38 +741,55 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "rayon")]
     #[test]
-    fn one_vector_gives_what_it_gives_in_a_batch_when_its_rows_split() {
-        // With the `rayon` feature, one vector through a matrix this large
-        // splits its rows into shares, and 2049 rows leave the last share
-        // short. A share starts on a row of its own, so the results should
-        // match the same vector's in a batch of 2, which doesn't split, bit
-        // for bit. Rows of 512 values hold whole groups of 32 for the 4-bit
-        // blocks, which multiply one vector as they decode it, blocks of 7
-        // cross from one row into the next, and the adaptive rows start after
-        // a mix of widths.
-        let (rows, columns) = (2049, 512);
-        let values: Vec<f32> = (0..rows * columns)
-            .map(|i| (i as f32 * 0.37).sin())
-            .collect();
-        let input: Vec<f32> = (0..columns).map(|i| (i as f32 * 0.11).cos()).collect();
-        let pair = [input.as_slice(), input.as_slice()].concat();
-        let matrices: [Quantized<f32>; 3] = [
-            symmetric::quantize_with(&values, 4, 32).unwrap(),
-            symmetric::quantize_with(&values, 5, 7).unwrap(),
-            adaptive::quantize_with(&values, 8, 0.05).unwrap(),
-        ];
-        let bits = |values: &[f32]| {
+    fn every_split_gives_what_one_thread_gives() {
+        // On 3 and 8 threads, these calls split their rows, their vectors, or
+        // both, and parts that don't divide evenly leave the last share
+        // short. Each should give what one thread gives, bit for bit. One
+        // vector through 2049 rows, and 17 through 513, split their rows, and
+        // so do 129 vectors through 152 rows, but on 8 threads the 4-bit
+        // blocks split those into two parts of the vectors, each split by
+        // rows. 369 vectors through 64 rows split only their vectors with the
+        // 4-bit blocks, and with the adaptive blocks, their rows on 3 threads
+        // and both on 8. The 4-bit blocks of 32 multiply one vector as they
+        // decode it, and the adaptive blocks of 7 cross from one row into the
+        // next.
+        let pool = |threads| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap()
+        };
+        let bits = |values: Vec<f32>| {
             values
                 .iter()
                 .map(|value| value.to_bits())
                 .collect::<Vec<_>>()
         };
-        for mut matrix in matrices {
-            matrix.set_shape(rows, columns).unwrap();
-            let alone = matrix.matmul(&input).unwrap();
-            let in_a_batch = matrix.matmul(&pair).unwrap();
-            assert_eq!(bits(&alone), bits(&in_a_batch[..rows]));
+        let columns = 512;
+        for (rows, batch) in [(2049, 1), (513, 17), (152, 129), (64, 369)] {
+            let values: Vec<f32> = (0..rows * columns)
+                .map(|i| (i as f32 * 0.37).sin())
+                .collect();
+            let inputs: Vec<f32> = (0..batch * columns)
+                .map(|i| (i as f32 * 0.11).cos())
+                .collect();
+            let matrices: [Quantized<f32>; 2] = [
+                symmetric::quantize_with(&values, 4, 32).unwrap(),
+                adaptive::quantize_with(&values, 7, 0.05).unwrap(),
+            ];
+            for mut matrix in matrices {
+                matrix.set_shape(rows, columns).unwrap();
+                let one_thread = bits(pool(1).install(|| matrix.matmul(&inputs).unwrap()));
+                for threads in [3, 8] {
+                    let split = bits(pool(threads).install(|| matrix.matmul(&inputs).unwrap()));
+                    assert_eq!(
+                        split, one_thread,
+                        "{rows} rows, batch {batch}, {threads} threads"
+                    );
+                }
+            }
         }
     }
 

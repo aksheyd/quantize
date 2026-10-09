@@ -1,10 +1,10 @@
-//! The command line: the prompt, and two optional flags.
+//! The command line: the prompt, and three optional flags.
 
 use std::path::PathBuf;
 
 use quantize::Scheme;
 
-const USAGE: &str = "usage: smollm [--model DIR] [--scheme SCHEME] PROMPT";
+const USAGE: &str = "usage: smollm [--model DIR] [--scheme SCHEME] [--output DIR] PROMPT";
 
 pub struct Arguments {
     /// The text to continue.
@@ -16,6 +16,9 @@ pub struct Arguments {
     /// `str::parse::<Scheme>` reads it: `Q4_32` (the default), `Q8_32`, or
     /// text like `symmetric(bits=4)`.
     pub scheme: Scheme,
+    /// `--output DIR`: where to save the quantized model's files, the
+    /// current directory by default.
+    pub output_directory: PathBuf,
 }
 
 impl Arguments {
@@ -25,6 +28,7 @@ impl Arguments {
         let mut words = Vec::new();
         let mut model_directory = None;
         let mut scheme = Scheme::Q4_32;
+        let mut output_directory = PathBuf::from(".");
         while let Some(argument) = arguments.next() {
             let mut value = || {
                 arguments
@@ -38,6 +42,7 @@ impl Arguments {
                         .parse()
                         .map_err(|error| format!("--scheme: {error}"))?
                 }
+                "--output" => output_directory = PathBuf::from(value()?),
                 flag if flag.starts_with("--") => {
                     return Err(format!("unknown flag {flag}; {USAGE}"));
                 }
@@ -51,6 +56,7 @@ impl Arguments {
             prompt: words.join(" "),
             model_directory,
             scheme,
+            output_directory,
         })
     }
 }

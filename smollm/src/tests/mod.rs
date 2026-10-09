@@ -2,21 +2,24 @@
 //! 2 layers of width 64 and a 64-word tokenizer, which it writes to a
 //! temporary directory and reads back as `--model DIR` does.
 //!
-//! Random weights write gibberish, so these check that the quantized model
-//! agrees with the f32 one, not what either one says.
+//! Random weights write gibberish, so these check agreement, not what the
+//! models say: `logits.rs`, that the quantized model's logits stay close to
+//! the f32 model's, and `saved_files.rs`, that the quantized model's files
+//! load back as they were saved and generate the tokens it does in memory.
+
+mod logits;
+mod saved_files;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use quantize::{Scheme, f16};
+use quantize::f16;
 use quantize_files::{Tensor, safetensors};
 use serde_json::json;
 use tokenizers::Tokenizer;
 
-use crate::checkpoint::{Checkpoint, quantize_matrices};
-use crate::generate::generate;
-use crate::model::Model;
+use crate::checkpoint::Checkpoint;
 
 /// The tokenizer's 64 words. Any other word reads as `[UNK]`.
 const WORDS: &str = "[UNK] the of and in to a was is for on as by with that at from his it an \
@@ -87,11 +90,18 @@ fn write_tiny_llama(directory: &Path) {
     safetensors::write(directory.join("model.safetensors"), &tensors).unwrap();
 }
 
+/// A new directory of its own for `name`, in the system's temporary
+/// directory, so tests that run at once never share files.
+fn temporary_directory(name: &str) -> PathBuf {
+    let directory = std::env::temp_dir().join(format!("smollm-{}-{name}", std::process::id()));
+    fs::create_dir_all(&directory).unwrap();
+    directory
+}
+
 /// Write the tiny llama into a directory of its own for `test`, and read it
 /// back as `--model DIR` does.
 fn tiny_llama(test: &str) -> Checkpoint {
-    let directory = std::env::temp_dir().join(format!("smollm-{}-{test}", std::process::id()));
-    fs::create_dir_all(&directory).unwrap();
+    let directory = temporary_directory(test);
     write_tiny_llama(&directory);
     let checkpoint = Checkpoint::read(&directory).unwrap();
     fs::remove_dir_all(&directory).unwrap();
@@ -100,56 +110,4 @@ fn tiny_llama(test: &str) -> Checkpoint {
 
 fn encode(tokenizer: &Tokenizer, text: &str) -> Vec<u32> {
     tokenizer.encode(text, true).unwrap().get_ids().to_vec()
-}
-
-/// The model's logits at every position of `tokens`.
-fn logits(model: &Model, tokens: &[u32]) -> Vec<Vec<f32>> {
-    let mut caches = model.new_caches();
-    tokens
-        .iter()
-        .map(|&token| model.forward(token, &mut caches))
-        .collect()
-}
-
-#[test]
-fn quantized_logits_stay_close_to_f32s() {
-    let tiny = tiny_llama("logits");
-    let text = "the city was one of the first in the world and it has been a school since";
-    let tokens = encode(&tiny.tokenizer, text);
-    let float_logits = logits(
-        &Model::new(&tiny.config, tiny.tensors.clone()).unwrap(),
-        &tokens,
-    );
-
-    // The f32 logits reach about 1.4. Q8_32's stay within 0.017 of them, and
-    // Q4_32's within 0.33. A transposed matrix, or q's and k's rows in
-    // llama.cpp's order, moves them by 0.24 or more, so Q8_32's tolerance
-    // catches it. A wrong q or k shows only from the second token on: a lone
-    // token's attention returns its own value, whatever the scores.
-    for (scheme, tolerance) in [(Scheme::Q8_32, 0.05), (Scheme::Q4_32, 0.75)] {
-        let quantized_tensors = quantize_matrices(&tiny.tensors, scheme).unwrap();
-        let model = Model::new(&tiny.config, quantized_tensors).unwrap();
-        let positions = float_logits.iter().zip(logits(&model, &tokens));
-        for (position, (float, quantized)) in positions.enumerate() {
-            let differences = float.iter().zip(&quantized).map(|(a, b)| (a - b).abs());
-            let largest = differences.fold(0.0, f32::max);
-            assert!(
-                largest < tolerance,
-                "{scheme} at position {position}: {largest}"
-            );
-        }
-    }
-}
-
-#[test]
-fn generation_is_deterministic() {
-    let tiny = tiny_llama("deterministic");
-    let prompt = encode(&tiny.tokenizer, "the first school in the city");
-    let quantized_tensors = quantize_matrices(&tiny.tensors, Scheme::Q4_32).unwrap();
-    let model = Model::new(&tiny.config, quantized_tensors).unwrap();
-    let (mut first, mut second) = (Vec::new(), Vec::new());
-    generate(&model, &prompt, 32, |token| first.push(token)).unwrap();
-    generate(&model, &prompt, 32, |token| second.push(token)).unwrap();
-    assert_eq!(first.len(), 32);
-    assert_eq!(first, second);
 }

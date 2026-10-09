@@ -216,22 +216,21 @@ pub(crate) fn unpack_codes<S: Scale>(quantized: &Quantized<S>, out: &mut [i32]) 
 const VECTORS_PER_GROUP: usize = 256;
 
 /// Multiply rows `first_row..` of the matrix by each vector of `columns`
-/// values in `inputs`. `out` holds each vector's products with those rows,
-/// one vector after another, so its length says how many rows to multiply:
-/// every row from row 0, or with the `rayon` feature, one core's share of
-/// them.
+/// values in `inputs`. `out` holds a slice for each vector, which takes its
+/// products with those rows, so the slices' length says how many rows to
+/// multiply: every row from row 0, or with the `rayon` feature, one core's
+/// share of them.
 pub(crate) fn matmul_into<S: Scale>(
     quantized: &Quantized<S>,
     first_row: usize,
     inputs: &[f32],
     columns: usize,
-    out: &mut [f32],
+    out: &mut [&mut [f32]],
 ) {
-    if quantized.is_empty() || inputs.is_empty() {
+    let rows = out.first().map_or(0, |vector_out| vector_out.len());
+    if quantized.is_empty() || rows == 0 {
         return;
     }
-    let batch = inputs.len() / columns;
-    let rows = out.len() / batch;
 
     // A single vector, as when a language model generates one token, leaves
     // no batch to reuse a decoded row for, and storing each row only to read
@@ -250,7 +249,7 @@ pub(crate) fn matmul_into<S: Scale>(
         let bytes_per_row = columns * codes.bits() as usize / 8;
         let scales_per_row = columns / block;
         let mut row_scales = vec![0.0; scales_per_row];
-        for (row, slot) in (first_row..).zip(out.iter_mut()) {
+        for (row, slot) in (first_row..).zip(out[0].iter_mut()) {
             let row_codes = &codes.as_bytes()[row * bytes_per_row..(row + 1) * bytes_per_row];
             let stored_scales = &scales[row * scales_per_row..(row + 1) * scales_per_row];
             scales_to_f32(stored_scales, &mut row_scales);
@@ -274,19 +273,20 @@ pub(crate) fn matmul_into<S: Scale>(
     // shorter blocks, take up to 20, and up to 180 in a debug build, so those
     // layouts take the whole batch as one group.
     let vectors_per_group = if whole_groups_of_32(quantized, columns) {
-        VECTORS_PER_GROUP.min(batch)
+        VECTORS_PER_GROUP.min(out.len())
     } else {
-        batch
+        out.len()
     };
     let mut row_weights = vec![0.0; columns];
     let groups = inputs
         .chunks(vectors_per_group * columns)
-        .zip(out.chunks_mut(vectors_per_group * rows));
+        .zip(out.chunks_mut(vectors_per_group));
     for (group_inputs, group_out) in groups {
         for row in 0..rows {
             decode_row(quantized, first_row + row, &mut row_weights);
-            for (vector, input) in group_inputs.chunks_exact(columns).enumerate() {
-                group_out[vector * rows + row] = dot(&row_weights, input);
+            let vectors = group_inputs.chunks_exact(columns).zip(group_out.iter_mut());
+            for (input, vector_out) in vectors {
+                vector_out[row] = dot(&row_weights, input);
             }
         }
     }

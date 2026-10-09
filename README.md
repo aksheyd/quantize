@@ -48,7 +48,7 @@ let dot = q.dot(&weights).unwrap(); // 0.926
 
 for a weight matrix, `q.set_shape(rows, columns)` records its shape, so `q.matmul(&inputs)` can multiply a batch of inputs by it, like a linear layer, and `q.dequantize_row_into(row, &mut out)` can decode one row, like an embedding lookup. `q.to_bytes()` saves a tensor, shape included, and `Quantized::from_bytes` loads it back.
 
-to run `matmul` on every core, turn on the `rayon` feature with `cargo add quantize --features rayon`. a big enough call splits across the cores, one vector by rows and a batch by vectors, and the results are the same, bit for bit. smaller calls stay on one core, so a program that already calls `matmul` from several threads at once loses little; the api docs say how much. without it, the only dependency is `half`.
+to run `matmul` on every core, turn on the `rayon` feature with `cargo add quantize --features rayon`. a big enough call splits across the cores, by the matrix's rows, by vectors, or both, and the results are the same, bit for bit. smaller calls stay on one core, so a program that already calls `matmul` from several threads at once loses little; the api docs say how much. without it, the only dependency is `half`.
 
 codes can be 2 to 16 bits, and scales `f32`, `f16`, or `bf16`. the rest is in the [api docs](https://docs.rs/quantize). for python, see [python/](https://github.com/aksheyd/quantize/tree/main/python).
 

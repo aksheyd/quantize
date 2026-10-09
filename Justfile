@@ -75,11 +75,15 @@ ggml-check:
 wheels:
     maturin build --release --out dist
 
-# CI runs this on a version tag, like 0.3.0, before publishing anything.
+# CI runs this on a version tag, like 0.3.0, before publishing anything. The
+# dry run packs every crate that can be published, quantize and then
+# quantize-files unless it says `publish = false`, and builds quantize-files
+# against the packed quantize, so it passes before either is on crates.io.
 release-check tag:
     grep -qxF 'version = "{{tag}}"' Cargo.toml
+    grep -qxF 'quantize = { path = ".", version = "={{tag}}" }' Cargo.toml
     grep -qxF '## {{tag}}' CHANGELOG.md
-    cargo publish -p quantize --dry-run
+    cargo publish --workspace --dry-run
 
 # Prints a version's section of CHANGELOG.md: the notes of its GitHub release.
 release-notes version:

@@ -190,10 +190,40 @@ jobs:
       - uses: rust-lang/crates-io-auth-action@v1
         id: auth
 
+      # crates.io takes each version only once, so a crate it already has at
+      # this version is skipped, and re-running the job after a partial
+      # failure publishes only what's missing. If its API doesn't answer,
+      # cargo publish runs anyway, and refuses a version crates.io has. The
+      # API turns away requests whose user agent doesn't say who's asking.
+      # A crate held back from a release with `publish = false` is skipped.
       - name: Publish to crates.io
-        run: cargo publish -p quantize
+        run: |
+          publish() {
+            crate=$1
+            token=$2
+            # cargo metadata lists the registries a crate may go to, and
+            # `publish = false` in its Cargo.toml makes that list empty.
+            registries=$(cargo metadata --format-version 1 --no-deps |
+              jq --compact-output --arg crate "$crate" '.packages[] | select(.name == $crate) | .publish')
+            if [ "$registries" = "[]" ]; then
+              echo "$crate says publish = false in its Cargo.toml, so it isn't published"
+            elif curl --silent --fail --output /dev/null \
+                --user-agent "aksheyd/quantize release (https://github.com/aksheyd/quantize)" \
+                "https://crates.io/api/v1/crates/$crate/$GITHUB_REF_NAME"; then
+              echo "$crate $GITHUB_REF_NAME is already on crates.io"
+            else
+              CARGO_REGISTRY_TOKEN="$token" cargo publish -p "$crate"
+            fi
+          }
+          # quantize-files requires this exact quantize, so quantize goes first.
+          publish quantize "$TRUSTED_PUBLISHING_TOKEN"
+          publish quantize-files "${BOOTSTRAP_TOKEN:-$TRUSTED_PUBLISHING_TOKEN}"
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+          TRUSTED_PUBLISHING_TOKEN: ${{ steps.auth.outputs.token }}
+          # A trusted-publishing token can't create a crate, so a crate's first
+          # version needs an API token, set as this secret until the crate has
+          # a trusted publisher on crates.io.
+          BOOTSTRAP_TOKEN: ${{ secrets.CRATES_IO_BOOTSTRAP_TOKEN }}
 
   github-release:
     needs: crates-io

@@ -5,13 +5,14 @@ use pyo3::types::{PyBytes, PyTuple, PyType};
 
 use quantize::{Error, Quantized, Scale};
 
+use super::ggml;
 use super::inner::{PyQuantized, QuantizedInner, with_inner};
 use super::parts::Parts;
 use crate::error::from_quantize;
 use crate::gil::detach_if_large;
 use crate::input::{
-    as_block_bits, as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_packed_codes,
-    as_writable_f32_out, check_shape,
+    as_block_bits, as_bytes, as_f32_array, as_f32_matmul_values, as_f32_values, as_ggml_blocks,
+    as_packed_codes, as_writable_f32_out, check_shape,
 };
 use crate::scale::PyScale;
 
@@ -313,6 +314,39 @@ impl PyQuantized {
         QuantizedInner::from_bytes(&as_bytes(&data)?)
             .map(Self::from)
             .map_err(from_quantize)
+    }
+
+    /// `(blocks, ggml_type)`: the tensor as ggml's blocks, for a gguf file,
+    /// and their type, `'Q4_0'` for 4-bit codes or `'Q8_0'` for 8-bit ones.
+    /// Both are symmetric, with an f16 scale for each block of 32 values
+    /// along a matrix's rows, so they hold what `quantize(weights, bits=4,
+    /// scale=Scale.F16)`, or `bits=8`, makes of a 2-D array whose rows split
+    /// into blocks of 32. Any other tensor raises `QuantizeError`, which says
+    /// why.
+    ///
+    /// `blocks` is a uint8 array of shape `(rows, bytes per row)`, which
+    /// `gguf.GGUFWriter.add_tensor(name, blocks,
+    /// raw_dtype=GGMLQuantizationType[ggml_type])` takes as is, and
+    /// `from_ggml(blocks, ggml_type)` loads back.
+    fn to_ggml<'py>(&self, py: Python<'py>) -> PyResult<(Bound<'py, PyAny>, &'static str)> {
+        let (blocks, shape, ggml_type) = ggml::to_ggml(&self.snapshot())?;
+        Ok((
+            blocks.into_pyarray(py).reshape(shape)?.into_any(),
+            ggml_type,
+        ))
+    }
+
+    /// Load ggml's blocks, as `to_ggml` returns them or `gguf.GGUFReader`
+    /// gives them in a tensor's `data`: a uint8 array of shape `(rows, bytes
+    /// per row)`. More dimensions run together into rows, and one dimension
+    /// is one row. `ggml_type` names their type, `'Q4_0'` or `'Q8_0'`, like
+    /// `tensor.tensor_type.name`. The tensor is symmetric, with 4-bit or
+    /// 8-bit codes in blocks of 32, `Scale.F16`, and its shape set. Another
+    /// type, or rows that don't split into its blocks, raise `QuantizeError`.
+    #[staticmethod]
+    fn from_ggml(data: Bound<'_, PyAny>, ggml_type: &str) -> PyResult<Self> {
+        let (blocks, rows, row_bytes) = as_ggml_blocks(&data)?;
+        ggml::from_ggml(&blocks, rows, row_bytes, ggml_type).map(Self::from)
     }
 
     #[new]

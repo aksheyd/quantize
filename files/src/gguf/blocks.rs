@@ -33,7 +33,7 @@ use half::f16;
 use quantize::{Packed, Quantized};
 
 /// How many values share each scale, in `Q4_0` and `Q8_0` alike.
-pub(super) const BLOCK: usize = 32;
+pub const BLOCK: usize = 32;
 /// The bytes of one `Q4_0` block: the scale, then 32 codes of 4 bits.
 pub(super) const Q4_0_BLOCK_BYTES: usize = 2 + BLOCK / 2;
 /// The bytes of one `Q8_0` block: the scale, then 32 codes of 8 bits.

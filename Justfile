@@ -24,7 +24,7 @@ minimum-rust:
 
 setup:
     {{system_python}} -m venv .venv
-    {{venv}} -m pip install maturin numpy pytest
+    {{venv}} -m pip install maturin numpy pytest gguf==0.19.0
 
 python:
     cargo clippy -p quantize-py --all-targets -- -D warnings
@@ -35,9 +35,9 @@ python-test:
     {{system_python}} -m pytest python/tests
 
 # Checks quantize-files against the safetensors and gguf Python packages,
-# both ways. Run `just setup` first.
+# both ways. Run `just setup` first, which installs gguf.
 files-check:
-    {{venv}} -m pip install --quiet safetensors gguf==0.19.0
+    {{venv}} -m pip install --quiet safetensors
     cargo run -p quantize-files --example check_safetensors -- write target/files-check
     {{venv}} files/check_safetensors.py target/files-check
     cargo run -p quantize-files --example check_safetensors -- read target/files-check

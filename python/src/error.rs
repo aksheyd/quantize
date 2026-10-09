@@ -252,6 +252,12 @@ pub fn length_mismatch(argument: &str, expected: usize, got: usize) -> PyErr {
     PyErr::new::<LengthMismatchError, _>((expected, got, message))
 }
 
+/// A refusal from quantize-files, like a tensor that ggml's blocks can't
+/// hold, which says why.
+pub fn from_files(err: quantize_files::Error) -> PyErr {
+    PyErr::new::<QuantizeError, _>(err.to_string())
+}
+
 pub fn from_quantize(err: quantize::Error) -> PyErr {
     match err {
         quantize::Error::InvalidBits { bits } => PyErr::new::<InvalidBitsError, _>(i64::from(bits)),

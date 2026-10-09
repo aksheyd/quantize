@@ -16,8 +16,9 @@ pub struct Arguments {
     /// `str::parse::<Scheme>` reads it: `Q4_32` (the default), `Q8_32`, or
     /// text like `symmetric(bits=4)`.
     pub scheme: Scheme,
-    /// `--output DIR`: where to save the quantized model's files, the
-    /// current directory by default.
+    /// `--output DIR`: where to save the quantized model's files. They go in
+    /// `target/smollm` by default, next to cargo's build output, which git
+    /// ignores, so a run from the repository leaves no files to commit.
     pub output_directory: PathBuf,
 }
 
@@ -28,7 +29,7 @@ impl Arguments {
         let mut words = Vec::new();
         let mut model_directory = None;
         let mut scheme = Scheme::Q4_32;
-        let mut output_directory = PathBuf::from(".");
+        let mut output_directory = PathBuf::from("target/smollm");
         while let Some(argument) = arguments.next() {
             let mut value = || {
                 arguments

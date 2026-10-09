@@ -8,7 +8,7 @@
 //!    or read them from `--model DIR`.
 //! 2. Quantize every weight matrix with `--scheme`, `Q4_32` by default, with
 //!    f16 scales. The norms' weights stay f32.
-//! 3. Save the quantized model in the current directory, or `--output DIR`:
+//! 3. Save the quantized model in `target/smollm`, or `--output DIR`:
 //!    as `smollm-135m-q4_0.gguf`, llama.cpp's format, when ggml has blocks
 //!    for the scheme, and as `smollm-135m-q4_32.safetensors`, Hugging Face's
 //!    format, for any scheme.

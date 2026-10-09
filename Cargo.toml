@@ -30,6 +30,9 @@ resolver = "3"
 version = "0.4.1-dev"
 
 [workspace.dependencies]
+# quantize-files requires the quantize it's released with, so this is always
+# the version above, with an `=` in front.
+quantize = { path = ".", version = "=0.4.1-dev" }
 half = "2"
 pyo3 = "0.29"
 numpy = "0.29"

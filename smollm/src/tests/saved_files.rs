@@ -4,7 +4,7 @@
 use std::fs;
 
 use quantize::{Scheme, f16};
-use quantize_files::{gguf, safetensors};
+use quantize_files::safetensors;
 
 use super::{encode, temporary_directory, tiny_llama};
 use crate::checkpoint::quantize_matrices;
@@ -38,7 +38,8 @@ fn saved_files_hold_the_tensors_saved() {
     let directory = temporary_directory("saved-tensors-files");
     for (scheme, gguf_name, safetensors_name) in SCHEMES {
         let tensors = quantize_matrices(&tiny.tensors, scheme).unwrap();
-        let saved = SavedFiles::save(&directory, scheme, &tensors).unwrap();
+        let saved =
+            SavedFiles::save(&directory, scheme, &tiny.config, &tiny.tokenizer, &tensors).unwrap();
         assert_eq!(saved.gguf, gguf_name.map(|name| directory.join(name)));
         assert_eq!(saved.safetensors, directory.join(safetensors_name));
 
@@ -46,8 +47,10 @@ fn saved_files_hold_the_tensors_saved() {
         // both models when they differ.
         let from_safetensors = safetensors::read::<f16>(&saved.safetensors).unwrap();
         assert!(from_safetensors == tensors, "{scheme}'s safetensors file");
-        if let Some(gguf_path) = &saved.gguf {
-            let (_metadata, from_gguf) = gguf::read(gguf_path).unwrap();
+        // load() reads the gguf file when there is one, and turns llama.cpp's
+        // names and order back into Hugging Face's.
+        if saved.gguf.is_some() {
+            let from_gguf = saved.load(&tiny.config).unwrap();
             assert!(from_gguf == tensors, "{scheme}'s gguf file");
         }
     }
@@ -58,10 +61,11 @@ fn saved_files_hold_the_tensors_saved() {
 fn saved_files_generate_the_tokens_that_memory_does() {
     let tiny = tiny_llama("saved-generation");
     let directory = temporary_directory("saved-generation-files");
-    // The tiny llama answers this prompt with "which" a few times, then
-    // "later" over and over, and each of the three schemes turns at a
-    // different token. Most changes to a matrix move where one of them
-    // turns; the test above, which compares the tensors, catches the rest.
+    // The tiny llama answers this prompt with " mos" a few times, then
+    // " year" or " bee" over and over, and each of the three schemes turns
+    // at a different token or to a different word. Most changes to a matrix
+    // move where one of them turns; the test above, which compares the
+    // tensors, catches the rest.
     let prompt = encode(&tiny.tokenizer, "the first school in the city");
     let generate_from = |tensors| {
         let model = Model::new(&tiny.config, tensors).unwrap();
@@ -71,13 +75,14 @@ fn saved_files_generate_the_tokens_that_memory_does() {
     };
     for (scheme, _, _) in SCHEMES {
         let tensors = quantize_matrices(&tiny.tensors, scheme).unwrap();
-        let saved = SavedFiles::save(&directory, scheme, &tensors).unwrap();
+        let saved =
+            SavedFiles::save(&directory, scheme, &tiny.config, &tiny.tokenizer, &tensors).unwrap();
         let from_memory = generate_from(tensors);
         assert_eq!(from_memory.len(), 32);
 
         // load() reads the gguf file when there is one, as main does.
         assert_eq!(
-            generate_from(saved.load().unwrap()),
+            generate_from(saved.load(&tiny.config).unwrap()),
             from_memory,
             "{scheme}"
         );

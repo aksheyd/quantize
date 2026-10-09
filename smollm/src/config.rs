@@ -6,8 +6,8 @@ use std::path::Path;
 
 use serde_json::Value;
 
-/// A llama's sizes, by the names `config.json` gives them. SmolLM-135M's are
-/// in parentheses.
+/// A llama's sizes, and the tokens that start and end a text, by the names
+/// `config.json` gives them. SmolLM-135M's are in parentheses.
 #[derive(Clone, Copy)]
 pub struct Config {
     /// How many values stand for each token between layers (576).
@@ -26,6 +26,14 @@ pub struct Config {
     pub rope_theta: f32,
     /// Keeps rms norm from dividing by zero (0.00001).
     pub rms_norm_epsilon: f32,
+    /// The most tokens the model saw at once in training (2048). The model
+    /// here runs past it, but llama.cpp reads it as the longest context to
+    /// run.
+    pub context_length: usize,
+    /// The token that starts a text, `bos_token_id` (0, `<|endoftext|>`).
+    pub beginning_of_sequence_token: u32,
+    /// The token that ends a text, `eos_token_id` (0 too).
+    pub end_of_sequence_token: u32,
 }
 
 impl Config {
@@ -53,6 +61,9 @@ impl Config {
             key_value_head_count: number("num_key_value_heads")? as usize,
             rope_theta: number("rope_theta")? as f32,
             rms_norm_epsilon: number("rms_norm_eps")? as f32,
+            context_length: number("max_position_embeddings")? as usize,
+            beginning_of_sequence_token: number("bos_token_id")? as u32,
+            end_of_sequence_token: number("eos_token_id")? as u32,
         })
     }
 

@@ -25,11 +25,11 @@ fn quantized_logits_stay_close_to_f32s() {
         &tokens,
     );
 
-    // The f32 logits reach about 1.4. Q8_32's stay within 0.017 of them, and
-    // Q4_32's within 0.33. A transposed matrix, or q's and k's rows in
-    // llama.cpp's order, moves them by 0.24 or more, so Q8_32's tolerance
-    // catches it. A wrong q or k shows only from the second token on: a lone
-    // token's attention returns its own value, whatever the scores.
+    // The f32 logits reach about 2.4. Q8_32's stay within 0.014 of them, and
+    // Q4_32's within 0.29. A transposed matrix moves them by 0.96 or more,
+    // and q's and k's rows in llama.cpp's order by 0.05 to 0.3, so Q8_32's
+    // tolerance catches both. A wrong q or k shows only from the second token
+    // on: a lone token's attention returns its own value, whatever the scores.
     for (scheme, tolerance) in [(Scheme::Q8_32, 0.05), (Scheme::Q4_32, 0.75)] {
         let quantized_tensors = quantize_matrices(&tiny.tensors, scheme).unwrap();
         let model = Model::new(&tiny.config, quantized_tensors).unwrap();

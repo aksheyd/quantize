@@ -214,7 +214,8 @@ jobs:
         env:
           TRUSTED_PUBLISHING_TOKEN: ${{ steps.auth.outputs.token }}
           # A trusted-publishing token can't create a crate, so a crate's first
-          # version needs an API token, set as this secret only until then.
+          # version needs an API token, set as this secret until the crate has
+          # a trusted publisher on crates.io.
           BOOTSTRAP_TOKEN: ${{ secrets.CRATES_IO_BOOTSTRAP_TOKEN }}
 
   github-release:

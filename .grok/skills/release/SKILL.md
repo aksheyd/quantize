@@ -21,9 +21,9 @@ On a version tag, `.github/workflows/wheels.yaml` runs `just release-check`, bui
 
 A trusted-publishing token can't create a crate, so a new crate's first version needs a one-time token:
 
-1. Before the tag, make a crates.io API token with the `publish-new` scope, limited to the new crate, and add it as the `CRATES_IO_BOOTSTRAP_TOKEN` secret of the GitHub `crates-io` environment. The `crates-io` job publishes the new crate with it when it's set.
+1. Before the tag, make a crates.io API token limited to the new crate, with the `publish-new` and `publish-update` scopes, and add it as the `CRATES_IO_BOOTSTRAP_TOKEN` secret of the GitHub `crates-io` environment. While the secret is set, the `crates-io` job publishes the new crate with it, so one left in place by mistake keeps working until the token expires.
 2. After the tag publishes the crate, add a trusted publisher in its crates.io settings, the same as `quantize`'s: owner `aksheyd`, repository `quantize`, workflow `wheels.yaml`, environment `crates-io`.
-3. Delete the secret and the token. While the secret is set, the job publishes the crate with it, and a `publish-new` token can't publish a later version.
+3. Then delete the secret and revoke the token.
 
 If a publishing job fails, fix the cause and re-run the failed jobs. Don't push the tag again: rebuilt wheels can differ, and PyPI rejects a changed file under a name it already has. A re-run of the `crates-io` job skips a crate that crates.io already has at that version.
 

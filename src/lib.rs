@@ -72,14 +72,15 @@
 //! inputs, or both, as `matmul` explains. A call too small to split stays on
 //! the thread that made it, as every call does without the feature.
 //!
-//! A program that already calls `matmul` from several threads at once keeps
-//! every core busy, so a split can't make its calls finish sooner. Its
+//! A program that already keeps every core busy calling `matmul` has no core
+//! free for a share, so a split can't make its calls finish sooner. Its
 //! smaller calls run as they did, and a call big enough to split costs up to
-//! about a seventh more. Rayon starts one thread per core: set
-//! `RAYON_NUM_THREADS` to use fewer, or to 1 to stop splitting, which holds
-//! for any other rayon code in the program too. Cargo turns a feature on for
-//! every user of a crate once anything in the build asks for it, so a
-//! dependency can turn this one on for you.
+//! about a quarter more, the most for one input through a large matrix. A
+//! program with cores to spare gains instead, since the shares run on them.
+//! Rayon starts one thread per core: set `RAYON_NUM_THREADS` to use fewer, or
+//! to 1 to stop splitting, which holds for any other rayon code in the program
+//! too. Cargo turns a feature on for every user of a crate once anything in
+//! the build asks for it, so a dependency can turn this one on for you.
 //!
 //! Turn it on with `cargo add quantize --features rayon`. Without it, the
 //! crate's only dependency is `half`.

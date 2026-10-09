@@ -17,13 +17,16 @@ use crate::tensor::Quantized;
 
 /// The fewest values of the matrix in each share of one vector's rows.
 ///
-/// Handing a share to another core costs about 7 µs of core time when every
-/// core is already busy with calls of its own, and one vector takes about
-/// 100 µs through 2^19 values of a `Q8_32` matrix, the fastest layout. So a
-/// split costs a busy program less than a tenth more. On an idle 8-core x86
-/// machine, two shares this size take 0.57 as long as one. An 18-core M5 Max
-/// gains less the more threads its pool has, 0.6 as long with 2 threads but
-/// 0.86 to 0.92 with all 18, though a split is never slower there either.
+/// On an 8-core x86 machine, handing a share to another core costs about
+/// 7 µs of core time when every core is already busy with calls of its own,
+/// and one vector takes about 100 µs through 2^19 values of a `Q8_32` matrix,
+/// the fastest layout. So there a split costs a busy program less than a
+/// tenth more, and on an idle machine two shares this size take 0.57 as long
+/// as one. An 18-core M5 Max loses more when busy: with a caller on every
+/// core, one vector through a 4096 × 4096 `Q4_32` matrix takes 21 to 23%
+/// longer split, though with 12 callers it's faster. Idle, it gains less the
+/// more threads its pool has, 0.6 as long with 2 threads but 0.86 to 0.92
+/// with all 18, though a split is never slower there either.
 const VALUES_PER_ROW_SHARE: usize = 1 << 19;
 
 /// Decoding a row takes about as long as multiplying it by this many vectors

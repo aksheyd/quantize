@@ -195,12 +195,19 @@ jobs:
       # failure publishes only what's missing. If its API doesn't answer,
       # cargo publish runs anyway, and refuses a version crates.io has. The
       # API turns away requests whose user agent doesn't say who's asking.
+      # A crate held back from a release with `publish = false` is skipped.
       - name: Publish to crates.io
         run: |
           publish() {
             crate=$1
             token=$2
-            if curl --silent --fail --output /dev/null \
+            # cargo metadata lists the registries a crate may go to, and
+            # `publish = false` in its Cargo.toml makes that list empty.
+            registries=$(cargo metadata --format-version 1 --no-deps |
+              jq --compact-output --arg crate "$crate" '.packages[] | select(.name == $crate) | .publish')
+            if [ "$registries" = "[]" ]; then
+              echo "$crate says publish = false in its Cargo.toml, so it isn't published"
+            elif curl --silent --fail --output /dev/null \
                 --user-agent "aksheyd/quantize release (https://github.com/aksheyd/quantize)" \
                 "https://crates.io/api/v1/crates/$crate/$GITHUB_REF_NAME"; then
               echo "$crate $GITHUB_REF_NAME is already on crates.io"

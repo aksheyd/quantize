@@ -488,19 +488,21 @@ impl<S: Scale> Quantized<S> {
     /// so the whole matrix is never decoded at once.
     ///
     /// A single input, as when a language model generates a token, is
-    /// fastest with symmetric 4-bit or 8-bit codes whose blocks hold a
-    /// multiple of 32 values and split each row evenly, like
+    /// fastest with 4-bit or 8-bit codes whose blocks hold a multiple of 32
+    /// values and split each row evenly, like
     /// [`Scheme::Q4_32`](crate::Scheme::Q4_32) and
-    /// [`Scheme::Q8_32`](crate::Scheme::Q8_32): each row is multiplied as its
-    /// codes are decoded. Other block lengths decode each row into a buffer
-    /// first. Zero-points, other bit widths, adaptive tensors, and blocks that
-    /// run from one row into the next read each code on its own, and take
-    /// several times as long.
+    /// [`Scheme::Q8_32`](crate::Scheme::Q8_32), with or without zero-points:
+    /// each row is multiplied as its codes are decoded. Other block lengths
+    /// decode each row into a buffer first. Zero-points in other blocks or in
+    /// a batch of more than one input, other bit widths, adaptive tensors,
+    /// and blocks that run from one row into the next read each code on its
+    /// own, and take several times as long.
     ///
-    /// With those fastest layouts, a batch of more than 256 inputs goes
-    /// through the matrix in groups of 256, decoding it once for each group.
-    /// A group stays in the CPU's cache while every row passes over it, where
-    /// a whole large batch would be read from memory again for every row.
+    /// Without zero-points, those fastest layouts take a batch of more than
+    /// 256 inputs through the matrix in groups of 256, decoding it once for
+    /// each group. A group stays in the CPU's cache while every row passes
+    /// over it, where a whole large batch would be read from memory again
+    /// for every row.
     ///
     /// With the `rayon` feature, a large call splits into shares that the
     /// cores multiply at the same time, and the results are the same, bit for
@@ -510,8 +512,8 @@ impl<S: Scale> Quantized<S> {
     /// input through 2^19 values, like 512 × 1024: the more inputs, the fewer
     /// rows that takes. A part of the inputs decodes the whole matrix for
     /// itself, so the inputs split only into parts of at least 64 with those
-    /// fastest layouts, and 184 with the rest. A call too small for two
-    /// shares stays on the thread that made it.
+    /// fastest layouts without zero-points, and 184 with the rest. A call too
+    /// small for two shares stays on the thread that made it.
     ///
     /// To reuse one buffer for the result, or to catch a shape recorded the
     /// wrong way round, use [`matmul_into`](Self::matmul_into).

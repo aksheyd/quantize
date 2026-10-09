@@ -164,17 +164,21 @@ fn high_code(byte: u8) -> i8 {
     (byte as i8) >> 4
 }
 
-/// Decode 16 bytes into their 32 codes times `scale`, as
-/// [`dequant_i4_blocks`] would. Inlined into its caller, and with a fixed
-/// size, the 32 values stay in SIMD registers, so the caller can multiply
-/// them without storing them first.
+/// Decode 16 bytes into their 32 codes, each minus `zero_point`, times
+/// `scale`. Inlined into its caller, and with a fixed size, the 32 values
+/// stay in SIMD registers, so the caller can multiply them without storing
+/// them first.
+///
+/// Symmetric codes have no zero-point, so their callers write `0.0` in the
+/// call. The compiler drops a subtraction of a constant 0, where a 0 known
+/// only at run time would still be subtracted from every code.
 #[inline]
-pub(crate) fn decode_i4_32(bytes: &[u8; 16], scale: f32) -> [f32; 32] {
+pub(crate) fn decode_i4_32(bytes: &[u8; 16], scale: f32, zero_point: f32) -> [f32; 32] {
     let mut values = [0.0; 32];
     for (pair, &byte) in values.as_chunks_mut::<2>().0.iter_mut().zip(bytes) {
         *pair = [
-            low_code(byte) as f32 * scale,
-            high_code(byte) as f32 * scale,
+            (low_code(byte) as f32 - zero_point) * scale,
+            (high_code(byte) as f32 - zero_point) * scale,
         ];
     }
     values

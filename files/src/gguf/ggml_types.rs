@@ -2,33 +2,66 @@
 //! turn into a [`Tensor`] and back.
 
 use half::{bf16, f16};
+use quantize::Quantized;
 
+use super::blocks::{self, BLOCK, Q4_0_BLOCK_BYTES, Q8_0_BLOCK_BYTES};
 use super::value_count;
 use crate::Tensor;
 use crate::error::{Error, invalid};
 
 const F32: u32 = 0;
 const F16: u32 = 1;
+const Q4_0: u32 = 2;
+const Q8_0: u32 = 8;
 const BF16: u32 = 30;
 
 /// How many bytes tensor `name`'s data takes: its shape's values, of
 /// `ggml_type`.
 pub(super) fn byte_count_of(name: &str, ggml_type: u32, shape: &[usize]) -> Result<usize, Error> {
-    let value_size = match ggml_type {
-        F32 => 4,
-        F16 | BF16 => 2,
+    let count = value_count(shape);
+    let byte_count = match ggml_type {
+        F32 => count.and_then(|count| count.checked_mul(4)),
+        F16 | BF16 => count.and_then(|count| count.checked_mul(2)),
+        Q4_0 | Q8_0 => {
+            check_rows(name, ggml_type, shape)?;
+            let block_bytes = match ggml_type {
+                Q4_0 => Q4_0_BLOCK_BYTES,
+                _ => Q8_0_BLOCK_BYTES,
+            };
+            count.and_then(|count| (count / BLOCK).checked_mul(block_bytes))
+        }
         _ => {
             return Err(invalid(format!(
-                "tensor {name:?} has ggml type {ggml_type}, but only F32 (0), F16 (1), and BF16 (30) are read"
+                "tensor {name:?} has ggml type {ggml_type}, but only F32 (0), F16 (1), Q4_0 (2), Q8_0 (8), and BF16 (30) are read"
             )));
         }
     };
-    let byte_count = value_count(shape).and_then(|count| count.checked_mul(value_size));
     byte_count.ok_or_else(|| {
         invalid(format!(
             "tensor {name:?} has shape {shape:?}, which holds too many bytes to count"
         ))
     })
+}
+
+/// A `Q4_0` or `Q8_0` tensor is a matrix whose rows run along its innermost
+/// dimension, the last of its shape, and its blocks run along the rows, so
+/// each row must split into blocks of 32. Its outer dimensions, if it has
+/// more than one, run together into rows, as ggml lays them out.
+fn row_length(shape: &[usize]) -> usize {
+    shape.last().copied().unwrap_or(1)
+}
+
+fn check_rows(name: &str, ggml_type: u32, shape: &[usize]) -> Result<(), Error> {
+    let type_name = if ggml_type == Q4_0 { "Q4_0" } else { "Q8_0" };
+    match row_length(shape) {
+        0 => Err(invalid(format!(
+            "tensor {name:?} is {type_name} with rows of no values, which quantize's tensors can't hold"
+        ))),
+        length if !length.is_multiple_of(BLOCK) => Err(invalid(format!(
+            "tensor {name:?} is {type_name} with rows of {length} values, which don't split into blocks of {BLOCK}"
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// Turn `bytes`, which hold `shape`'s values of `ggml_type`, into a
@@ -37,8 +70,10 @@ pub(super) fn decode(ggml_type: u32, shape: Vec<usize>, bytes: &[u8]) -> Tensor<
     let values = match ggml_type {
         F32 => values_of(bytes, f32::from_le_bytes),
         F16 => values_of(bytes, |value| f16::from_le_bytes(value).to_f32()),
-        // Only BF16 is left, since `byte_count_of` refused every other type.
-        _ => values_of(bytes, |value| bf16::from_le_bytes(value).to_f32()),
+        BF16 => values_of(bytes, |value| bf16::from_le_bytes(value).to_f32()),
+        Q4_0 => return Tensor::Quantized(blocks::from_q4_0(bytes, row_length(&shape))),
+        // Only Q8_0 is left, since `byte_count_of` refused every other type.
+        _ => return Tensor::Quantized(blocks::from_q8_0(bytes, row_length(&shape))),
     };
     Tensor::Float { shape, values }
 }
@@ -62,10 +97,65 @@ pub(super) fn encode(
                 .collect();
             Ok((F32, shape.clone(), bytes))
         }
-        Tensor::Quantized(_) => Err(invalid(format!(
-            "tensor {name:?} is quantized, but only float tensors are written to gguf"
-        ))),
+        Tensor::Quantized(quantized) => {
+            let (ggml_type, rows, columns) = quantized_type_of(name, quantized)?;
+            let bytes = match ggml_type {
+                Q4_0 => blocks::q4_0_blocks(quantized),
+                _ => blocks::q8_0_blocks(quantized),
+            };
+            Ok((ggml_type, vec![rows, columns], bytes))
+        }
     }
+}
+
+/// Which of `Q4_0` and `Q8_0` quantized tensor `name` is written as, with
+/// its rows and columns, or why it can be neither.
+fn quantized_type_of(name: &str, tensor: &Quantized<f16>) -> Result<(u32, usize, usize), Error> {
+    let bits = match tensor {
+        Quantized::Symmetric { codes, .. } => codes.bits(),
+        Quantized::Asymmetric { .. } => {
+            return Err(cannot_hold(
+                name,
+                "is asymmetric, but Q4_0 and Q8_0 are symmetric",
+            ));
+        }
+        Quantized::Adaptive { .. } => {
+            let why = "is adaptive, but Q4_0 and Q8_0 give every block one width";
+            return Err(cannot_hold(name, why));
+        }
+    };
+    let ggml_type = match bits {
+        4 => Q4_0,
+        8 => Q8_0,
+        _ => {
+            let why = format!("has {bits}-bit codes, but Q4_0 and Q8_0 have 4-bit and 8-bit ones");
+            return Err(cannot_hold(name, &why));
+        }
+    };
+    let block = tensor.block();
+    if block != BLOCK {
+        let why = format!("has blocks of {block}, but Q4_0 and Q8_0 have blocks of {BLOCK}");
+        return Err(cannot_hold(name, &why));
+    }
+    let Some((rows, columns)) = tensor.shape() else {
+        let why = "has no shape, but Q4_0 and Q8_0 blocks run along a matrix's rows, which set_shape records";
+        return Err(cannot_hold(name, why));
+    };
+    if !columns.is_multiple_of(BLOCK) {
+        let why = format!(
+            "has rows of {columns} values, but Q4_0 and Q8_0 split each row into blocks of {BLOCK}"
+        );
+        return Err(cannot_hold(name, &why));
+    }
+    Ok((ggml_type, rows, columns))
+}
+
+/// The error for quantized tensor `name`, which `Q4_0` and `Q8_0` can't hold
+/// for reason `why`.
+fn cannot_hold(name: &str, why: &str) -> Error {
+    invalid(format!(
+        "tensor {name:?} {why}; safetensors keeps any quantized tensor"
+    ))
 }
 
 /// Every `N`-byte value in `bytes`, turned into an `f32` by `to_f32`. The

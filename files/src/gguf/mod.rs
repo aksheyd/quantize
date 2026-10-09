@@ -48,11 +48,41 @@
 //!
 //! ggml types `F32` (0), `F16` (1), and `BF16` (30) read as
 //! [`Tensor::Float`](crate::Tensor::Float), widened to `f32`, and float
-//! tensors write as `F32`. Any other ggml type, and a
-//! [`Tensor::Quantized`](crate::Tensor::Quantized), is an error that names
-//! the tensor. Tensors are `Tensor<f16>`, since ggml's quantized blocks, like
-//! `Q4_0` and `Q8_0`, hold f16 scales.
+//! tensors write as `F32`.
+//!
+//! `Q4_0` (2) and `Q8_0` (8) are quantize's [`Scheme::Q4_32`] and
+//! [`Scheme::Q8_32`] with f16 scales, laid out another way. Both split each
+//! row of a matrix into blocks of 32 values, with one f16 scale a block, and
+//! decode a value as its code times its block's scale. ggml writes each
+//! block's scale just before its codes:
+//!
+//! | type | a block's bytes |
+//! | --- | --- |
+//! | `Q4_0` | 18: the scale, then 16 bytes, where byte `j` holds code `j` plus 8 in its low 4 bits and code `j + 16` plus 8 in its high 4 |
+//! | `Q8_0` | 34: the scale, then each code as a signed byte |
+//!
+//! So a tensor moves between the two without changing a value. [`read()`]
+//! gives each `Q4_0` and `Q8_0` tensor as a
+//! [`Tensor::Quantized`](crate::Tensor::Quantized) with its shape set, and
+//! [`write()`] saves a quantized tensor as one of them when it is symmetric,
+//! with 4-bit or 8-bit codes in blocks of 32, and
+//! [`set_shape`](quantize::Quantized::set_shape) has given it rows that
+//! split into blocks of 32. Any other quantized tensor is an error that says
+//! why, and [`safetensors`](crate::safetensors) keeps it instead.
+//!
+//! quantize's tensors are matrices, so a `Q4_0` or `Q8_0` tensor of more
+//! than two dimensions, like a mixture of experts' stacked weights, reads as
+//! one matrix: its rows run through the outer dimensions in order, as ggml
+//! lays them out, and it writes back with two dimensions. One of one
+//! dimension reads as a matrix of one row.
+//!
+//! Any other ggml type is an error that names the tensor. Tensors are
+//! `Tensor<f16>`, since `Q4_0` and `Q8_0` hold f16 scales.
+//!
+//! [`Scheme::Q4_32`]: quantize::Scheme::Q4_32
+//! [`Scheme::Q8_32`]: quantize::Scheme::Q8_32
 
+mod blocks;
 mod ggml_types;
 mod read;
 mod reader;
